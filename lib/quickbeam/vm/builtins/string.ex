@@ -6,18 +6,18 @@ defmodule QuickBEAM.VM.Builtins.String do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Heap, Object, Properties, Reference, RegExp, Value}
 
-  builtin "String", kind: :extension do
-    static("fromCharCode", :from_char_code, length: 1)
+  builtin "String", kind: :intrinsic do
+    static :from_char_code, js: "fromCharCode", length: 1
 
     prototype do
-      method("charCodeAt", :char_code_at, length: 1)
-      method("includes", :includes, length: 1)
-      method("replace", :replace, length: 2)
-      method("slice", :slice, length: 2)
-      method("split", :split, length: 2)
-      method("startsWith", :starts_with, length: 1)
-      method("toLowerCase", :to_lower_case, length: 0)
-      method("toString", :to_string_method, length: 0)
+      method :char_code_at, js: "charCodeAt", length: 1
+      method :includes, length: 1
+      method :replace, length: 2
+      method :slice, length: 2
+      method :split, length: 2
+      method :starts_with, js: "startsWith", length: 1
+      method :to_lower_case, js: "toLowerCase", length: 0
+      method :to_string_method, js: "toString", length: 0
     end
   end
 

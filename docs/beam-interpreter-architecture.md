@@ -413,18 +413,39 @@ synchronously and queues invocation of returned then functions as microtasks.
 
 ## Declarative builtins
 
-Builtin modules use `QuickBEAM.VM.Builtin` to compile constructor, object,
-extension, static, prototype, function-metadata, and descriptor declarations
-into immutable specs. An explicit profile registry installs those specs in
-dependency order into each owner-local execution through the canonical heap and
-property layers. Runtime application-module discovery is forbidden.
+Builtin modules use `QuickBEAM.VM.Builtin` to compile constructor, namespace,
+intrinsic, static, prototype, function, data-property, constant, and accessor
+declarations into immutable specs. Handler atoms are primary and JavaScript
+names are inferred unless an explicit camelCase `js:` name is required:
+
+```elixir
+builtin "Array", kind: :intrinsic do
+  static :is_array, js: "isArray", length: 1
+
+  prototype do
+    method :map, length: 1
+    method :for_each, js: "forEach", length: 1
+  end
+end
+```
+
+The formatter preserves this parenthesis-free syntax. Macro compilation,
+validation, installation, and runtime dispatch are separate modules. Constants
+are evaluated in the declaring module, descriptors and accessors have typed
+specs, and each builtin declares one or more profiles plus explicit intrinsic
+dependencies. An explicit profile registry installs specs in validated dependency
+order into each owner-local execution. Runtime application-module discovery is
+forbidden.
 
 Installed functions are real owner-local function objects carrying stable
 module/handler tokens, not captured closures. Calls receive an explicit
 `QuickBEAM.VM.Builtin.Call` containing arguments, receiver, caller, tail mode,
 and execution state, and are dispatched through the canonical invocation
-planner. Compile-time checks reject missing handlers, invalid lengths, unknown
-builtin kinds, and duplicate keys. The migrated slice now includes `Math`,
+planner. Resumable results use a typed `QuickBEAM.VM.Builtin.Action`; malformed
+handler results raise an infrastructure contract error. Compile-time checks
+reject missing handlers, invalid lengths and descriptors, unknown builtin kinds,
+empty profiles, malformed dependencies, duplicate declarations, and duplicate
+keys. The migrated slice now includes `Math`,
 `String.fromCharCode`, every currently supported Array prototype method,
 `Array.isArray`, and all currently supported Object statics, including
 resumable callbacks, `Object.assign`, descriptor validation, and all currently
@@ -432,8 +453,8 @@ supported String and Number prototype methods. Primitive strings, numbers, and
 internal BEAM lists resolve methods from the same installed intrinsic prototype
 objects, eliminating parallel pseudo-method implementations. The legacy
 dispatcher remains only for builtins not yet migrated. Real function metadata
-increases the intrinsic heap
-baseline, which remains included in logical memory accounting.
+increases the intrinsic heap baseline, which remains included in logical memory
+accounting.
 
 ## ECMAScript and host profiles
 

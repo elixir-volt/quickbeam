@@ -6,10 +6,10 @@ defmodule QuickBEAM.VM.Builtins.Number do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Heap, Object, Reference, Value}
 
-  builtin "Number", kind: :extension do
+  builtin "Number", kind: :intrinsic do
     prototype do
-      method("toFixed", :to_fixed, length: 1)
-      method("toString", :to_string_method, length: 1)
+      method :to_fixed, js: "toFixed", length: 1
+      method :to_string_method, js: "toString", length: 1
     end
   end
 

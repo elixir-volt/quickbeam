@@ -6,13 +6,16 @@ defmodule QuickBEAM.VM.Builtins.Math do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Value
 
-  builtin "Math", kind: :object do
-    static("floor", :floor_value, length: 1)
-    static("max", :max_value, length: 2)
-    static("min", :min_value, length: 2)
-    static("pow", :pow_value, length: 2)
-    static("random", :random_value, length: 0)
-    static("round", :round_value, length: 1)
+  builtin "Math", kind: :namespace do
+    constant "E", :math.exp(1)
+    constant "PI", :math.pi()
+
+    static :floor_value, js: "floor", length: 1
+    static :max_value, js: "max", length: 2
+    static :min_value, js: "min", length: 2
+    static :pow_value, js: "pow", length: 2
+    static :random_value, js: "random", length: 0
+    static :round_value, js: "round", length: 1
   end
 
   @doc "Implements `Math.floor`."

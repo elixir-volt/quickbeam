@@ -3,22 +3,23 @@ defmodule QuickBEAM.VM.Builtins.Array do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Heap, Object, Properties, Property, Reference, Value}
 
-  builtin "Array", kind: :extension do
-    static("isArray", :is_array, length: 1)
+  builtin "Array", kind: :intrinsic do
+    static :is_array, js: "isArray", length: 1
 
     prototype do
-      method("concat", :concat, length: 1)
-      method("filter", :filter, length: 1)
-      method("forEach", :for_each, length: 1)
-      method("join", :join, length: 1)
-      method("map", :map, length: 1)
-      method("push", :push, length: 1)
-      method("reduce", :reduce, length: 1)
-      method("slice", :slice, length: 2)
-      method("some", :some, length: 1)
+      method :concat, length: 1
+      method :filter, length: 1
+      method :for_each, js: "forEach", length: 1
+      method :join, length: 1
+      method :map, length: 1
+      method :push, length: 1
+      method :reduce, length: 1
+      method :slice, length: 2
+      method :some, length: 1
     end
   end
 
@@ -205,6 +206,6 @@ defmodule QuickBEAM.VM.Builtins.Array do
          tail?: tail?,
          execution: execution
        }) do
-    {:action, {:array_iteration, method, receiver, arguments, caller, execution, tail?}}
+    Builtin.action({:array_iteration, method, receiver, arguments, caller, execution, tail?})
   end
 end

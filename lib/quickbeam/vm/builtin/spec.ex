@@ -6,30 +6,32 @@ defmodule QuickBEAM.VM.Builtin.Spec do
   not contain heap references or captured functions.
   """
 
-  alias QuickBEAM.VM.Builtin.{FunctionSpec, PropertySpec}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PropertySpec}
 
   @enforce_keys [:name, :module, :kind]
   defstruct [
     :name,
     :module,
     :constructor,
-    :profile,
-    kind: :object,
+    profiles: [:core],
+    depends_on: [],
+    kind: :namespace,
     length: 0,
     statics: [],
     prototype: []
   ]
 
-  @type kind :: :object | :constructor | :extension
+  @type kind :: :namespace | :constructor | :intrinsic
   @type t :: %__MODULE__{
           name: String.t(),
           module: module(),
           kind: kind(),
           constructor: atom() | nil,
-          profile: atom(),
+          profiles: [atom()],
+          depends_on: [String.t()],
           length: non_neg_integer(),
-          statics: [FunctionSpec.t() | PropertySpec.t()],
-          prototype: [FunctionSpec.t() | PropertySpec.t()]
+          statics: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t()],
+          prototype: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t()]
         }
 end
 
@@ -44,6 +46,21 @@ defmodule QuickBEAM.VM.Builtin.FunctionSpec do
           handler: atom(),
           length: non_neg_integer(),
           writable: boolean(),
+          enumerable: boolean(),
+          configurable: boolean()
+        }
+end
+
+defmodule QuickBEAM.VM.Builtin.AccessorSpec do
+  @moduledoc "Defines a declarative JavaScript builtin accessor property."
+
+  @enforce_keys [:key]
+  defstruct [:key, :getter, :setter, enumerable: false, configurable: true]
+
+  @type t :: %__MODULE__{
+          key: term(),
+          getter: atom() | nil,
+          setter: atom() | nil,
           enumerable: boolean(),
           configurable: boolean()
         }

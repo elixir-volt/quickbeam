@@ -380,8 +380,12 @@ High-value test groups to adapt next:
   fallback dispatch.
 - Builtin declarations now compile to immutable validated specs and install from
   an explicit deterministic profile registry.
+- DSL v2 uses parenthesis-free handler-first declarations with inferred JS
+  names, typed constants/data/accessors, profile and dependency metadata, and
+  separate compiler, validator, installer, and runtime-contract modules.
 - Handlers use stable module/function tokens and explicit call contexts through
-  canonical invocation semantics.
+  canonical invocation semantics; resumable actions are typed and malformed
+  results fail as infrastructure contract errors.
 - Migrated `Math`, `String.fromCharCode`, `Array.isArray`, all currently
   supported Array prototype methods, and all currently supported Object statics
   with real function objects and descriptor, `name`, and `length` metadata.

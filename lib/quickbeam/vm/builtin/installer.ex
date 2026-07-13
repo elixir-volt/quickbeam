@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   stable module/handler tokens rather than captured closures.
   """
 
-  alias QuickBEAM.VM.Builtin.{FunctionSpec, PropertySpec, Spec}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PropertySpec, Spec}
   alias QuickBEAM.VM.{Execution, Heap, Properties, Reference}
 
   @doc "Installs registered builtin modules for the selected profile."
@@ -16,21 +16,21 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     specs =
       modules
       |> Enum.map(& &1.builtin_spec())
-      |> Enum.filter(&(&1.profile == profile))
+      |> Enum.filter(&(profile in &1.profiles))
 
-    validate_registry!(specs)
+    validate_registry!(specs, execution)
     Enum.reduce(specs, execution, &install(&2, &1))
   end
 
   @doc "Installs one immutable builtin specification."
   @spec install(Execution.t(), Spec.t()) :: Execution.t()
-  def install(execution, %Spec{kind: :object} = spec) do
+  def install(execution, %Spec{kind: :namespace} = spec) do
     {target, execution} = Heap.allocate(execution)
     execution = install_entries(execution, target, spec.module, spec.statics)
     put_global(execution, spec.name, target)
   end
 
-  def install(execution, %Spec{kind: :extension} = spec) do
+  def install(execution, %Spec{kind: :intrinsic} = spec) do
     target = Map.fetch!(execution.globals, spec.name)
     execution = install_entries(execution, target, spec.module, spec.statics)
     install_prototype_entries(execution, target, spec)
@@ -92,6 +92,25 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     execution
   end
 
+  defp install_entry(execution, target, module, %AccessorSpec{} = spec) do
+    {getter, execution} = allocate_optional_function(execution, module, spec.getter, spec.key)
+    {setter, execution} = allocate_optional_function(execution, module, spec.setter, spec.key)
+
+    {:ok, execution} =
+      Properties.define_accessor(target, spec.key, :getter, getter, execution,
+        enumerable: spec.enumerable,
+        configurable: spec.configurable
+      )
+
+    {:ok, execution} =
+      Properties.define_accessor(target, spec.key, :setter, setter, execution,
+        enumerable: spec.enumerable,
+        configurable: spec.configurable
+      )
+
+    execution
+  end
+
   defp install_entry(execution, target, _module, %PropertySpec{} = spec) do
     {:ok, execution} =
       Properties.define(target, spec.key, spec.value, execution,
@@ -123,10 +142,18 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     {function, execution}
   end
 
+  defp allocate_optional_function(execution, _module, nil, _key),
+    do: {nil, execution}
+
+  defp allocate_optional_function(execution, module, handler, key) do
+    token = {:declared_builtin, module, handler}
+    allocate_function(execution, to_string(key), 0, token)
+  end
+
   defp put_global(execution, name, value),
     do: %{execution | globals: Map.put(execution.globals, name, value)}
 
-  defp validate_registry!(specs) do
+  defp validate_registry!(specs, execution) do
     names = Enum.map(specs, & &1.name)
 
     case names -- Enum.uniq(names) do
@@ -136,5 +163,26 @@ defmodule QuickBEAM.VM.Builtin.Installer do
       duplicates ->
         raise ArgumentError, "duplicate builtin specs: #{inspect(Enum.uniq(duplicates))}"
     end
+
+    Enum.reduce(specs, MapSet.new(Map.keys(execution.globals)), fn spec, available ->
+      missing = Enum.reject(spec.depends_on, &MapSet.member?(available, &1))
+
+      if missing != [] do
+        raise ArgumentError,
+              "builtin #{spec.name} has unavailable dependencies: #{inspect(missing)}"
+      end
+
+      if spec.kind == :intrinsic and not MapSet.member?(available, spec.name) do
+        raise ArgumentError, "builtin intrinsic #{spec.name} is not installed"
+      end
+
+      if spec.kind in [:namespace, :constructor] and MapSet.member?(available, spec.name) do
+        raise ArgumentError, "builtin #{spec.name} conflicts with an installed global"
+      end
+
+      MapSet.put(available, spec.name)
+    end)
+
+    :ok
   end
 end

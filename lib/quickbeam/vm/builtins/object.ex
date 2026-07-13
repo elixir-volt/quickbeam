@@ -3,18 +3,19 @@ defmodule QuickBEAM.VM.Builtins.Object do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Heap, Invocation, Properties, Property, Reference, Value}
 
-  builtin "Object", kind: :extension do
-    static("assign", :assign, length: 2)
-    static("create", :create, length: 2)
-    static("defineProperty", :define_property, length: 3)
-    static("getOwnPropertyDescriptor", :get_own_property_descriptor, length: 2)
-    static("getOwnPropertyNames", :get_own_property_names, length: 1)
-    static("getPrototypeOf", :get_prototype_of, length: 1)
-    static("keys", :keys, length: 1)
-    static("setPrototypeOf", :set_prototype_of, length: 2)
+  builtin "Object", kind: :intrinsic do
+    static :assign, length: 2
+    static :create, length: 2
+    static :define_property, js: "defineProperty", length: 3
+    static :get_own_property_descriptor, js: "getOwnPropertyDescriptor", length: 2
+    static :get_own_property_names, js: "getOwnPropertyNames", length: 1
+    static :get_prototype_of, js: "getPrototypeOf", length: 1
+    static :keys, length: 1
+    static :set_prototype_of, js: "setPrototypeOf", length: 2
   end
 
   @doc "Plans resumable `Object.assign` property reads and writes."
@@ -24,7 +25,7 @@ defmodule QuickBEAM.VM.Builtins.Object do
         tail?: tail?,
         execution: execution
       }),
-      do: {:action, {:object_assign, target, sources, caller, execution, tail?}}
+      do: Builtin.action({:object_assign, target, sources, caller, execution, tail?})
 
   def assign(%Call{execution: execution}), do: {:error, :not_an_object, execution}
 

@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.Invocation do
     Value
   }
 
-  alias QuickBEAM.VM.Builtin.Call
+  alias QuickBEAM.VM.Builtin.{Action, Call}
 
   @builtin_tags [:builtin, :builtin_method, :declared_builtin, :primitive_method]
   @error_constructors ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
@@ -64,7 +64,7 @@ defmodule QuickBEAM.VM.Invocation do
     case Builtin.invoke(callable, call) do
       {:ok, value, execution} -> {:complete, value, caller, execution, tail?}
       {:error, reason, execution} -> {:error, {:type_error, reason}, caller, execution}
-      {:action, action} -> action
+      %Action{value: action} -> action
     end
   end
 
