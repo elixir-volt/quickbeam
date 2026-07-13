@@ -48,7 +48,7 @@ defmodule QuickBEAM.VM.Builtin.Spec do
     prototype: []
   ]
 
-  @type kind :: :namespace | :constructor | :intrinsic
+  @type kind :: :namespace | :function | :constructor | :intrinsic
   @type t :: %__MODULE__{
           name: String.t(),
           module: module(),

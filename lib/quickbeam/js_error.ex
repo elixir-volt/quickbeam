@@ -57,6 +57,7 @@ defmodule QuickBEAM.JSError do
              elem(reason, 0) in [
                :handler_exception,
                :not_callable,
+               :range_error,
                :reference_error,
                :type_error,
                :unknown_handler
@@ -97,6 +98,7 @@ defmodule QuickBEAM.JSError do
   end
 
   defp vm_name_and_message({:type_error, reason}), do: {"TypeError", format_reason(reason)}
+  defp vm_name_and_message({:range_error, reason}), do: {"RangeError", format_reason(reason)}
 
   defp vm_name_and_message({:reference_error, name}) when is_binary(name),
     do: {"ReferenceError", "#{name} is not defined"}

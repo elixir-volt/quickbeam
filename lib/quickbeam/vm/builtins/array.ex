@@ -29,9 +29,21 @@ defmodule QuickBEAM.VM.Builtins.Array do
 
   @doc "Constructs an Array from a length or argument list."
   def construct(%Call{arguments: [length], execution: execution})
-      when is_integer(length) and length >= 0 do
+      when is_integer(length) and length in 0..4_294_967_295 do
     {array, execution} = Heap.allocate(execution, :array, length: length)
     {:ok, array, execution}
+  end
+
+  def construct(%Call{arguments: [length], execution: execution})
+      when is_float(length) and length >= 0 and length <= 4_294_967_295 and
+             trunc(length) == length do
+    {array, execution} = Heap.allocate(execution, :array, length: trunc(length))
+    {:ok, array, execution}
+  end
+
+  def construct(%Call{arguments: [length], execution: execution} = call)
+      when is_number(length) or length in [:nan, :infinity, :neg_infinity] do
+    Builtin.action({:error, {:range_error, :invalid_array_length}, call.caller, execution})
   end
 
   def construct(%Call{arguments: arguments, execution: execution}) do

@@ -38,6 +38,13 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     put_global(execution, spec.name, target)
   end
 
+  def install(execution, %Spec{kind: :function} = spec) do
+    token = {:declared_builtin, spec.module, :call}
+    {target, execution} = allocate_function(execution, spec.name, spec.length, token)
+    execution = install_entries(execution, target, spec.module, spec.statics)
+    put_global(execution, spec.name, target)
+  end
+
   def install(execution, %Spec{kind: :intrinsic} = spec) do
     target = Map.fetch!(execution.globals, spec.name)
     execution = install_entries(execution, target, spec.module, spec.statics)
@@ -267,7 +274,8 @@ defmodule QuickBEAM.VM.Builtin.Installer do
         raise ArgumentError, "builtin intrinsic #{spec.name} is not installed"
       end
 
-      if spec.kind in [:namespace, :constructor] and MapSet.member?(available, spec.name) do
+      if spec.kind in [:namespace, :function, :constructor] and
+           MapSet.member?(available, spec.name) do
         raise ArgumentError, "builtin #{spec.name} conflicts with an installed global"
       end
 

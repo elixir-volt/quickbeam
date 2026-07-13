@@ -155,11 +155,20 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert Enum.any?(set.prototype, &match?(%QuickBEAM.VM.Builtin.AliasSpec{}, &1))
 
     symbol = QuickBEAM.VM.Builtins.Symbol.builtin_spec()
-    assert symbol.kind == :namespace
+    assert symbol.kind == :function
+    assert symbol.constructor == nil
     assert [%{key: "iterator", value: %QuickBEAM.VM.Symbol{id: :iterator}}] = symbol.statics
 
     assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
              ~w(assign create defineProperty getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
+  end
+
+  test "installs callable but non-constructable Symbol semantics" do
+    source =
+      "(()=>{let first=Symbol();let second=Symbol();let rejected=false;try{new Symbol()}catch(error){rejected=error instanceof TypeError}return [typeof first,first===second,rejected]})()"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, ["symbol", false, true]} = QuickBEAM.VM.eval(program)
   end
 
   test "installs real function objects with stable names, lengths, and descriptors" do

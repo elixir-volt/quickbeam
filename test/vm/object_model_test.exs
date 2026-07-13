@@ -104,6 +104,7 @@ defmodule QuickBEAM.VM.ObjectModelTest do
   } do
     sources = [
       "(()=>{let sparse=Array(3);let values=new Array(1,2);return [sparse.length,Object.keys(sparse).length,values.join(',')]})()",
+      "(()=>{let invalid=[-1,1.5,4294967296,NaN].map(value=>{try{Array(value)}catch(error){return error.name}});return [Array(3.0).length,Array('3').length,invalid.join(',')]})()",
       "(()=>{let boxed=new Number(42);return [Number('2'),typeof boxed,boxed.toString()]})()",
       "(()=>{let boxed=new String('ok');return [String(42),typeof boxed,boxed.toString()]})()",
       "(()=>{let boxed=new Boolean(false);return [Boolean(0),Boolean(1),typeof boxed,boxed?1:0]})()",

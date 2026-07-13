@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Builtin.Validator do
       compile_error!(env, "builtin name must be a non-empty string")
     end
 
-    unless spec.kind in [:namespace, :constructor, :intrinsic] do
+    unless spec.kind in [:namespace, :function, :constructor, :intrinsic] do
       compile_error!(env, "unsupported builtin kind: #{inspect(spec.kind)}")
     end
 
@@ -74,6 +74,7 @@ defmodule QuickBEAM.VM.Builtin.Validator do
       |> Enum.flat_map(&entry_handlers/1)
       |> then(fn handlers ->
         handlers = if spec.constructor, do: [spec.constructor | handlers], else: handlers
+        handlers = if spec.kind == :function, do: [:call | handlers], else: handlers
         if prototype.callable, do: [prototype.callable | handlers], else: handlers
       end)
       |> Enum.uniq()

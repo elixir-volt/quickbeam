@@ -27,6 +27,7 @@ defmodule QuickBEAM.VM.Execution do
     next_cell_id: 0,
     next_object_id: 0,
     next_promise_id: 0,
+    next_symbol_id: 0,
     operations: %{},
     promise_waiters: %{},
     promise_aggregates: %{},
@@ -66,6 +67,7 @@ defmodule QuickBEAM.VM.Execution do
           next_cell_id: non_neg_integer(),
           next_object_id: non_neg_integer(),
           next_promise_id: non_neg_integer(),
+          next_symbol_id: non_neg_integer(),
           operations: %{
             optional(reference()) => {QuickBEAM.VM.PromiseReference.t(), pid()}
           },

@@ -6,10 +6,10 @@ gate for `QuickBEAM.VM`. Full Test262 compliance is not claimed.
 ## Baseline
 
 - Test262 revision: `d1d583db95a521218f3eb8341a887fd63eda8ff1`
-- Selected tests: 22
+- Selected tests: 69
 - Explicitly unsupported by flags: 4 asynchronous tests
-- Supported tests: 18
-- Passing: 18
+- Supported tests: 65
+- Passing: 65
 - Known failures: 0
 - Supported-test pass rate: **100%**
 - Required pass rate: **100%**
@@ -18,9 +18,11 @@ The exact paths and classified known failures live in
 `test/test262/manifest.exs`. A newly passing known failure and an unclassified
 new failure both fail the gate, so the manifest cannot silently hide changes.
 
-The selected supported set currently has no known failures. The previous
-`propertyHelper.js` dependency gap and generated `ReferenceError` constructor
-identity failure are covered by the passing manifest.
+The selected supported set currently has no known failures. It covers the
+previous `propertyHelper.js` dependency gap and generated `ReferenceError`
+constructor identity failure, plus declarative constructor/prototype metadata,
+Function calls, Error descriptors, Symbol keys, Set insertion and identity
+semantics, and Promise resolution and iterator behavior.
 
 ## Running the gate
 
@@ -53,6 +55,13 @@ BEAM VM evaluation. Results are classified as:
 
 There is no automatic native fallback during BEAM evaluation. The native result
 is used only as a differential oracle.
+
+The selected SSR profile does not currently claim generator or async-generator
+opcodes, Proxy/Reflect semantics, weak collections, the global Symbol registry,
+constructor species/subclassing, or dynamic `Function` source compilation.
+Those features remain explicit profile exclusions until pinned tests and
+resource-bounded implementations are added; a passing test carrying a broad
+feature tag does not imply blanket support for that feature.
 
 Test262 YAML front matter is parsed by `YamlElixir` and decoded into strict,
 typed metadata structs by `JSONCodec`. Flags, includes, features, negative-test

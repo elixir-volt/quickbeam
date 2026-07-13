@@ -11,6 +11,11 @@ defmodule QuickBEAM.VM.Builtins.Number do
     constructor: :construct,
     length: 1,
     depends_on: ["Object", "Function"] do
+    constant "MAX_VALUE", 1.7976931348623157e308
+    constant "MIN_VALUE", 5.0e-324
+    constant "POSITIVE_INFINITY", :infinity
+    constant "NEGATIVE_INFINITY", :neg_infinity
+
     prototype extends: "Object", primitive: {:number, 0} do
       method :to_fixed, js: "toFixed", length: 1
       method :to_string_method, js: "toString", length: 1

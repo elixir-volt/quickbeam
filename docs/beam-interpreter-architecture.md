@@ -468,6 +468,25 @@ remains. The small legacy dispatcher is limited to genuinely unmigrated helpers
 such as RegExp methods. Real function metadata increases the intrinsic heap
 baseline, which remains included in logical memory accounting.
 
+## Semantic runtime contract
+
+The interpreter and a future compiler share one internal semantic contract:
+
+- `Properties` owns property, descriptor, prototype, and accessor outcomes;
+- `Invocation` owns callable classification and explicit invocation actions;
+- `Value` owns coercion, equality, arithmetic, and UTF-16 value operations;
+- `Async` and `Promise` own suspension, jobs, reactions, and settlement;
+- `Exceptions` owns materialization and boundary-aware unwinding;
+- typed builtin actions and explicit boundary structs are the only resumable
+  extension mechanism.
+
+Compiler extraction must target these layers rather than duplicate their logic
+or call the interpreter recursively. Changes to action shapes, boundary fields,
+owner-local reference rules, or exception results are runtime-contract changes
+and require focused contract tests plus the pinned conformance gate. Heap
+references, continuations, and mutable execution state remain evaluation-owner
+local under both engines.
+
 ## ECMAScript and host profiles
 
 The first production profile should be explicit rather than implying browser
