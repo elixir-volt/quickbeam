@@ -37,6 +37,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   ]
 
   @opcodes [
+             :push_atom_value,
              :get_arg,
              :put_arg,
              :set_arg,
@@ -74,6 +75,9 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
 
   @doc "Executes one supported local, closure, argument, or global opcode."
   @spec execute(atom(), [term()], Frame.t(), Execution.t()) :: action()
+  def execute(:push_atom_value, [atom], frame, execution),
+    do: push(frame, execution, resolve_atom(atom, execution))
+
   def execute(:get_arg, [index], frame, execution),
     do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
 

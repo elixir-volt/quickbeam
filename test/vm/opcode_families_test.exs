@@ -2,11 +2,11 @@ defmodule QuickBEAM.VM.OpcodeFamiliesTest do
   use ExUnit.Case, async: true
 
   alias QuickBEAM.VM.{Execution, Frame, Function, Heap, Object, Properties}
-  alias QuickBEAM.VM.Opcodes.{Control, Locals, Stack, Values}
+  alias QuickBEAM.VM.Opcodes.{Control, Locals, Objects, Stack, Values}
 
   test "opcode families publish non-overlapping routing tables" do
     opcodes =
-      [Control, Locals, Stack, Values]
+      [Control, Locals, Objects, Stack, Values]
       |> Enum.flat_map(& &1.opcodes())
 
     assert length(opcodes) == MapSet.size(MapSet.new(opcodes))
@@ -104,6 +104,35 @@ defmodule QuickBEAM.VM.OpcodeFamiliesTest do
 
     assert {:ok, %Object{callable: {:closure, ^child, {{:cell, 0}}}}} =
              Heap.fetch_object(execution, reference)
+  end
+
+  test "object opcodes return resumable getter and setter actions" do
+    execution = execution()
+    {object, execution} = Heap.allocate(execution)
+    getter = {:builtin, "getter"}
+    setter = {:builtin, "setter"}
+
+    {:ok, execution} = Properties.define_accessor(object, "value", :getter, getter, execution)
+    {:ok, execution} = Properties.define_accessor(object, "value", :setter, setter, execution)
+
+    assert {:invoke_getter, ^getter, ^object, %Frame{stack: [:rest]}, ^execution} =
+             Objects.execute(:get_field, ["value"], frame([object, :rest]), execution)
+
+    assert {:invoke_setter, ^setter, 42, ^object, %Frame{stack: [:rest]}, ^execution} =
+             Objects.execute(:put_field, ["value"], frame([42, object, :rest]), execution)
+  end
+
+  test "object opcodes allocate arrays and enumerate canonical property order" do
+    execution = execution()
+
+    assert {:next, %Frame{stack: [array, :rest]}, execution} =
+             Objects.execute(:array_from, [2], frame([2, 1, :rest]), execution)
+
+    assert {:ok, 1} = Properties.get(array, 0, execution)
+    assert {:ok, 2} = Properties.get(array, 1, execution)
+
+    assert {:next, %Frame{stack: [{:for_in, [0, 1], 0}]}, ^execution} =
+             Objects.execute(:for_in_start, [], frame([array]), execution)
   end
 
   test "value opcodes share canonical callable and prototype semantics" do

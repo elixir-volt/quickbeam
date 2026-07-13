@@ -40,6 +40,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Opcodes.Locals, as: LocalOpcodes
+  alias QuickBEAM.VM.Opcodes.Objects, as: ObjectOpcodes
   alias QuickBEAM.VM.Opcodes.Stack, as: StackOpcodes
   alias QuickBEAM.VM.Opcodes.Values, as: ValueOpcodes
 
@@ -48,6 +49,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   @control_opcodes ControlOpcodes.opcodes()
   @local_opcodes LocalOpcodes.opcodes()
+  @object_opcodes ObjectOpcodes.opcodes()
   @stack_opcodes StackOpcodes.opcodes()
   @value_opcodes ValueOpcodes.opcodes()
 
@@ -236,158 +238,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(name, operands, frame, execution) when name in @local_opcodes,
     do: name |> LocalOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
+  defp execute(name, operands, frame, execution) when name in @object_opcodes,
+    do: name |> ObjectOpcodes.execute(operands, frame, execution) |> execute_opcode()
+
   defp execute(name, operands, frame, execution) when name in @stack_opcodes,
     do: name |> StackOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
   defp execute(name, operands, frame, execution) when name in @value_opcodes,
     do: name |> ValueOpcodes.execute(operands, frame, execution) |> execute_opcode()
-
-  defp execute(:push_atom_value, [atom], frame, execution),
-    do: push(frame, execution, resolve_atom(atom, execution))
-
-  defp execute(:regexp, [], %{stack: [bytecode, source | stack]} = frame, execution) do
-    push(%{frame | stack: stack}, execution, %RegExp{source: source, bytecode: bytecode})
-  end
-
-  defp execute(:special_object, [type], frame, execution) when type in [0, 1] do
-    values = Tuple.to_list(frame.args)
-    {arguments, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      values
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} =
-          Properties.define(arguments, index, read_slot(value, execution), execution)
-
-        execution
-      end)
-
-    push(frame, execution, arguments)
-  end
-
-  defp execute(:special_object, [2], frame, execution),
-    do: push(frame, execution, frame.callable)
-
-  defp execute(:special_object, [_type], frame, execution),
-    do: push(frame, execution, :undefined)
-
-  defp execute(:object, [], frame, execution) do
-    {reference, execution} = Heap.allocate(execution)
-    push(frame, execution, reference)
-  end
-
-  defp execute(:array_from, [count], frame, execution) do
-    {elements, stack} = Enum.split(frame.stack, count)
-    {reference, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      elements
-      |> Enum.reverse()
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Properties.define(reference, index, value, execution)
-        execution
-      end)
-
-    push(%{frame | stack: stack}, execution, reference)
-  end
-
-  defp execute(
-         :define_method,
-         [atom, kind],
-         %{stack: [callable, %Reference{} = object | stack]} = frame,
-         execution
-       ) do
-    key = resolve_atom(atom, execution)
-
-    result =
-      case kind do
-        4 -> Properties.define(object, key, callable, execution)
-        5 -> Properties.define_accessor(object, key, :getter, callable, execution)
-        6 -> Properties.define_accessor(object, key, :setter, callable, execution)
-        _kind -> {:error, {:unsupported_method_kind, kind}}
-      end
-
-    case result do
-      {:ok, execution} -> continue(%{frame | stack: [object | stack]}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
-    end
-  end
-
-  defp execute(
-         :define_field,
-         [atom],
-         %{stack: [value, %Reference{} = object | stack]} = frame,
-         execution
-       ) do
-    key = resolve_atom(atom, execution)
-
-    case Properties.define(object, key, value, execution) do
-      {:ok, execution} -> continue(%{frame | stack: [object | stack]}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
-    end
-  end
-
-  defp execute(:get_field, [atom], %{stack: [object | stack]} = frame, execution) do
-    get_property_and_continue(object, resolve_atom(atom, execution), stack, frame, execution)
-  end
-
-  defp execute(:get_field2, [atom], %{stack: [object | stack]} = frame, execution) do
-    get_property_and_continue(
-      object,
-      resolve_atom(atom, execution),
-      [object | stack],
-      frame,
-      execution
-    )
-  end
-
-  defp execute(:get_array_el, [], %{stack: [key, object | stack]} = frame, execution) do
-    get_property_and_continue(object, key, stack, frame, execution)
-  end
-
-  defp execute(:get_length, [], %{stack: [object | stack]} = frame, execution) do
-    get_property_and_continue(object, "length", stack, frame, execution)
-  end
-
-  defp execute(:put_field, [atom], %{stack: [value, object | stack]} = frame, execution) do
-    put_property_and_continue(
-      object,
-      resolve_atom(atom, execution),
-      value,
-      stack,
-      frame,
-      execution
-    )
-  end
-
-  defp execute(:put_array_el, [], %{stack: [value, key, object | stack]} = frame, execution) do
-    put_property_and_continue(object, key, value, stack, frame, execution)
-  end
-
-  defp execute(:delete, [], %{stack: [key, %Reference{} = object | stack]} = frame, execution) do
-    case Properties.delete(object, key, execution) do
-      {:ok, deleted?, execution} -> continue(%{frame | stack: [deleted? | stack]}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
-    end
-  end
-
-  defp execute(:for_in_start, [], %{stack: [object | stack]} = frame, execution) do
-    case Properties.enumerable_keys(object, execution) do
-      {:ok, keys} -> continue(%{frame | stack: [{:for_in, keys, 0} | stack]}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
-    end
-  end
-
-  defp execute(:for_in_next, [], %{stack: [{:for_in, keys, index} | stack]} = frame, execution) do
-    if index < length(keys) do
-      iterator = {:for_in, keys, index + 1}
-      continue(%{frame | stack: [false, Enum.at(keys, index), iterator | stack]}, execution)
-    else
-      continue(%{frame | stack: [true, :undefined, {:for_in, keys, index} | stack]}, execution)
-    end
-  end
 
   defp execute(:call, [argument_count], frame, execution),
     do: call(frame, execution, argument_count, false)
@@ -802,9 +660,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp interpreter_array_values(_value, _execution), do: {:error, :not_an_array}
 
-  defp push(frame, execution, value),
-    do: continue(%{frame | stack: [value | frame.stack]}, execution)
-
   defp continue(frame, execution), do: run(next_frame(frame), execution)
   defp next_frame(frame), do: %{frame | pc: frame.pc + 1}
 
@@ -835,6 +690,26 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute_opcode({:await_immediate, result, frame, execution}),
     do: await_immediate(result, frame, execution)
+
+  defp execute_opcode({:invoke_getter, getter, receiver, frame, execution}) do
+    boundary = %AccessorBoundary{
+      mode: :get,
+      caller: next_frame(frame),
+      depth: execution.depth
+    }
+
+    dispatch_call(getter, [], receiver, boundary, execution, false)
+  end
+
+  defp execute_opcode({:invoke_setter, setter, value, object, frame, execution}) do
+    boundary = %AccessorBoundary{
+      mode: :set,
+      caller: next_frame(frame),
+      depth: execution.depth
+    }
+
+    dispatch_call(setter, [value], object, boundary, execution, false)
+  end
 
   defp detach_async(frame, execution, awaited_promise) do
     case Async.detach_await(next_frame(frame), execution, awaited_promise) do
@@ -887,44 +762,6 @@ defmodule QuickBEAM.VM.Interpreter do
     case Async.start_host_call(arguments, execution) do
       {:ok, promise, execution} -> complete_call_result(promise, caller, execution, tail?)
       {:error, reason, execution} -> raise_js_from_caller(reason, caller, execution)
-    end
-  end
-
-  defp get_property_and_continue(object, key, stack, frame, execution) do
-    case Properties.get(object, key, execution) do
-      {:ok, {:accessor, getter, receiver}} ->
-        boundary = %AccessorBoundary{
-          mode: :get,
-          caller: %{next_frame(frame) | stack: stack},
-          depth: execution.depth
-        }
-
-        dispatch_call(getter, [], receiver, boundary, execution, false)
-
-      {:ok, value} ->
-        continue(%{frame | stack: [value | stack]}, execution)
-
-      {:error, reason} ->
-        raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
-    end
-  end
-
-  defp put_property_and_continue(object, key, value, stack, frame, execution) do
-    case Properties.put(object, key, value, execution) do
-      {:ok, execution} ->
-        continue(%{frame | stack: stack}, execution)
-
-      {:error, {:invoke_setter, setter}} ->
-        boundary = %AccessorBoundary{
-          mode: :set,
-          caller: %{next_frame(frame) | stack: stack},
-          depth: execution.depth
-        }
-
-        dispatch_call(setter, [value], object, boundary, execution, false)
-
-      {:error, reason} ->
-        raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
     end
   end
 
@@ -1026,7 +863,4 @@ defmodule QuickBEAM.VM.Interpreter do
     execution = %{execution | callers: callers, depth: execution.depth - 1}
     run(%{caller | stack: [value | caller.stack]}, execution)
   end
-
-  defp read_slot(value, execution), do: LocalOpcodes.read_slot(value, execution)
-  defp resolve_atom(atom, execution), do: LocalOpcodes.resolve_atom(atom, execution)
 end

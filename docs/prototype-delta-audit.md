@@ -365,9 +365,11 @@ High-value test groups to adapt next:
   awaits as explicit interpreter actions.
 - Local and closure opcodes now own argument/local slots, closure cells,
   globals, atom resolution, and function-closure allocation.
+- Object opcodes now own object/array/RegExp construction, field definitions,
+  property access, resumable accessor actions, deletion, and enumeration.
 - Family-owned opcode lists are the interpreter's compile-time routing source.
-- Continue with properties/objects, invocation, and async opcode families
-  without moving the run loop out of the interpreter.
+- Continue with invocation opcodes without moving the run loop out of the
+  interpreter.
 
 ### Phase C — expand conformance by profile demand
 
@@ -392,6 +394,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue opcode-family decomposition with properties and object construction,
-keeping accessor invocation, exception unwinding, frame stepping, and resource
-accounting centralized through explicit actions.
+Finish opcode-family decomposition with ordinary, method, tail, and constructor
+call opcodes while retaining invocation planning and frame scheduling in their
+canonical layers.

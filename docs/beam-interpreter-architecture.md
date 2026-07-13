@@ -377,8 +377,10 @@ bitwise operations, value tests, `in`, and `instanceof`.
 `QuickBEAM.VM.Opcodes.Control` handles branches, catch markers, returns, throws,
 and await classification. `QuickBEAM.VM.Opcodes.Locals` owns argument/local
 slots, closure-cell promotion, globals, atom resolution, and function-closure
-allocation. Their published opcode lists are also the interpreter's routing
-source, preventing dispatch drift.
+allocation. `QuickBEAM.VM.Opcodes.Objects` handles object/array/RegExp
+construction, field definition, property access, resumable accessors, deletion,
+and `for...in` enumeration. Their published opcode lists are also the
+interpreter's routing source, preventing dispatch drift.
 
 Recommended initial representation:
 
