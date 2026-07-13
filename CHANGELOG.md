@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix a native crash when normalizing an empty string with `String.prototype.normalize("NFC")`.
+
 ## 0.10.19
 
 - Update QuickJS-NG to 0.15.1.
