@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add grapheme-only `Intl.Segmenter` support through `unicode-segmenter` 0.17.0.
 - Fix a native crash when normalizing an empty string with `String.prototype.normalize("NFC")`.
 
 ## 0.10.19
