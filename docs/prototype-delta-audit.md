@@ -337,10 +337,13 @@ High-value test groups to adapt next:
 - Adapted `Object.getOwnPropertyNames` semantics and required harness helpers.
 - Raised the selected Test262 baseline from 88.9% to 100%.
 
-### Phase B — establish canonical semantic modules
+### Phase B — establish canonical semantic modules (in progress)
 
-- Split invocation, properties, async, exceptions, and values from the current
-  interpreter without changing behavior.
+- Property semantics now live behind one canonical property layer, including
+  explicit getter/setter actions used by the interpreter, built-ins, Promise
+  thenable lookup, and exception conversion.
+- Split invocation, async, exceptions, and values from the current interpreter
+  without changing behavior.
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
@@ -367,6 +370,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Proceed to Phase B. Split canonical invocation, property, async, exception, and
-value semantics from the current interpreter without copying the prototype's
+Continue Phase B with canonical invocation. Keep ordinary, bound, constructor,
+builtin, and host calls on one resumable path without copying the prototype's
 runtime modules or changing observable behavior.

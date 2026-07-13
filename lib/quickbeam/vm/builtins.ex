@@ -5,7 +5,17 @@ defmodule QuickBEAM.VM.Builtins do
 
   import Bitwise
 
-  alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference, RegExp, UTF16, Value}
+  alias QuickBEAM.VM.{
+    Execution,
+    Heap,
+    Object,
+    Properties,
+    Property,
+    Reference,
+    RegExp,
+    UTF16,
+    Value
+  }
 
   @error_types ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
 
@@ -49,7 +59,7 @@ defmodule QuickBEAM.VM.Builtins do
       execution =
         Enum.reduce(methods, execution, fn method, execution ->
           {:ok, execution} =
-            Heap.define(execution, object, method, {:builtin_method, name, method},
+            Properties.define(object, method, {:builtin_method, name, method}, execution,
               enumerable: false
             )
 
@@ -80,7 +90,7 @@ defmodule QuickBEAM.VM.Builtins do
       Heap.allocate(execution, :ordinary, prototype: prototype, internal: {:error, name})
 
     {:ok, execution} =
-      Heap.define(execution, error, "message", message,
+      Properties.define(error, "message", message, execution,
         enumerable: false,
         configurable: true,
         writable: true
@@ -119,7 +129,7 @@ defmodule QuickBEAM.VM.Builtins do
         [%Reference{} = target, key, descriptor | _],
         execution
       ) do
-    with {:ok, current} <- Heap.own_property(execution, target, key),
+    with {:ok, current} <- Properties.own_property(target, key, execution),
          {:ok, definition} <- descriptor_definition(descriptor, current, execution),
          {:ok, execution} <- define_property(execution, target, key, definition) do
       {:ok, target, execution}
@@ -134,7 +144,7 @@ defmodule QuickBEAM.VM.Builtins do
         [%Reference{} = target, key | _],
         execution
       ) do
-    case Heap.own_property(execution, target, key) do
+    case Properties.own_property(target, key, execution) do
       {:ok, nil} ->
         {:ok, :undefined, execution}
 
@@ -153,7 +163,7 @@ defmodule QuickBEAM.VM.Builtins do
         [%Reference{} = target | _],
         execution
       ) do
-    case Heap.own_property_names(execution, target) do
+    case Properties.own_property_names(target, execution) do
       {:ok, keys} ->
         {array, execution} = array_from(keys, execution)
         {:ok, array, execution}
@@ -169,7 +179,7 @@ defmodule QuickBEAM.VM.Builtins do
         [%Reference{} = target | _],
         execution
       ) do
-    case Heap.prototype(execution, target) do
+    case Properties.prototype(target, execution) do
       {:ok, prototype} -> {:ok, prototype, execution}
       {:error, reason} -> {:error, reason, execution}
     end
@@ -182,7 +192,7 @@ defmodule QuickBEAM.VM.Builtins do
         execution
       )
       when is_nil(prototype) or is_struct(prototype, Reference) do
-    case Heap.set_prototype(execution, target, prototype) do
+    case Properties.set_prototype(target, prototype, execution) do
       {:ok, execution} -> {:ok, target, execution}
       {:error, reason} -> {:error, reason, execution}
     end
@@ -275,7 +285,7 @@ defmodule QuickBEAM.VM.Builtins do
         [key | _],
         execution
       ) do
-    case Heap.own_property(execution, object, key) do
+    case Properties.own_property(object, key, execution) do
       {:ok, property} -> {:ok, not is_nil(property), execution}
       {:error, reason} -> {:error, reason, execution}
     end
@@ -287,7 +297,7 @@ defmodule QuickBEAM.VM.Builtins do
         [key | _],
         execution
       ) do
-    case Heap.own_property(execution, object, key) do
+    case Properties.own_property(object, key, execution) do
       {:ok, %Property{enumerable: enumerable}} -> {:ok, enumerable, execution}
       {:ok, nil} -> {:ok, false, execution}
       {:error, reason} -> {:error, reason, execution}
@@ -298,8 +308,8 @@ defmodule QuickBEAM.VM.Builtins do
     do: {:ok, "[object Object]", execution}
 
   def call({:primitive_method, :error, "toString"}, %Reference{} = error, _arguments, execution) do
-    with {:ok, name} <- Heap.get(execution, error, "name"),
-         {:ok, message} <- Heap.get(execution, error, "message") do
+    with {:ok, name} <- Properties.get(error, "name", execution),
+         {:ok, message} <- Properties.get(error, "message", execution) do
       name = if name in [:undefined, nil], do: "Error", else: Value.to_string_value(name)
       message = if message in [:undefined, nil], do: "", else: Value.to_string_value(message)
 
@@ -390,7 +400,7 @@ defmodule QuickBEAM.VM.Builtins do
           values
           |> Enum.with_index(length)
           |> Enum.reduce(execution, fn {value, index}, execution ->
-            {:ok, execution} = Heap.put(execution, array, index, value)
+            {:ok, execution} = Properties.put(array, index, value, execution)
             execution
           end)
 
@@ -556,7 +566,7 @@ defmodule QuickBEAM.VM.Builtins do
           end)
 
         {:ok, execution} =
-          Heap.define(execution, this, "message", message,
+          Properties.define(this, "message", message, execution,
             enumerable: false,
             configurable: true,
             writable: true
@@ -578,7 +588,10 @@ defmodule QuickBEAM.VM.Builtins do
       %{function: function_prototype} ->
         Enum.reduce(Map.keys(@constructors), execution, fn name, execution ->
           constructor = Map.fetch!(execution.globals, name)
-          {:ok, execution} = Heap.set_prototype(execution, constructor, function_prototype)
+
+          {:ok, execution} =
+            Properties.set_prototype(constructor, function_prototype, execution)
+
           execution
         end)
 
@@ -594,7 +607,7 @@ defmodule QuickBEAM.VM.Builtins do
       Enum.reduce(["hasOwnProperty", "propertyIsEnumerable", "toString"], execution, fn method,
                                                                                         execution ->
         {:ok, execution} =
-          Heap.define(execution, prototype, method, {:primitive_method, :object, method},
+          Properties.define(prototype, method, {:primitive_method, :object, method}, execution,
             enumerable: false
           )
 
@@ -602,10 +615,10 @@ defmodule QuickBEAM.VM.Builtins do
       end)
 
     {:ok, execution} =
-      Heap.define(execution, prototype, "constructor", constructor, enumerable: false)
+      Properties.define(prototype, "constructor", constructor, execution, enumerable: false)
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     %{
       execution
@@ -625,12 +638,14 @@ defmodule QuickBEAM.VM.Builtins do
         {"toString", {:primitive_method, :error, "toString"}}
       ]
       |> Enum.reduce(execution, fn {key, value}, execution ->
-        {:ok, execution} = Heap.define(execution, prototype, key, value, enumerable: false)
+        {:ok, execution} =
+          Properties.define(prototype, key, value, execution, enumerable: false)
+
         execution
       end)
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     %{execution | error_prototypes: Map.put(execution.error_prototypes, "Error", prototype)}
   end
@@ -643,12 +658,14 @@ defmodule QuickBEAM.VM.Builtins do
     execution =
       [{"name", name}, {"message", ""}, {"constructor", constructor}]
       |> Enum.reduce(execution, fn {key, value}, execution ->
-        {:ok, execution} = Heap.define(execution, prototype, key, value, enumerable: false)
+        {:ok, execution} =
+          Properties.define(prototype, key, value, execution, enumerable: false)
+
         execution
       end)
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     %{execution | error_prototypes: Map.put(execution.error_prototypes, name, prototype)}
   end
@@ -661,7 +678,7 @@ defmodule QuickBEAM.VM.Builtins do
       )
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     %{
       execution
@@ -700,10 +717,12 @@ defmodule QuickBEAM.VM.Builtins do
     {prototype, execution} = Heap.allocate(execution)
 
     {:ok, execution} =
-      Heap.define(execution, prototype, "then", {:promise_method, "then"}, enumerable: false)
+      Properties.define(prototype, "then", {:promise_method, "then"}, execution,
+        enumerable: false
+      )
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     execution
   end
@@ -716,7 +735,7 @@ defmodule QuickBEAM.VM.Builtins do
     execution =
       Enum.reduce(methods, execution, fn method, execution ->
         {:ok, execution} =
-          Heap.define(execution, prototype, method, {:primitive_method, kind, method},
+          Properties.define(prototype, method, {:primitive_method, kind, method}, execution,
             enumerable: false
           )
 
@@ -724,7 +743,7 @@ defmodule QuickBEAM.VM.Builtins do
       end)
 
     {:ok, execution} =
-      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
 
     if kind == :array do
       %{
@@ -810,9 +829,9 @@ defmodule QuickBEAM.VM.Builtins do
 
   defp define_property(execution, target, key, %Property{} = property) do
     if accessor?(property) do
-      Heap.define_descriptor(execution, target, key, property)
+      Properties.define_descriptor(target, key, property, execution)
     else
-      Heap.define(execution, target, key, property.value,
+      Properties.define(target, key, property.value, execution,
         writable: property.writable,
         enumerable: property.enumerable,
         configurable: property.configurable
@@ -821,8 +840,8 @@ defmodule QuickBEAM.VM.Builtins do
   end
 
   defp descriptor_field(%Reference{} = descriptor, key, execution) do
-    if Heap.has_property?(execution, descriptor, key) do
-      case Heap.get(execution, descriptor, key) do
+    if Properties.has_property?(descriptor, key, execution) do
+      case Properties.get(descriptor, key, execution) do
         {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_descriptor_field}
         {:ok, value} -> {:ok, value, true}
         {:error, reason} -> {:error, reason}
@@ -863,7 +882,7 @@ defmodule QuickBEAM.VM.Builtins do
     execution =
       fields
       |> Enum.reduce(execution, fn {key, value}, execution ->
-        {:ok, execution} = Heap.define(execution, descriptor, key, value)
+        {:ok, execution} = Properties.define(descriptor, key, value, execution)
         execution
       end)
 
@@ -912,14 +931,16 @@ defmodule QuickBEAM.VM.Builtins do
       values
       |> Enum.with_index()
       |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Heap.define(execution, array, index, value)
+        {:ok, execution} = Properties.define(array, index, value, execution)
         execution
       end)
 
     {array, execution}
   end
 
-  defp own_keys(%Reference{} = reference, execution), do: Heap.own_keys(execution, reference)
+  defp own_keys(%Reference{} = reference, execution),
+    do: Properties.enumerable_keys(reference, execution)
+
   defp own_keys(value, _execution) when is_map(value), do: {:ok, Map.keys(value)}
   defp own_keys([], _execution), do: {:ok, []}
 
@@ -932,7 +953,7 @@ defmodule QuickBEAM.VM.Builtins do
     with {:ok, keys} <- own_keys(source, execution) do
       Enum.reduce_while(keys, {:ok, execution}, fn key, {:ok, execution} ->
         with {:ok, value} <- property(source, key, execution),
-             {:ok, execution} <- Heap.put(execution, target, key, value) do
+             {:ok, execution} <- Properties.put(target, key, value, execution) do
           {:cont, {:ok, execution}}
         else
           {:error, reason} -> {:halt, {:error, reason}}
@@ -944,7 +965,7 @@ defmodule QuickBEAM.VM.Builtins do
   defp assign(_target, _source, _execution), do: {:error, :not_an_object}
 
   defp property(%Reference{} = reference, key, execution) do
-    case Heap.get(execution, reference, key) do
+    case Properties.get(reference, key, execution) do
       {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_in_object_assign}
       result -> result
     end

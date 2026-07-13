@@ -10,8 +10,8 @@ defmodule QuickBEAM.VM.Promise do
     Builtins,
     Coroutine,
     Execution,
-    Heap,
     Memory,
+    Properties,
     PromiseReference,
     Reaction,
     Reference
@@ -282,7 +282,7 @@ defmodule QuickBEAM.VM.Promise do
   end
 
   defp then_callable(execution, reference) do
-    case Heap.get(execution, reference, "then") do
+    case Properties.get(reference, "then", execution) do
       {:ok, {:accessor, getter, receiver}} ->
         {:getter, getter, receiver}
 

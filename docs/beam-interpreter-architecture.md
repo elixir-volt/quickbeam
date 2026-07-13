@@ -357,7 +357,9 @@ terms, while semantic sentinels and reference types use explicit tagged values.
 The value representation, coercion rules, property semantics, invocation rules,
 and built-ins form one canonical semantic layer shared by the interpreter and
 any future compiler. A compiled path must not grow a second implementation of
-JavaScript semantics.
+JavaScript semantics. `QuickBEAM.VM.Properties` is now the canonical boundary
+for get, put, define, delete, descriptors, enumeration, primitive properties,
+and prototype operations; accessor results remain explicit resumable actions.
 
 Recommended initial representation:
 

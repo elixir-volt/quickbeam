@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Exceptions do
   to `QuickBEAM.JSError` happens only after a value escapes the evaluation.
   """
 
-  alias QuickBEAM.VM.{Builtins, Execution, Heap, Object, Reference, Thrown}
+  alias QuickBEAM.VM.{Builtins, Execution, Heap, Object, Properties, Reference, Thrown}
 
   @doc "Materializes a generated VM exception as a JavaScript heap value."
   @spec materialize(term(), Execution.t()) :: {term(), Execution.t()}
@@ -42,13 +42,13 @@ defmodule QuickBEAM.VM.Exceptions do
     case Heap.fetch_object(execution, reference) do
       {:ok, %Object{internal: {:error, default_name}}} ->
         name =
-          case Heap.get(execution, reference, "name") do
+          case Properties.get(reference, "name", execution) do
             {:ok, value} when value not in [:undefined, nil] -> to_string_value(value)
             _missing -> default_name
           end
 
         message =
-          case Heap.get(execution, reference, "message") do
+          case Properties.get(reference, "message", execution) do
             {:ok, :undefined} -> ""
             {:ok, value} -> to_string_value(value)
             {:error, _reason} -> ""

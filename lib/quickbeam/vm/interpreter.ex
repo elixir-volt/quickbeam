@@ -29,6 +29,7 @@ defmodule QuickBEAM.VM.Interpreter do
     PredefinedAtoms,
     Program,
     Promise,
+    Properties,
     PromiseExecutorBoundary,
     PromiseReference,
     Reaction,
@@ -38,7 +39,6 @@ defmodule QuickBEAM.VM.Interpreter do
     ThenableBoundary,
     ThenGetterBoundary,
     Thrown,
-    UTF16,
     Value
   }
 
@@ -329,7 +329,9 @@ defmodule QuickBEAM.VM.Interpreter do
       values
       |> Enum.with_index()
       |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Heap.define(execution, arguments, index, read_slot(value, execution))
+        {:ok, execution} =
+          Properties.define(arguments, index, read_slot(value, execution), execution)
+
         execution
       end)
 
@@ -356,7 +358,7 @@ defmodule QuickBEAM.VM.Interpreter do
       |> Enum.reverse()
       |> Enum.with_index()
       |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Heap.define(execution, reference, index, value)
+        {:ok, execution} = Properties.define(reference, index, value, execution)
         execution
       end)
 
@@ -373,9 +375,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
     result =
       case kind do
-        4 -> Heap.define(execution, object, key, callable)
-        5 -> Heap.define_accessor(execution, object, key, :getter, callable)
-        6 -> Heap.define_accessor(execution, object, key, :setter, callable)
+        4 -> Properties.define(object, key, callable, execution)
+        5 -> Properties.define_accessor(object, key, :getter, callable, execution)
+        6 -> Properties.define_accessor(object, key, :setter, callable, execution)
         _kind -> {:error, {:unsupported_method_kind, kind}}
       end
 
@@ -393,7 +395,7 @@ defmodule QuickBEAM.VM.Interpreter do
        ) do
     key = resolve_atom(atom, execution)
 
-    case Heap.define(execution, object, key, value) do
+    case Properties.define(object, key, value, execution) do
       {:ok, execution} -> continue(%{frame | stack: [object | stack]}, execution)
       {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
     end
@@ -437,7 +439,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp execute(:delete, [], %{stack: [key, %Reference{} = object | stack]} = frame, execution) do
-    case Heap.delete(execution, object, key) do
+    case Properties.delete(object, key, execution) do
       {:ok, deleted?, execution} -> continue(%{frame | stack: [deleted? | stack]}, execution)
       {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
     end
@@ -588,7 +590,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp execute(:for_in_start, [], %{stack: [object | stack]} = frame, execution) do
-    case enumerable_keys(object, execution) do
+    case Properties.enumerable_keys(object, execution) do
       {:ok, keys} -> continue(%{frame | stack: [{:for_in, keys, 0} | stack]}, execution)
       {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
     end
@@ -668,7 +670,10 @@ defmodule QuickBEAM.VM.Interpreter do
     do: binary(frame, execution, &(not Value.strict_equal?(&1, &2)))
 
   defp execute(:in, [], %{stack: [object, key | stack]} = frame, execution) do
-    continue(%{frame | stack: [has_property?(object, key, execution) | stack]}, execution)
+    continue(
+      %{frame | stack: [Properties.has_property?(object, key, execution) | stack]},
+      execution
+    )
   end
 
   defp execute(
@@ -681,7 +686,7 @@ defmodule QuickBEAM.VM.Interpreter do
          {:ok, %Reference{} = prototype} <- instanceof_prototype(constructor, execution) do
       result =
         is_struct(object, Reference) and
-          Heap.prototype_chain_contains?(execution, object, prototype)
+          Properties.prototype_chain_contains?(object, prototype, execution)
 
       continue(%{frame | stack: [result | stack]}, execution)
     else
@@ -952,7 +957,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: constructor_prototype(target, execution)
 
   defp constructor_prototype(constructor, execution) do
-    case get_property(constructor, "prototype", execution) do
+    case Properties.get(constructor, "prototype", execution) do
       {:ok, %Reference{} = prototype} -> prototype
       _other -> nil
     end
@@ -962,7 +967,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: instanceof_prototype(target, execution)
 
   defp instanceof_prototype(constructor, execution),
-    do: get_property(constructor, "prototype", execution)
+    do: Properties.get(constructor, "prototype", execution)
 
   defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
     do: start_host_call(arguments, caller, execution, tail?)
@@ -1287,7 +1292,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp continue_object_assign(%ObjectAssignBoundary{keys: [key | keys]} = boundary, execution) do
-    case get_property(boundary.source, key, execution) do
+    case Properties.get(boundary.source, key, execution) do
       {:ok, {:accessor, getter, receiver}} ->
         boundary = %{boundary | phase: :get, key: key, keys: keys}
         dispatch_call(getter, [], receiver, boundary, execution, false)
@@ -1304,7 +1309,7 @@ defmodule QuickBEAM.VM.Interpreter do
          %ObjectAssignBoundary{keys: [], sources: [source | sources]} = boundary,
          execution
        ) do
-    case enumerable_keys(source, execution) do
+    case Properties.enumerable_keys(source, execution) do
       {:ok, keys} ->
         continue_object_assign(
           %{boundary | source: source, sources: sources, keys: keys, phase: nil, key: nil},
@@ -1320,7 +1325,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: complete_call_result(boundary.target, boundary.caller, execution, boundary.tail?)
 
   defp assign_object_value(boundary, key, value, execution) do
-    case Heap.put(execution, boundary.target, key, value) do
+    case Properties.put(boundary.target, key, value, execution) do
       {:ok, execution} ->
         continue_object_assign(%{boundary | phase: nil, key: nil}, execution)
 
@@ -1451,7 +1456,7 @@ defmodule QuickBEAM.VM.Interpreter do
       values
       |> Enum.with_index()
       |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Heap.define(execution, array, index, value)
+        {:ok, execution} = Properties.define(array, index, value, execution)
         execution
       end)
 
@@ -1574,7 +1579,10 @@ defmodule QuickBEAM.VM.Interpreter do
   defp install_host_globals(execution) do
     execution = Builtins.install(execution)
     {beam, execution} = Heap.allocate(execution)
-    {:ok, execution} = Heap.define(execution, beam, "call", {:host_function, :beam_call})
+
+    {:ok, execution} =
+      Properties.define(beam, "call", {:host_function, :beam_call}, execution)
+
     {global_this, execution} = Heap.allocate(execution)
 
     globals =
@@ -1651,7 +1659,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp type_of(value, _execution), do: Value.typeof(value)
 
   defp get_property_and_continue(object, key, stack, frame, execution) do
-    case get_property(object, key, execution) do
+    case Properties.get(object, key, execution) do
       {:ok, {:accessor, getter, receiver}} ->
         boundary = %AccessorBoundary{
           mode: :get,
@@ -1670,7 +1678,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp put_property_and_continue(object, key, value, stack, frame, execution) do
-    case put_property(object, key, value, execution) do
+    case Properties.put(object, key, value, execution) do
       {:ok, execution} ->
         continue(%{frame | stack: stack}, execution)
 
@@ -1687,127 +1695,6 @@ defmodule QuickBEAM.VM.Interpreter do
         raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
     end
   end
-
-  defp get_property(%Reference{} = object, key, execution) do
-    case Heap.get(execution, object, key) do
-      {:ok, :undefined} = missing ->
-        cond do
-          key in ["bind", "call"] and not is_nil(Builtins.callable(execution, object)) ->
-            {:ok, {:function_method, key}}
-
-          reference_kind(object, execution) in [:array, :set] and is_binary(key) ->
-            {:ok, {:primitive_method, reference_kind(object, execution), key}}
-
-          true ->
-            missing
-        end
-
-      result ->
-        result
-    end
-  end
-
-  defp get_property(%PromiseReference{}, method, _execution)
-       when method in ["catch", "finally", "then"],
-       do: {:ok, {:promise_method, method}}
-
-  defp get_property(%RegExp{}, key, _execution) when is_binary(key),
-    do: {:ok, {:primitive_method, :regexp, key}}
-
-  defp get_property(object, key, _execution)
-       when is_tuple(object) and key in ["bind", "call"] and
-              elem(object, 0) in [
-                :builtin,
-                :builtin_method,
-                :bound_function,
-                :function_method,
-                :host_function,
-                :primitive_method,
-                :promise_method,
-                :promise_resolver
-              ],
-       do: {:ok, {:function_method, key}}
-
-  defp get_property(object, key, _execution) when is_map(object) and not is_struct(object) do
-    case Map.fetch(object, key) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:ok, map_string_key(object, key)}
-    end
-  end
-
-  defp get_property(object, "length", _execution) when is_binary(object),
-    do: {:ok, UTF16.length(object)}
-
-  defp get_property(object, key, _execution) when is_binary(object) and is_integer(key),
-    do: {:ok, UTF16.at(object, key)}
-
-  defp get_property(object, key, _execution) when is_binary(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :string, key}}
-
-  defp get_property(object, "length", _execution) when is_list(object), do: {:ok, length(object)}
-
-  defp get_property(object, key, _execution) when is_list(object) and is_integer(key),
-    do: {:ok, Enum.at(object, key, :undefined)}
-
-  defp get_property(object, key, _execution) when is_list(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :array, key}}
-
-  defp get_property(object, key, _execution) when is_number(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :number, key}}
-
-  defp get_property(object, _key, _execution) when object in [nil, :undefined],
-    do: {:error, :null_or_undefined_property_access}
-
-  defp get_property(_object, _key, _execution), do: {:ok, :undefined}
-
-  defp put_property(%Reference{} = object, key, value, execution),
-    do: Heap.put(execution, object, key, value)
-
-  defp put_property(object, _key, _value, _execution), do: {:error, {:not_an_object, object}}
-
-  defp enumerable_keys(%Reference{} = reference, execution),
-    do: Heap.own_keys(execution, reference)
-
-  defp enumerable_keys(value, _execution) when is_map(value), do: {:ok, Map.keys(value)}
-  defp enumerable_keys([], _execution), do: {:ok, []}
-
-  defp enumerable_keys(value, _execution) when is_list(value),
-    do: {:ok, Enum.to_list(0..(length(value) - 1))}
-
-  defp enumerable_keys(value, _execution) when value in [nil, :undefined], do: {:ok, []}
-  defp enumerable_keys(_value, _execution), do: {:ok, []}
-
-  defp has_property?(%Reference{} = reference, key, execution),
-    do: Heap.has_property?(execution, reference, key)
-
-  defp has_property?(value, key, _execution) when is_map(value), do: Map.has_key?(value, key)
-
-  defp has_property?(value, key, _execution) when is_list(value) and is_integer(key),
-    do: key >= 0 and key < length(value)
-
-  defp has_property?(value, "length", _execution) when is_list(value) or is_binary(value),
-    do: true
-
-  defp has_property?(_value, _key, _execution), do: false
-
-  defp reference_kind(reference, execution) do
-    case Heap.fetch_object(execution, reference) do
-      {:ok, %QuickBEAM.VM.Object{kind: kind}} -> kind
-      :error -> nil
-    end
-  end
-
-  defp map_string_key(map, key) when is_binary(key) do
-    case Enum.find(map, fn
-           {map_key, _value} when is_atom(map_key) -> Atom.to_string(map_key) == key
-           _entry -> false
-         end) do
-      {_map_key, value} -> value
-      nil -> :undefined
-    end
-  end
-
-  defp map_string_key(_map, _key), do: :undefined
 
   defp raise_js(reason, %NativeFrame{caller: caller}, execution) do
     {reason, trace, execution} = throw_state(reason, execution)
@@ -2154,13 +2041,13 @@ defmodule QuickBEAM.VM.Interpreter do
       {prototype, execution} = Heap.allocate(execution)
 
       {:ok, execution} =
-        Heap.define(execution, prototype, "constructor", reference,
+        Properties.define(prototype, "constructor", reference, execution,
           enumerable: false,
           configurable: true
         )
 
       {:ok, execution} =
-        Heap.define(execution, reference, "prototype", prototype,
+        Properties.define(reference, "prototype", prototype, execution,
           enumerable: false,
           configurable: false
         )
