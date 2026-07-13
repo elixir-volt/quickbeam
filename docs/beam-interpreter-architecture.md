@@ -379,8 +379,10 @@ and await classification. `QuickBEAM.VM.Opcodes.Locals` owns argument/local
 slots, closure-cell promotion, globals, atom resolution, and function-closure
 allocation. `QuickBEAM.VM.Opcodes.Objects` handles object/array/RegExp
 construction, field definition, property access, resumable accessors, deletion,
-and `for...in` enumeration. Their published opcode lists are also the
-interpreter's routing source, preventing dispatch drift.
+and `for...in` enumeration. `QuickBEAM.VM.Opcodes.Invocation` decodes ordinary,
+method, tail, and constructor call stacks into actions consumed by the canonical
+invocation planner. Their published opcode lists are also the interpreter's
+routing source, preventing dispatch drift.
 
 Recommended initial representation:
 

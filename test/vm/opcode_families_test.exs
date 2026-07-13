@@ -3,10 +3,11 @@ defmodule QuickBEAM.VM.OpcodeFamiliesTest do
 
   alias QuickBEAM.VM.{Execution, Frame, Function, Heap, Object, Properties}
   alias QuickBEAM.VM.Opcodes.{Control, Locals, Objects, Stack, Values}
+  alias QuickBEAM.VM.Opcodes.Invocation, as: CallOpcodes
 
   test "opcode families publish non-overlapping routing tables" do
     opcodes =
-      [Control, Locals, Objects, Stack, Values]
+      [CallOpcodes, Control, Locals, Objects, Stack, Values]
       |> Enum.flat_map(& &1.opcodes())
 
     assert length(opcodes) == MapSet.size(MapSet.new(opcodes))
@@ -104,6 +105,50 @@ defmodule QuickBEAM.VM.OpcodeFamiliesTest do
 
     assert {:ok, %Object{callable: {:closure, ^child, {{:cell, 0}}}}} =
              Heap.fetch_object(execution, reference)
+  end
+
+  test "invocation opcodes decode ordinary, method, and tail-call stacks" do
+    execution = execution()
+
+    assert {:invoke, :callable, [:first, :second], :undefined, %Frame{stack: [:rest]}, ^execution,
+            false} =
+             CallOpcodes.execute(
+               :call,
+               [2],
+               frame([:second, :first, :callable, :rest]),
+               execution
+             )
+
+    assert {:invoke, :callable, [:argument], :receiver, %Frame{stack: [:rest]}, ^execution, true} =
+             CallOpcodes.execute(
+               :tail_call_method,
+               [1],
+               frame([:argument, :callable, :receiver, :rest]),
+               execution
+             )
+
+    assert {:error, {:invalid_stack, :call}, ^execution} =
+             CallOpcodes.execute(:call, [2], frame([:only_one]), execution)
+  end
+
+  test "constructor opcodes allocate instances through canonical invocation semantics" do
+    execution = execution()
+    function = %Function{id: 3, has_prototype: true}
+    {constructor, execution} = Heap.allocate(execution, :function, callable: function)
+    {prototype, execution} = Heap.allocate(execution)
+    {:ok, execution} = Properties.define(constructor, "prototype", prototype, execution)
+
+    assert {:invoke_constructor, ^constructor, [:argument], instance, %Frame{stack: [:rest]},
+            execution} =
+             CallOpcodes.execute(
+               :call_constructor,
+               [1],
+               frame([:argument, constructor, constructor, :rest]),
+               execution
+             )
+
+    assert {:ok, %Object{prototype: ^prototype, internal: :constructor_instance}} =
+             Heap.fetch_object(execution, instance)
   end
 
   test "object opcodes return resumable getter and setter actions" do

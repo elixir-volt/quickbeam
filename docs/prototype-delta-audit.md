@@ -356,7 +356,7 @@ High-value test groups to adapt next:
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
-### Interpreter decomposition (in progress)
+### Interpreter decomposition (complete)
 
 - Literal and operand-stack opcodes now live in one stack family module.
 - Coercion, arithmetic, comparison, bitwise, value-test, `in`, and `instanceof`
@@ -367,9 +367,11 @@ High-value test groups to adapt next:
   globals, atom resolution, and function-closure allocation.
 - Object opcodes now own object/array/RegExp construction, field definitions,
   property access, resumable accessor actions, deletion, and enumeration.
+- Invocation opcodes now decode ordinary, method, tail, and constructor call
+  stacks into explicit canonical invocation actions.
 - Family-owned opcode lists are the interpreter's compile-time routing source.
-- Continue with invocation opcodes without moving the run loop out of the
-  interpreter.
+- The interpreter now owns only routing, stepping, resource checks, action
+  execution, native callback frames, and boundary completion.
 
 ### Phase C — expand conformance by profile demand
 
@@ -394,6 +396,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Finish opcode-family decomposition with ordinary, method, tail, and constructor
-call opcodes while retaining invocation planning and frame scheduling in their
-canonical layers.
+Proceed to Phase C with sparse-array hole behavior and hole-aware native
+callback frames, then establish resumable iterator semantics for iterable
+Promise combinators.

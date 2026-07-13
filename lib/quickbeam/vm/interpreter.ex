@@ -39,6 +39,7 @@ defmodule QuickBEAM.VM.Interpreter do
   }
 
   alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
+  alias QuickBEAM.VM.Opcodes.Invocation, as: InvocationOpcodes
   alias QuickBEAM.VM.Opcodes.Locals, as: LocalOpcodes
   alias QuickBEAM.VM.Opcodes.Objects, as: ObjectOpcodes
   alias QuickBEAM.VM.Opcodes.Stack, as: StackOpcodes
@@ -48,6 +49,7 @@ defmodule QuickBEAM.VM.Interpreter do
   @default_max_stack_depth 1_000
 
   @control_opcodes ControlOpcodes.opcodes()
+  @invocation_opcodes InvocationOpcodes.opcodes()
   @local_opcodes LocalOpcodes.opcodes()
   @object_opcodes ObjectOpcodes.opcodes()
   @stack_opcodes StackOpcodes.opcodes()
@@ -235,6 +237,9 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(name, operands, frame, execution) when name in @control_opcodes,
     do: name |> ControlOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
+  defp execute(name, operands, frame, execution) when name in @invocation_opcodes,
+    do: name |> InvocationOpcodes.execute(operands, frame, execution) |> execute_opcode()
+
   defp execute(name, operands, frame, execution) when name in @local_opcodes,
     do: name |> LocalOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
@@ -247,91 +252,12 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(name, operands, frame, execution) when name in @value_opcodes,
     do: name |> ValueOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
-  defp execute(:call, [argument_count], frame, execution),
-    do: call(frame, execution, argument_count, false)
-
-  defp execute(:tail_call, [argument_count], frame, execution),
-    do: call(frame, execution, argument_count, true)
-
-  defp execute(:call_method, [argument_count], frame, execution),
-    do: call_method(frame, execution, argument_count, false)
-
-  defp execute(:tail_call_method, [argument_count], frame, execution),
-    do: call_method(frame, execution, argument_count, true)
-
-  defp execute(:call_constructor, [argument_count], frame, execution),
-    do: call_constructor(frame, execution, argument_count)
-
   defp execute(name, _operands, frame, execution)
        when name in [:nop, :set_name, :set_name_computed, :check_ctor],
        do: continue(frame, execution)
 
   defp execute(name, operands, _frame, execution),
     do: {:error, {:unsupported_opcode, name, operands}, execution}
-
-  defp call(%Frame{stack: stack} = frame, execution, argument_count, tail?) do
-    {arguments, callable_and_rest} = Enum.split(stack, argument_count)
-
-    case callable_and_rest do
-      [callable | rest] ->
-        caller = %{next_frame(frame) | stack: rest}
-        dispatch_call(callable, Enum.reverse(arguments), :undefined, caller, execution, tail?)
-
-      _ ->
-        {:error, {:invalid_stack, :call}, execution}
-    end
-  end
-
-  defp call_method(%Frame{stack: stack} = frame, execution, argument_count, tail?) do
-    {arguments, callable_and_this} = Enum.split(stack, argument_count)
-
-    case callable_and_this do
-      [callable, this | rest] ->
-        caller = %{next_frame(frame) | stack: rest}
-        dispatch_call(callable, Enum.reverse(arguments), this, caller, execution, tail?)
-
-      _ ->
-        {:error, {:invalid_stack, :call_method}, execution}
-    end
-  end
-
-  defp call_constructor(%Frame{stack: stack} = frame, execution, argument_count) do
-    {arguments, constructor_and_new_target} = Enum.split(stack, argument_count)
-
-    case constructor_and_new_target do
-      [_new_target, constructor | rest] ->
-        if Invocation.constructable?(constructor, execution) do
-          caller = %{next_frame(frame) | stack: rest}
-          prototype = Invocation.constructor_prototype(constructor, execution)
-
-          {instance, execution} =
-            Heap.allocate(execution, :ordinary,
-              prototype: prototype,
-              internal: :constructor_instance
-            )
-
-          boundary = %ConstructorBoundary{
-            instance: instance,
-            caller: caller,
-            depth: execution.depth
-          }
-
-          dispatch_call(
-            constructor,
-            Enum.reverse(arguments),
-            instance,
-            boundary,
-            execution,
-            false
-          )
-        else
-          raise_js({:type_error, :not_a_constructor}, frame, execution)
-        end
-
-      _ ->
-        {:error, {:invalid_stack, :call_constructor}, execution}
-    end
-  end
 
   defp dispatch_call(callable, arguments, this, caller, execution, tail?) do
     callable
@@ -670,6 +596,21 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute_opcode({:throw, reason, frame, execution}),
     do: raise_js(reason, frame, execution)
+
+  defp execute_opcode({:error, reason, execution}), do: {:error, reason, execution}
+
+  defp execute_opcode({:invoke, callable, arguments, this, caller, execution, tail?}),
+    do: dispatch_call(callable, arguments, this, next_frame(caller), execution, tail?)
+
+  defp execute_opcode({:invoke_constructor, constructor, arguments, instance, caller, execution}) do
+    boundary = %ConstructorBoundary{
+      instance: instance,
+      caller: next_frame(caller),
+      depth: execution.depth
+    }
+
+    dispatch_call(constructor, arguments, instance, boundary, execution, false)
+  end
 
   defp execute_opcode({:await_promise, promise, frame, execution}) do
     case detach_async(frame, execution, promise) do
