@@ -16,11 +16,19 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert array.name == "Array"
     assert array.kind == :extension
     assert [%FunctionSpec{key: "isArray", handler: :is_array, length: 1}] = array.statics
+    assert Enum.map(array.prototype, & &1.key) == ~w(filter forEach map reduce some)
 
     assert Registry.modules(:core) == [
              QuickBEAM.VM.Builtins.Math,
-             QuickBEAM.VM.Builtins.Array
+             QuickBEAM.VM.Builtins.Array,
+             QuickBEAM.VM.Builtins.String,
+             QuickBEAM.VM.Builtins.Object
            ]
+
+    assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :extension
+
+    assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
+             ~w(assign create getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
   end
 
   test "installs real function objects with stable names, lengths, and descriptors" do
@@ -33,14 +41,50 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       Array.isArray.name,
       Array.isArray.length,
       Array.isArray([]),
-      Array.isArray({})
+      Array.isArray({}),
+      String.fromCharCode.name,
+      String.fromCharCode.length,
+      Object.assign.name,
+      Object.assign.length,
+      Array.prototype.map.name,
+      Array.prototype.map.length
     ]
     """
 
     assert {:ok, program} = QuickBEAM.VM.compile(source)
 
-    assert {:ok, ["object", "floor", 1, 0, "isArray", 1, true, false]} =
-             QuickBEAM.VM.eval(program)
+    assert {:ok,
+            [
+              "object",
+              "floor",
+              1,
+              0,
+              "isArray",
+              1,
+              true,
+              false,
+              "fromCharCode",
+              1,
+              "assign",
+              2,
+              "map",
+              1
+            ]} = QuickBEAM.VM.eval(program)
+  end
+
+  test "runs immediate and resumable declarative handlers through canonical invocation" do
+    source = """
+    (()=>{
+      let seen=0
+      let target={set value(next){seen=next}}
+      let source={get value(){return 42}}
+      let assigned=Object.assign(target,source)
+      return [seen,assigned===target,String.fromCharCode(65,66)]
+    })()
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, [42, true, "AB"]} = QuickBEAM.VM.eval(program)
   end
 
   test "dispatches declarative handlers through the canonical invocation planner" do

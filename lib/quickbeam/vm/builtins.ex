@@ -21,22 +21,13 @@ defmodule QuickBEAM.VM.Builtins do
   @constructors %{
     "Array" => [],
     "Boolean" => [],
-    "Object" => [
-      "assign",
-      "create",
-      "defineProperty",
-      "getOwnPropertyDescriptor",
-      "getOwnPropertyNames",
-      "getPrototypeOf",
-      "keys",
-      "setPrototypeOf"
-    ],
+    "Object" => ["defineProperty", "getOwnPropertyDescriptor"],
     "EvalError" => [],
     "Function" => [],
     "Number" => [],
     "RangeError" => [],
     "ReferenceError" => [],
-    "String" => ["fromCharCode"],
+    "String" => [],
     "SyntaxError" => [],
     "TypeError" => [],
     "URIError" => [],
@@ -102,25 +93,6 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec call(term(), term(), [term()], Execution.t()) ::
           {:ok, term(), Execution.t()} | {:error, term(), Execution.t()}
-  def call({:builtin_method, "Object", "keys"}, _this, [value], execution) do
-    with {:ok, keys} <- own_keys(value, execution) do
-      keys = Enum.map(keys, &Value.to_string_value/1)
-      {array, execution} = array_from(keys, execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call({:builtin_method, "Object", "create"}, _this, [prototype], execution)
-      when is_nil(prototype) or is_struct(prototype, Reference) do
-    {object, execution} = Heap.allocate(execution, :ordinary, prototype: prototype)
-    {:ok, object, execution}
-  end
-
-  def call({:builtin_method, "Object", "create"}, _this, [_prototype], execution),
-    do: {:error, :invalid_prototype, execution}
-
   def call(
         {:builtin_method, "Object", "defineProperty"},
         _this,
@@ -153,61 +125,6 @@ defmodule QuickBEAM.VM.Builtins do
       {:error, reason} ->
         {:error, reason, execution}
     end
-  end
-
-  def call(
-        {:builtin_method, "Object", "getOwnPropertyNames"},
-        _this,
-        [%Reference{} = target | _],
-        execution
-      ) do
-    case Properties.own_property_names(target, execution) do
-      {:ok, keys} ->
-        {array, execution} = array_from(keys, execution)
-        {:ok, array, execution}
-
-      {:error, reason} ->
-        {:error, reason, execution}
-    end
-  end
-
-  def call(
-        {:builtin_method, "Object", "getPrototypeOf"},
-        _this,
-        [%Reference{} = target | _],
-        execution
-      ) do
-    case Properties.prototype(target, execution) do
-      {:ok, prototype} -> {:ok, prototype, execution}
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call(
-        {:builtin_method, "Object", "setPrototypeOf"},
-        _this,
-        [%Reference{} = target, prototype | _],
-        execution
-      )
-      when is_nil(prototype) or is_struct(prototype, Reference) do
-    case Properties.set_prototype(target, prototype, execution) do
-      {:ok, execution} -> {:ok, target, execution}
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call({:builtin_method, "Object", "assign"}, _this, [target | sources], execution) do
-    Enum.reduce_while(sources, {:ok, target, execution}, fn source, {:ok, target, execution} ->
-      case assign(target, source, execution) do
-        {:ok, execution} -> {:cont, {:ok, target, execution}}
-        {:error, reason} -> {:halt, {:error, reason, execution}}
-      end
-    end)
-  end
-
-  def call({:builtin_method, "String", "fromCharCode"}, _this, values, execution) do
-    string = Value.string_from_char_codes(values)
-    {:ok, string, execution}
   end
 
   def call({:builtin_method, "Promise", method}, _this, [iterable | _], execution)
@@ -670,7 +587,7 @@ defmodule QuickBEAM.VM.Builtins do
     install_primitive_prototype(
       constructor,
       :array,
-      ["concat", "filter", "forEach", "join", "map", "push", "reduce", "slice", "some"],
+      ["concat", "join", "push", "slice"],
       execution
     )
   end
@@ -911,45 +828,6 @@ defmodule QuickBEAM.VM.Builtins do
 
     {array, execution}
   end
-
-  defp own_keys(%Reference{} = reference, execution),
-    do: Properties.enumerable_keys(reference, execution)
-
-  defp own_keys(value, _execution) when is_map(value), do: {:ok, Map.keys(value)}
-  defp own_keys([], _execution), do: {:ok, []}
-
-  defp own_keys(value, _execution) when is_list(value),
-    do: {:ok, Enum.to_list(0..(length(value) - 1))}
-
-  defp own_keys(_value, _execution), do: {:ok, []}
-
-  defp assign(%Reference{} = target, source, execution) do
-    with {:ok, keys} <- own_keys(source, execution) do
-      Enum.reduce_while(keys, {:ok, execution}, fn key, {:ok, execution} ->
-        with {:ok, value} <- property(source, key, execution),
-             {:ok, execution} <- Properties.put(target, key, value, execution) do
-          {:cont, {:ok, execution}}
-        else
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-    end
-  end
-
-  defp assign(_target, _source, _execution), do: {:error, :not_an_object}
-
-  defp property(%Reference{} = reference, key, execution) do
-    case Properties.get(reference, key, execution) do
-      {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_in_object_assign}
-      result -> result
-    end
-  end
-
-  defp property(value, key, _execution) when is_map(value),
-    do: {:ok, Map.get(value, key, :undefined)}
-
-  defp property(value, key, _execution) when is_list(value),
-    do: {:ok, Enum.at(value, key, :undefined)}
 
   defp array_values(value, _execution) when is_list(value), do: {:ok, value}
 

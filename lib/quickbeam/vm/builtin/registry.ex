@@ -8,7 +8,9 @@ defmodule QuickBEAM.VM.Builtin.Registry do
 
   @core [
     QuickBEAM.VM.Builtins.Math,
-    QuickBEAM.VM.Builtins.Array
+    QuickBEAM.VM.Builtins.Array,
+    QuickBEAM.VM.Builtins.String,
+    QuickBEAM.VM.Builtins.Object
   ]
 
   @doc "Returns builtin modules installed for a profile in dependency order."

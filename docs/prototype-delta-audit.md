@@ -382,10 +382,13 @@ High-value test groups to adapt next:
   an explicit deterministic profile registry.
 - Handlers use stable module/function tokens and explicit call contexts through
   canonical invocation semantics.
-- Migrated `Math` and `Array.isArray` as the first vertical slice, including real
-  function objects with descriptor, `name`, and `length` metadata.
-- Continue migrating low-risk primitive builtins before resumable Object,
-  Promise, and Array callback methods.
+- Migrated `Math`, `String.fromCharCode`, `Array.isArray`, Array callback
+  methods, and selected Object statics with real function objects and descriptor,
+  `name`, and `length` metadata.
+- `Object.assign` and Array callback methods prove that DSL handlers can return
+  canonical resumable actions without recursively invoking JavaScript.
+- Continue with the remaining descriptor-heavy Object methods and low-risk
+  primitive methods before Promise constructors and combinators.
 
 ### Phase C — expand conformance by profile demand
 
@@ -412,6 +415,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue the declarative builtin migration with low-risk String and Object
-statics, then exercise the DSL action contract on resumable Object and Array
-methods before adding general iterator semantics.
+Continue the declarative builtin migration with descriptor-heavy Object
+methods and low-risk primitive methods, then migrate Promise construction and
+combinators onto general resumable iterator semantics.

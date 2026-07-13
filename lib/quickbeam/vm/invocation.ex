@@ -211,19 +211,6 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   def plan(
-        {:builtin_method, "Object", "assign"},
-        [%Reference{} = target | sources],
-        _this,
-        caller,
-        execution,
-        tail?
-      ),
-      do: {:object_assign, target, sources, caller, execution, tail?}
-
-  def plan({:builtin_method, "Object", "assign"}, _arguments, _this, caller, execution, _tail?),
-    do: {:error, {:type_error, :not_an_object}, caller, execution}
-
-  def plan(
         {:primitive_method, :array, method},
         arguments,
         receiver,

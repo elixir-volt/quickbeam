@@ -424,9 +424,11 @@ module/handler tokens, not captured closures. Calls receive an explicit
 `QuickBEAM.VM.Builtin.Call` containing arguments, receiver, caller, tail mode,
 and execution state, and are dispatched through the canonical invocation
 planner. Compile-time checks reject missing handlers, invalid lengths, unknown
-builtin kinds, and duplicate keys. `Math` and `Array.isArray` are the initial
-migrated vertical slice; the legacy dispatcher remains only for builtins not yet
-migrated.
+builtin kinds, and duplicate keys. The migrated slice now includes `Math`,
+`String.fromCharCode`, `Array.isArray`, resumable Array callback methods, and
+low-risk plus resumable Object statics. The legacy dispatcher remains only for
+builtins not yet migrated. Real function metadata increases the intrinsic heap
+baseline, which remains included in logical memory accounting.
 
 ## ECMAScript and host profiles
 
