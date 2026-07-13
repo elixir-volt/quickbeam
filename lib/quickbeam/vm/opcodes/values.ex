@@ -50,6 +50,7 @@ defmodule QuickBEAM.VM.Opcodes.Values do
                :post_inc,
                :post_dec,
                :to_propkey,
+               :to_propkey2,
                :to_object,
                :is_function,
                :typeof,
@@ -86,6 +87,12 @@ defmodule QuickBEAM.VM.Opcodes.Values do
     do: next(%{frame | stack: [Value.unary(:dec, value), value | stack]}, execution)
 
   def execute(:to_propkey, [], frame, execution), do: next(frame, execution)
+
+  def execute(:to_propkey2, [], %{stack: [_key, object | _]} = frame, execution)
+      when object in [nil, :undefined],
+      do: {:throw, {:type_error, :cannot_convert_to_object}, frame, execution}
+
+  def execute(:to_propkey2, [], frame, execution), do: next(frame, execution)
 
   def execute(:to_object, [], %{stack: [value | _]} = frame, execution)
       when value in [nil, :undefined],

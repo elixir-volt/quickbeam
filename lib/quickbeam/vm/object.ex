@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Object do
             callable: nil,
             internal: nil
 
-  @type kind :: :ordinary | :array | :function | :promise | :set
+  @type kind :: :ordinary | :array | :function | :map | :promise | :regexp | :set
   @type t :: %__MODULE__{
           kind: kind(),
           prototype: QuickBEAM.VM.Reference.t() | nil,

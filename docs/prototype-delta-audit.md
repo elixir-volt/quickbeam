@@ -24,7 +24,7 @@ QuickJS v26 ABI, resource limits, and resumable invocation machinery.
 | Promises | Reject core implementation; adapt combinator tests/algorithms | Current detached async frames and reaction scheduler supersede the prototype Promise store. Iterable combinator logic remains useful. |
 | Coercion/arithmetic | Adapt pure semantic functions and tests | The split into arithmetic, comparison, equality, and coercion is a good target, but object coercion and throws use prototype representations. |
 | Test262 support | Superseded harness; extract test ideas | Current runner is pinned, differential, typed with JSONCodec, and classifies failures. Prototype paths and skip rationale remain useful input. |
-| Preact SSR | Superseded | Current fixture performs real async rendering, native parity, and concurrent isolated reuse. |
+| SSR fixtures | Superseded | Pinned Preact, Vue, and server-compiled Svelte fixtures perform real async rendering, native parity, and concurrent isolated reuse. |
 | Web/Node APIs | Defer | Outside the first explicit SSR profile. |
 | BEAM compiler | Quarantine for later extraction | It targets the prototype runtime ABI, creates dynamic module atoms, and relies on interpreter fallback and process-local runtime state. |
 

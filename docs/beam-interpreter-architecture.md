@@ -6,8 +6,8 @@ Implemented on the development branch: version-locked decoding and verification,
 process-isolated evaluation, explicit frames and detached async continuations,
 closures, exceptions, owner-local objects, Promise reactions and combinators,
 asynchronous `Beam.call`, logical and process memory containment, stable
-JavaScript errors, and a pinned Preact SSR acceptance fixture. Broader ECMAScript
-conformance, object-model hardening, garbage collection, and release hardening
+JavaScript errors, and pinned Preact, Vue, and Svelte SSR acceptance fixtures.
+Broader ECMAScript conformance, object-model hardening, garbage collection, and release hardening
 remain in progress.
 
 ## Summary
@@ -510,18 +510,22 @@ The first production profile should be explicit rather than implying browser
 parity:
 
 ```elixir
-QuickBEAM.VM.compile(source, profile: :ssr)
+QuickBEAM.VM.eval(program, profile: :ssr)
 ```
 
-The `:ssr` profile should contain only the APIs demonstrated as necessary by the
-chosen SSR acceptance fixture. Likely candidates are core ECMAScript built-ins,
-`console`, text encoding, URL support, and selected deterministic helpers.
+The `:ssr` profile contains core ECMAScript built-ins plus the inert, evaluation-local
+`console` namespace currently demonstrated by the acceptance fixtures. Text encoding,
+URL support, timers, streams, Abort APIs, and networking are not implied by this profile
+and require separate fixture-driven additions.
 
-The recommended first fixture is a pinned `preact` plus
-`preact-render-to-string` bundle that returns real HTML from request props. The
-prototype branch's Preact benchmark only walks and summarizes a VNode tree, and
-the current `examples/ssr` application renders through the native lexbor DOM;
-neither by itself demonstrates end-to-end SSR inside the BEAM interpreter.
+The pinned compatibility matrix currently covers Preact 10.29.7 with
+`preact-render-to-string` 6.7.0, a production-defined Vue 3.5.39 functional component,
+and a server-compiled Svelte 5.56.4 component. Each fixture returns real HTML after an
+asynchronous `Beam.call`, matches the vendored native QuickJS engine, and reuses one
+immutable program across isolated concurrent renders. The Svelte fixture invokes current
+compiler output through a minimal fixture renderer; it covers synchronous body and head
+generation but does not yet claim compatibility with the full `svelte/server` asynchronous
+renderer or streaming support. None of these renderers requires a DOM.
 
 DOM, fetch, sockets, workers, N-API, and WebAssembly remain unsupported unless
 added through separately reviewed profiles. Unsupported features fail clearly;

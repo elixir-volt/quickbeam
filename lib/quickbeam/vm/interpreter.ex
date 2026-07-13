@@ -83,7 +83,7 @@ defmodule QuickBEAM.VM.Interpreter do
     }
 
     execution = Memory.charge(execution, Memory.estimate(vars))
-    execution = install_host_globals(execution)
+    execution = install_host_globals(execution, Keyword.get(opts, :profile, :core))
     frame = Invocation.new_frame(program.root, program.root, [], :undefined, {})
     run(frame, execution)
   end
@@ -260,7 +260,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: name |> ValueOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
   defp execute(name, _operands, frame, execution)
-       when name in [:nop, :set_name, :set_name_computed, :check_ctor],
+       when name in [:nop, :set_name, :set_name_computed],
        do: continue(frame, execution)
 
   defp execute(name, operands, _frame, execution),
@@ -690,6 +690,18 @@ defmodule QuickBEAM.VM.Interpreter do
     dispatch_call(constructor, arguments, instance, boundary, execution, false)
   end
 
+  defp execute_opcode(
+         {:invoke_super_constructor, constructor, arguments, instance, caller, execution}
+       ) do
+    boundary = %ConstructorBoundary{
+      instance: instance,
+      caller: next_frame(caller),
+      depth: execution.depth
+    }
+
+    dispatch_call(constructor, arguments, instance, boundary, execution, false)
+  end
+
   defp execute_opcode({:await_promise, promise, frame, execution}) do
     case detach_async(frame, execution, promise) do
       {:ok, result} -> result
@@ -757,14 +769,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp suspend_microtask(result, frame, execution),
     do: frame |> next_frame() |> Async.suspend_microtask(execution, result) |> execute_async()
 
-  defp install_host_globals(execution) do
-    execution = Builtins.install(execution)
+  defp install_host_globals(execution, profile) do
+    execution = Builtins.install(execution, profile)
     {beam, execution} = Heap.allocate(execution)
 
     {:ok, execution} =
       Properties.define(beam, "call", {:host_function, :beam_call}, execution)
 
-    {global_this, execution} = Heap.allocate(execution)
+    {global_this, execution} = Heap.allocate(execution, :ordinary, internal: :global_object)
 
     globals =
       execution.globals

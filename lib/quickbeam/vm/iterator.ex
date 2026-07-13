@@ -41,6 +41,9 @@ defmodule QuickBEAM.VM.Iterator do
 
         {:ok, values}
 
+      {:ok, %Object{kind: :map, internal: %{entries: entries}}} ->
+        {:ok, Enum.map(entries, fn {key, value} -> [key, value] end)}
+
       {:ok, %Object{kind: :set, internal: %{values: values}}} ->
         {:ok, values}
 

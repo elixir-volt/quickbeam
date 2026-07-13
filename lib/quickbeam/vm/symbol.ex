@@ -4,7 +4,10 @@ defmodule QuickBEAM.VM.Symbol do
   @enforce_keys [:id, :description]
   defstruct [:id, :description]
 
-  @type t :: %__MODULE__{id: atom() | {:local, non_neg_integer()}, description: String.t()}
+  @type t :: %__MODULE__{
+          id: atom() | {:global, String.t()} | {:local, non_neg_integer()},
+          description: String.t()
+        }
 
   @doc "Returns the stable `Symbol.iterator` value used as a property key."
   @spec iterator() :: t()

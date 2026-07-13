@@ -116,9 +116,10 @@ defmodule QuickBEAM.VM.ErrorTest do
     assert {:error, {:limit_exceeded, :steps, 10}} =
              QuickBEAM.VM.eval(loop, max_steps: 10)
 
-    assert {:ok, unsupported} = QuickBEAM.VM.compile("class Unsupported {}")
+    assert {:ok, unsupported} =
+             QuickBEAM.VM.compile("function* unsupported(){yield 1} unsupported()")
 
-    assert {:error, {:unsupported_opcode, :define_class, _operands}} =
+    assert {:error, {:unsupported_opcode, :initial_yield, _operands}} =
              QuickBEAM.VM.eval(unsupported)
   end
 end

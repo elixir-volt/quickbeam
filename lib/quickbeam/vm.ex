@@ -89,8 +89,8 @@ defmodule QuickBEAM.VM do
   @doc """
   Evaluates a verified program in an isolated BEAM process.
 
-  Supported options include `:vars`, asynchronous `:handlers`, `:timeout`,
-  `:max_steps`, `:max_stack_depth`, and the JavaScript allocation budget
+  Supported options include `:vars`, asynchronous `:handlers`, the builtin
+  `:profile` (`:core` or `:ssr`), `:timeout`, `:max_steps`, `:max_stack_depth`, and the JavaScript allocation budget
   `:memory_limit`. Isolated workers also receive a BEAM process heap ceiling.
   `isolation: :caller` is available for
   trusted diagnostics.
@@ -113,6 +113,7 @@ defmodule QuickBEAM.VM do
       :max_stack_depth,
       :max_steps,
       :memory_limit,
+      :profile,
       :timeout,
       :vars
     ]
@@ -129,6 +130,7 @@ defmodule QuickBEAM.VM do
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
     memory_limit = Keyword.get(opts, :memory_limit, @default_memory_limit)
+    profile = Keyword.get(opts, :profile, :core)
     vars = Keyword.get(opts, :vars, %{})
     handlers = Keyword.get(opts, :handlers, %{})
 
@@ -147,6 +149,9 @@ defmodule QuickBEAM.VM do
 
       memory_limit != :infinity and (not is_integer(memory_limit) or memory_limit <= 0) ->
         {:error, {:invalid_option, :memory_limit, memory_limit}}
+
+      profile not in [:core, :ssr] ->
+        {:error, {:invalid_option, :profile, profile}}
 
       not is_map(vars) ->
         {:error, {:invalid_option, :vars, vars}}
@@ -168,6 +173,7 @@ defmodule QuickBEAM.VM do
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
              memory_limit: memory_limit,
+             profile: profile,
              vars: vars
            }
          }}

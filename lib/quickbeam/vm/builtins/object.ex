@@ -20,6 +20,8 @@ defmodule QuickBEAM.VM.Builtins.Object do
     static :assign, length: 2
     static :create, length: 2
     static :define_property, js: "defineProperty", length: 3
+    static :define_properties, js: "defineProperties", length: 2
+    static :freeze, length: 1
     static :get_own_property_descriptor, js: "getOwnPropertyDescriptor", length: 2
     static :get_own_property_names, js: "getOwnPropertyNames", length: 1
     static :get_prototype_of, js: "getPrototypeOf", length: 1
@@ -150,6 +152,35 @@ defmodule QuickBEAM.VM.Builtins.Object do
   def define_property(%Call{execution: execution}),
     do: {:error, :invalid_property_target, execution}
 
+  @doc "Implements `Object.defineProperties` for ordinary descriptor objects."
+  def define_properties(%Call{
+        arguments: [%Reference{} = target, descriptors | _],
+        execution: execution
+      }) do
+    with {:ok, keys} <- Properties.enumerable_keys(descriptors, execution),
+         {:ok, execution} <- define_properties(keys, target, descriptors, execution) do
+      {:ok, target, execution}
+    else
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def define_properties(%Call{execution: execution}),
+    do: {:error, :invalid_property_target, execution}
+
+  @doc "Marks an object as non-extensible and returns it."
+  def freeze(%Call{arguments: [%Reference{} = target | _], execution: execution}) do
+    {:ok, execution} =
+      Heap.update_object(execution, target, fn object -> %{object | extensible: false} end)
+
+    {:ok, target, execution}
+  end
+
+  def freeze(%Call{arguments: [target | _], execution: execution}),
+    do: {:ok, target, execution}
+
+  def freeze(%Call{execution: execution}), do: {:ok, :undefined, execution}
+
   @doc "Implements `Object.getOwnPropertyDescriptor`."
   def get_own_property_descriptor(%Call{
         arguments: [%Reference{} = target, key | _],
@@ -197,6 +228,12 @@ defmodule QuickBEAM.VM.Builtins.Object do
     end
   end
 
+  def get_prototype_of(%Call{arguments: [target | _], execution: execution})
+      when is_map(target) or is_list(target) do
+    kind = if is_list(target), do: :array, else: :ordinary
+    {:ok, Map.get(execution.default_prototypes, kind), execution}
+  end
+
   def get_prototype_of(%Call{execution: execution}), do: {:error, :not_an_object, execution}
 
   @doc "Implements `Object.keys` with canonical enumerable-key ordering."
@@ -226,6 +263,21 @@ defmodule QuickBEAM.VM.Builtins.Object do
 
   def set_prototype_of(%Call{execution: execution}),
     do: {:error, :invalid_prototype, execution}
+
+  defp define_properties(keys, target, descriptors, execution) do
+    Enum.reduce_while(keys, {:ok, execution}, fn key, {:ok, execution} ->
+      with {:ok, descriptor} when not is_tuple(descriptor) <-
+             Properties.get(descriptors, key, execution),
+           {:ok, current} <- Properties.own_property(target, key, execution),
+           {:ok, definition} <- descriptor_definition(descriptor, current, execution),
+           {:ok, execution} <- apply_property_definition(execution, target, key, definition) do
+        {:cont, {:ok, execution}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+        _accessor -> {:halt, {:error, :accessor_property_descriptor}}
+      end
+    end)
+  end
 
   defp descriptor_definition(descriptor, current, execution) do
     with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),

@@ -107,7 +107,7 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert [%FunctionSpec{key: "isArray", handler: :is_array, length: 1}] = array.statics
 
     assert Enum.map(array.prototype, & &1.key) ==
-             ~w(concat filter forEach join map push reduce slice some)
+             ~w(concat filter forEach includes join map push reduce slice some sort)
 
     assert Registry.modules(:core) == [
              QuickBEAM.VM.Builtins.Object,
@@ -125,7 +125,11 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.TypeError,
              QuickBEAM.VM.Builtins.URIError,
              QuickBEAM.VM.Builtins.Symbol,
+             QuickBEAM.VM.Builtins.Uint8Array,
+             QuickBEAM.VM.Builtins.Map,
+             QuickBEAM.VM.Builtins.WeakMap,
              QuickBEAM.VM.Builtins.Set,
+             QuickBEAM.VM.Builtins.WeakSet,
              QuickBEAM.VM.Builtins.Promise
            ]
 
@@ -157,10 +161,14 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     symbol = QuickBEAM.VM.Builtins.Symbol.builtin_spec()
     assert symbol.kind == :function
     assert symbol.constructor == nil
-    assert [%{key: "iterator", value: %QuickBEAM.VM.Symbol{id: :iterator}}] = symbol.statics
+
+    assert Enum.any?(
+             symbol.statics,
+             &match?(%{key: "iterator", value: %QuickBEAM.VM.Symbol{id: :iterator}}, &1)
+           )
 
     assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
-             ~w(assign create defineProperty getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
+             ~w(assign create defineProperty defineProperties freeze getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
   end
 
   test "installs callable but non-constructable Symbol semantics" do

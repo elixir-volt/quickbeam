@@ -22,12 +22,18 @@ defmodule QuickBEAM.VM.Builtin.Registry do
     QuickBEAM.VM.Builtins.TypeError,
     QuickBEAM.VM.Builtins.URIError,
     QuickBEAM.VM.Builtins.Symbol,
+    QuickBEAM.VM.Builtins.Uint8Array,
+    QuickBEAM.VM.Builtins.Map,
+    QuickBEAM.VM.Builtins.WeakMap,
     QuickBEAM.VM.Builtins.Set,
+    QuickBEAM.VM.Builtins.WeakSet,
     QuickBEAM.VM.Builtins.Promise
   ]
 
+  @ssr @core ++ [QuickBEAM.VM.Builtins.Console]
+
   @doc "Returns builtin modules installed for a profile in dependency order."
-  @spec modules(atom()) :: [module()]
+  @spec modules(:core | :ssr) :: [module()]
   def modules(:core), do: @core
-  def modules(_profile), do: []
+  def modules(:ssr), do: @ssr
 end

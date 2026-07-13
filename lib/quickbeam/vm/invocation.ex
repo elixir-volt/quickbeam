@@ -138,9 +138,15 @@ defmodule QuickBEAM.VM.Invocation do
   @doc "Returns whether a value can be used as a JavaScript constructor."
   @spec constructable?(term(), Execution.t()) :: boolean()
   def constructable?(%Reference{} = constructor, execution) do
-    case Builtins.callable(execution, constructor) do
-      nil -> false
-      callable -> constructable?(callable, execution)
+    case QuickBEAM.VM.Heap.fetch_object(execution, constructor) do
+      {:ok, %{internal: :class_constructor}} ->
+        true
+
+      _other ->
+        case Builtins.callable(execution, constructor) do
+          nil -> false
+          callable -> constructable?(callable, execution)
+        end
     end
   end
 
@@ -205,6 +211,9 @@ defmodule QuickBEAM.VM.Invocation do
   @spec new_frame(Function.t(), term(), [term()], term(), tuple()) :: Frame.t()
   def new_frame(function, callable, arguments, this, closure_refs) do
     local_count = max(function.arg_count + function.var_count, 1)
+    actual_arg_count = length(arguments)
+    missing_arguments = max(function.arg_count - actual_arg_count, 0)
+    arguments = arguments ++ List.duplicate(:undefined, missing_arguments)
 
     %Frame{
       function: function,
@@ -212,6 +221,7 @@ defmodule QuickBEAM.VM.Invocation do
       closure_refs: closure_refs,
       locals: :erlang.make_tuple(local_count, :undefined),
       args: List.to_tuple(arguments),
+      actual_arg_count: actual_arg_count,
       this: this
     }
   end

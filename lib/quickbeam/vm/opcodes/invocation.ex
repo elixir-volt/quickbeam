@@ -8,13 +8,23 @@ defmodule QuickBEAM.VM.Opcodes.Invocation do
   continuation frames and executing invocation actions.
   """
 
-  alias QuickBEAM.VM.{Execution, Frame, Heap, Invocation}
+  alias QuickBEAM.VM.{Execution, Frame, Heap, Invocation, Iterator}
 
-  @opcodes [:call, :tail_call, :call_method, :tail_call_method, :call_constructor]
+  @opcodes [
+    :apply,
+    :call,
+    :tail_call,
+    :call_method,
+    :tail_call_method,
+    :call_constructor,
+    :check_ctor,
+    :init_ctor
+  ]
 
   @type action ::
           {:invoke, term(), [term()], term(), Frame.t(), Execution.t(), boolean()}
           | {:invoke_constructor, term(), [term()], term(), Frame.t(), Execution.t()}
+          | {:invoke_super_constructor, term(), [term()], term(), Frame.t(), Execution.t()}
           | {:throw, term(), Frame.t(), Execution.t()}
           | {:error, term(), Execution.t()}
 
@@ -24,6 +34,50 @@ defmodule QuickBEAM.VM.Opcodes.Invocation do
 
   @doc "Executes one supported invocation opcode."
   @spec execute(atom(), [term()], Frame.t(), Execution.t()) :: action()
+  def execute(:check_ctor, [], %Frame{callable: callable, this: this} = frame, execution) do
+    with %QuickBEAM.VM.Reference{} <- callable,
+         {:ok, %{internal: :class_constructor}} <- Heap.fetch_object(execution, callable),
+         %QuickBEAM.VM.Reference{} <- this,
+         {:ok, %{internal: :constructor_instance}} <- Heap.fetch_object(execution, this) do
+      {:next, frame, execution}
+    else
+      _other -> {:throw, {:type_error, :class_constructor_requires_new}, frame, execution}
+    end
+  end
+
+  def execute(
+        :apply,
+        [constructor?],
+        %Frame{stack: [argument_list, this, callable | stack]} = frame,
+        execution
+      ) do
+    case Iterator.values(argument_list, execution) do
+      {:ok, arguments} when constructor? == 0 ->
+        {:invoke, callable, arguments, this, %{frame | stack: stack}, execution, false}
+
+      {:ok, arguments} when constructor? == 1 ->
+        if Invocation.constructable?(callable, execution) do
+          prototype = Invocation.constructor_prototype(callable, execution)
+
+          {instance, execution} =
+            Heap.allocate(execution, :ordinary,
+              prototype: prototype,
+              internal: :constructor_instance
+            )
+
+          {:invoke_constructor, callable, arguments, instance, %{frame | stack: stack}, execution}
+        else
+          {:throw, {:type_error, :not_a_constructor}, frame, execution}
+        end
+
+      {:error, reason} ->
+        {:throw, {:type_error, reason}, frame, execution}
+
+      {:resumable} ->
+        {:throw, {:type_error, :unsupported_resumable_apply}, frame, execution}
+    end
+  end
+
   def execute(name, [argument_count], %Frame{stack: stack} = frame, execution)
       when name in [:call, :tail_call] do
     {arguments, callable_and_rest} = Enum.split(stack, argument_count)
@@ -51,6 +105,28 @@ defmodule QuickBEAM.VM.Opcodes.Invocation do
 
       _ ->
         {:error, {:invalid_stack, :call_method}, execution}
+    end
+  end
+
+  def execute(
+        :init_ctor,
+        [],
+        %Frame{callable: %QuickBEAM.VM.Reference{} = callable} = frame,
+        execution
+      ) do
+    with {:ok, parent} <- Heap.prototype(execution, callable),
+         true <- Invocation.constructable?(parent, execution) do
+      prototype = Invocation.constructor_prototype(callable, execution)
+
+      {instance, execution} =
+        Heap.allocate(execution, :ordinary,
+          prototype: prototype,
+          internal: :constructor_instance
+        )
+
+      {:invoke_super_constructor, parent, Tuple.to_list(frame.args), instance, frame, execution}
+    else
+      _other -> {:throw, {:type_error, :invalid_super_constructor}, frame, execution}
     end
   end
 

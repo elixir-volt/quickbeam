@@ -53,6 +53,49 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert {:ok, true} = QuickBEAM.VM.eval(some)
   end
 
+  test "installs host namespaces only through the explicit SSR profile" do
+    assert {:ok, program} = QuickBEAM.VM.compile("typeof console")
+    assert {:ok, "undefined"} = QuickBEAM.VM.eval(program)
+    assert {:ok, "object"} = QuickBEAM.VM.eval(program, profile: :ssr)
+
+    assert {:ok, global_alias} =
+             QuickBEAM.VM.compile("globalThis.answer = 42; answer + (globalThis.console ? 0 : 1)")
+
+    assert {:ok, 42} = QuickBEAM.VM.eval(global_alias, profile: :ssr)
+
+    assert {:error, {:invalid_option, :profile, :browser}} =
+             QuickBEAM.VM.eval(program, profile: :browser)
+  end
+
+  test "supports maps, rest parameters, classes, and private fields" do
+    source = """
+    (() => {
+      const map = new Map([["answer", 40]])
+      map.set("extra", 2)
+      let total = 0
+      for (const [_key, value] of map) total += value
+
+      class Box {
+        #value = total
+        get() { return this.#value }
+      }
+
+      return new Box().get()
+    })()
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, 42} = QuickBEAM.VM.eval(program)
+
+    assert {:ok, rest} =
+             QuickBEAM.VM.compile(~S|(function(...values){return values.join("-")})(1,2,3)|)
+
+    assert {:ok, "1-2-3"} = QuickBEAM.VM.eval(rest)
+
+    assert {:ok, invalid_class_call} = QuickBEAM.VM.compile("class Box {}; Box()")
+    assert {:error, %QuickBEAM.JSError{name: "TypeError"}} = QuickBEAM.VM.eval(invalid_class_call)
+  end
+
   test "supports arguments slicing, sets, regular expressions, and function prototypes" do
     source = "(function(){return [].slice.call(arguments,1).join('-')})('a','b','c')"
     assert {:ok, arguments} = QuickBEAM.VM.compile(source)
@@ -63,6 +106,11 @@ defmodule QuickBEAM.VM.InterpreterTest do
 
     assert {:ok, regexp} = QuickBEAM.VM.compile("/beam/.test('quickbeam')")
     assert {:ok, true} = QuickBEAM.VM.eval(regexp)
+
+    assert {:ok, global_regexp} =
+             QuickBEAM.VM.compile("const r=/a/g; r.test('aa') && r.test('aa') && !r.test('aa')")
+
+    assert {:ok, true} = QuickBEAM.VM.eval(global_regexp)
 
     assert {:ok, prototype} =
              QuickBEAM.VM.compile(
@@ -197,8 +245,10 @@ defmodule QuickBEAM.VM.InterpreterTest do
   end
 
   test "reports unsupported opcodes without crashing the caller" do
-    assert {:ok, program} = QuickBEAM.VM.compile("class UnsupportedClass {}")
-    assert {:error, {:unsupported_opcode, _opcode, _operands}} = QuickBEAM.VM.eval(program)
+    assert {:ok, program} =
+             QuickBEAM.VM.compile("function* unsupported(){yield 1} unsupported()")
+
+    assert {:error, {:unsupported_opcode, :initial_yield, []}} = QuickBEAM.VM.eval(program)
     assert Process.alive?(self())
   end
 end

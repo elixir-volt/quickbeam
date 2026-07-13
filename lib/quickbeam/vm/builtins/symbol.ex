@@ -7,7 +7,14 @@ defmodule QuickBEAM.VM.Builtins.Symbol do
   alias QuickBEAM.VM.{Symbol, Value}
 
   builtin "Symbol", kind: :function, length: 0 do
+    static :for_symbol, js: "for", length: 1
     constant "iterator", Symbol.iterator()
+  end
+
+  @doc "Returns the evaluation-stable global symbol for a string key."
+  def for_symbol(%Call{arguments: arguments, execution: execution}) do
+    key = arguments |> List.first(:undefined) |> Value.to_string_value()
+    {:ok, %Symbol{id: {:global, key}, description: key}, execution}
   end
 
   @doc "Creates a fresh owner-local Symbol value."

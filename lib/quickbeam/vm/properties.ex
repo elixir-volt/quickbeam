@@ -36,7 +36,19 @@ defmodule QuickBEAM.VM.Properties do
   def get(%Reference{} = object, key, execution) do
     case Heap.get(execution, object, key) do
       {:ok, :undefined} = missing ->
-        missing
+        case Heap.fetch_object(execution, object) do
+          {:ok, %{internal: :global_object}} ->
+            case Map.fetch(execution.globals, key) do
+              {:ok, value} -> {:ok, value}
+              :error -> missing
+            end
+
+          {:ok, %{kind: :regexp}} when key in ["exec", "test"] ->
+            {:ok, {:primitive_method, :regexp, key}}
+
+          _other ->
+            missing
+        end
 
       result ->
         result

@@ -13,7 +13,8 @@ defmodule QuickBEAM.VM.Builtins.Set do
     Object,
     Properties,
     Reference,
-    Symbol
+    Symbol,
+    Value
   }
 
   builtin "Set",
@@ -23,6 +24,7 @@ defmodule QuickBEAM.VM.Builtins.Set do
     depends_on: ["Object", "Function", "Symbol"] do
     prototype do
       method :add, length: 1
+      method :delete, length: 1
       method :has, length: 1
       method :values, length: 0
       getter :size
@@ -86,6 +88,34 @@ defmodule QuickBEAM.VM.Builtins.Set do
   end
 
   def add(%Call{execution: execution}), do: {:error, :incompatible_set_receiver, execution}
+
+  @doc "Removes a value and reports whether it was present."
+  def delete(%Call{this: %Reference{} = set, arguments: arguments, execution: execution}) do
+    value = List.first(arguments, :undefined)
+
+    case Heap.fetch_object(execution, set) do
+      {:ok, %Object{kind: :set, internal: %{values: values, index: index}}} ->
+        found? = MapSet.member?(index, value)
+
+        {:ok, execution} =
+          Heap.update_object(execution, set, fn object ->
+            %{
+              object
+              | internal: %{
+                  values: Enum.reject(values, &Value.strict_equal?(&1, value)),
+                  index: MapSet.delete(index, value)
+                }
+            }
+          end)
+
+        {:ok, found?, execution}
+
+      _other ->
+        {:error, :incompatible_set_receiver, execution}
+    end
+  end
+
+  def delete(%Call{execution: execution}), do: {:error, :incompatible_set_receiver, execution}
 
   @doc "Tests membership in a Set."
   def has(%Call{this: %Reference{} = set, arguments: arguments, execution: execution}) do

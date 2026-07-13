@@ -18,12 +18,14 @@ defmodule QuickBEAM.VM.Builtins.Array do
       method :concat, length: 1
       method :filter, length: 1
       method :for_each, js: "forEach", length: 1
+      method :includes, length: 1
       method :join, length: 1
       method :map, length: 1
       method :push, length: 1
       method :reduce, length: 1
       method :slice, length: 2
       method :some, length: 1
+      method :sort, length: 1
     end
   end
 
@@ -71,6 +73,24 @@ defmodule QuickBEAM.VM.Builtins.Array do
       entries = Enum.reduce(arguments, entries, &(&2 ++ concat_entries(&1, execution)))
       {array, execution} = array_from_entries(entries, execution)
       {:ok, array, execution}
+    else
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  @doc "Implements `Array.prototype.includes` with SameValueZero comparison."
+  def includes(%Call{this: receiver, arguments: arguments, execution: execution}) do
+    searched = List.first(arguments, :undefined)
+
+    with {:ok, entries} <- array_entries(receiver, execution) do
+      included? =
+        Enum.any?(entries, fn
+          :hole -> searched == :undefined
+          {:present, :nan} -> searched == :nan
+          {:present, value} -> Value.strict_equal?(value, searched)
+        end)
+
+      {:ok, included?, execution}
     else
       {:error, reason} -> {:error, reason, execution}
     end
@@ -145,6 +165,44 @@ defmodule QuickBEAM.VM.Builtins.Array do
 
   @doc "Plans resumable `Array.prototype.some` iteration."
   def some(%Call{} = call), do: iteration_action("some", call)
+
+  @doc "Sorts present array values lexicographically when no comparator is supplied."
+  def sort(%Call{this: %Reference{} = array, arguments: arguments, execution: execution}) do
+    comparator = List.first(arguments, :undefined)
+
+    if comparator != :undefined do
+      {:error, :unsupported_array_sort_comparator, execution}
+    else
+      with {:ok, entries} <- array_entries(array, execution) do
+        values =
+          entries
+          |> Enum.flat_map(fn
+            {:present, value} -> [value]
+            :hole -> []
+          end)
+          |> Enum.sort_by(&Value.to_string_value/1)
+
+        {:ok, execution} =
+          Heap.update_object(execution, array, fn object ->
+            %{object | properties: %{}, property_order: [], length: 0}
+          end)
+
+        execution =
+          values
+          |> Enum.with_index()
+          |> Enum.reduce(execution, fn {value, index}, execution ->
+            {:ok, execution} = Properties.define(array, index, value, execution)
+            execution
+          end)
+
+        {:ok, array, execution}
+      else
+        {:error, reason} -> {:error, reason, execution}
+      end
+    end
+  end
+
+  def sort(%Call{execution: execution}), do: {:error, :not_an_array, execution}
 
   defp array_entries(value, _execution) when is_list(value),
     do: {:ok, Enum.map(value, &{:present, &1})}

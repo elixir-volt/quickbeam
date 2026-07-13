@@ -38,6 +38,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
 
   @opcodes [
              :push_atom_value,
+             :rest,
              :get_arg,
              :put_arg,
              :set_arg,
@@ -77,6 +78,23 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   @spec execute(atom(), [term()], Frame.t(), Execution.t()) :: action()
   def execute(:push_atom_value, [atom], frame, execution),
     do: push(frame, execution, resolve_atom(atom, execution))
+
+  def execute(:rest, [first], frame, execution) do
+    values =
+      frame.args |> Tuple.to_list() |> Enum.take(frame.actual_arg_count) |> Enum.drop(first)
+
+    {array, execution} = Heap.allocate(execution, :array)
+
+    execution =
+      values
+      |> Enum.with_index()
+      |> Enum.reduce(execution, fn {value, index}, execution ->
+        {:ok, execution} = Properties.define(array, index, value, execution)
+        execution
+      end)
+
+    push(frame, execution, array)
+  end
 
   def execute(:get_arg, [index], frame, execution),
     do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
@@ -164,7 +182,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   def execute(:get_var, [atom], frame, execution) do
     name = resolve_atom(atom, execution)
 
-    case Map.fetch(execution.globals, name) do
+    case global_value(execution, name) do
       {:ok, value} -> push(frame, execution, value)
       :error -> {:throw, {:reference_error, name}, frame, execution}
     end
@@ -172,13 +190,20 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
 
   def execute(:get_var_undef, [atom], frame, execution) do
     name = resolve_atom(atom, execution)
-    push(frame, execution, Map.get(execution.globals, name, :undefined))
+
+    value =
+      case global_value(execution, name) do
+        {:ok, value} -> value
+        :error -> :undefined
+      end
+
+    push(frame, execution, value)
   end
 
   def execute(name, [atom | _flags], %{stack: [value | stack]} = frame, execution)
       when name in [:put_var, :put_var_init, :define_func] do
     name = resolve_atom(atom, execution)
-    execution = %{execution | globals: Map.put(execution.globals, name, value)}
+    execution = put_global(execution, name, value)
     next(%{frame | stack: stack}, execution)
   end
 
@@ -188,9 +213,24 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
 
   def execute(name, [index], frame, execution) when name in [:fclosure, :fclosure8] do
     function = Enum.at(frame.function.constants, index)
-    {callable, frame, execution} = capture_closure(function, frame, execution)
-    {reference, execution} = allocate_function(callable, function, execution)
+    {reference, frame, execution} = instantiate_function(function, frame, execution)
     push(frame, execution, reference)
+  end
+
+  @doc "Instantiates a function constant and captures its owner-local closure cells."
+  @spec instantiate_function(Function.t(), Frame.t(), Execution.t(), keyword()) ::
+          {Reference.t(), Frame.t(), Execution.t()}
+  def instantiate_function(%Function{} = function, frame, execution, opts \\ []) do
+    {callable, frame, execution} = capture_closure(function, frame, execution)
+
+    {reference, execution} =
+      if Keyword.get(opts, :prototype?, true) do
+        allocate_function(callable, function, execution)
+      else
+        Heap.allocate(execution, :function, callable: callable)
+      end
+
+    {reference, frame, execution}
   end
 
   @doc "Reads a direct value or owner-local cell/global slot."
@@ -214,6 +254,35 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   end
 
   def resolve_atom(value, _execution), do: value
+
+  defp global_value(execution, name) do
+    case Map.get(execution.globals, "globalThis") do
+      %QuickBEAM.VM.Reference{} = global_this ->
+        case Properties.get(global_this, name, execution) do
+          {:ok, :undefined} -> Map.fetch(execution.globals, name)
+          {:ok, value} -> {:ok, value}
+          {:error, _reason} -> Map.fetch(execution.globals, name)
+        end
+
+      _other ->
+        Map.fetch(execution.globals, name)
+    end
+  end
+
+  defp put_global(execution, name, value) do
+    execution = %{execution | globals: Map.put(execution.globals, name, value)}
+
+    case Map.get(execution.globals, "globalThis") do
+      %QuickBEAM.VM.Reference{} = global_this ->
+        case Properties.put(global_this, name, value, execution) do
+          {:ok, execution} -> execution
+          {:error, _reason} -> execution
+        end
+
+      _other ->
+        execution
+    end
+  end
 
   defp update_local(frame, execution, index, operation) do
     value = read_slot(elem(frame.locals, index), execution)
