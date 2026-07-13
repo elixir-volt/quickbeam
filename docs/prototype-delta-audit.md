@@ -348,8 +348,10 @@ High-value test groups to adapt next:
 - Async state transitions now have one canonical layer for async frame entry,
   coroutine detachment/resumption, await suspension, reactions, thenables,
   Promise-boundary completion, and supervised handler startup.
-- Split exceptions and values from the current interpreter without changing
-  behavior.
+- Exception materialization, catch lookup, frame and native-boundary unwinding,
+  async stack preservation, Promise-boundary rejection, and public error
+  conversion now share one canonical exception layer.
+- Split values from the current interpreter without changing behavior.
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
@@ -376,6 +378,5 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue Phase B by consolidating JavaScript exception materialization and
-unwinding around the canonical exception layer while preserving catchable
-heap-backed errors and stable boundary conversion.
+Continue Phase B by extracting canonical coercion, arithmetic, equality,
+comparison, bitwise, and UTF-16-aware value semantics from opcode dispatch.

@@ -30,7 +30,6 @@ defmodule QuickBEAM.VM.Interpreter do
     Opcodes,
     PredefinedAtoms,
     Program,
-    Promise,
     Properties,
     PromiseExecutorBoundary,
     PromiseReference,
@@ -40,7 +39,6 @@ defmodule QuickBEAM.VM.Interpreter do
     RegExp,
     ThenableBoundary,
     ThenGetterBoundary,
-    Thrown,
     Value
   }
 
@@ -1293,229 +1291,23 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp raise_js(reason, %NativeFrame{caller: caller}, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, caller, execution, trace, true)
-  end
+  defp raise_js(reason, frame, execution),
+    do: reason |> Exceptions.throw_at(frame, execution) |> execute_exception()
 
-  defp raise_js(reason, frame, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, frame, execution, trace, false)
-  end
+  defp raise_js_from_caller(reason, caller, execution),
+    do: reason |> Exceptions.throw_from(caller, execution) |> execute_exception()
 
-  defp raise_js_from_caller(reason, %ObjectAssignBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
+  defp execute_exception({:run, frame, execution}), do: run(frame, execution)
 
-  defp raise_js_from_caller(reason, %ThenGetterBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
-    continue_after_then_getter(boundary, execution)
-  end
+  defp execute_exception({:resume_then_getter, boundary, execution}),
+    do: continue_after_then_getter(boundary, execution)
 
-  defp raise_js_from_caller(reason, %AccessorBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
+  defp execute_exception({:complete, value, caller, execution, tail?}),
+    do: complete_call_result(value, caller, execution, tail?)
 
-  defp raise_js_from_caller(reason, %ConstructorBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
-
-  defp raise_js_from_caller(reason, %ThenableBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
-    {:idle, execution}
-  end
-
-  defp raise_js_from_caller(reason, %PromiseExecutorBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
-    complete_executor(boundary, execution)
-  end
-
-  defp raise_js_from_caller(reason, %ReactionBoundary{} = boundary, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
-    {:idle, execution}
-  end
-
-  defp raise_js_from_caller(reason, %NativeFrame{caller: caller}, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, caller, execution, trace, true)
-  end
-
-  defp raise_js_from_caller(reason, frame, execution) do
-    {reason, trace, execution} = throw_state(reason, execution)
-    do_raise_js(reason, frame, execution, trace, true)
-  end
-
-  defp throw_state(%Thrown{value: value, frames: frames}, execution) do
-    {value, execution} = Exceptions.materialize(value, execution)
-    {value, Enum.reverse(frames), execution}
-  end
-
-  defp throw_state(reason, execution) do
-    {value, execution} = Exceptions.materialize(reason, execution)
-    {value, [], execution}
-  end
-
-  defp do_raise_js(reason, frame, execution, trace, caller?) do
-    case split_at_catch(frame.stack) do
-      {:caught, target, stack_below_catch} ->
-        run(%{frame | pc: target, stack: [reason | stack_below_catch]}, execution)
-
-      :uncaught ->
-        trace = [vm_stack_frame(frame, caller?) | trace]
-        unwind_caller(reason, execution, trace)
-    end
-  end
-
-  defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
-    error = Exceptions.to_js_error(reason, execution, Enum.reverse(trace))
-    {:error, error, execution}
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%ObjectAssignBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%ThenGetterBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
-    continue_after_then_getter(boundary, execution)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%AccessorBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%ConstructorBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    do_raise_js(reason, boundary.caller, execution, trace, true)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%ThenableBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
-    {:idle, execution}
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%PromiseExecutorBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
-    complete_executor(boundary, execution)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%ReactionBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
-    {:idle, execution}
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%AsyncBoundary{} = boundary | callers]} = execution,
-         trace
-       ) do
-    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
-    execution = %{execution | callers: callers, depth: boundary.depth}
-    boundary |> Async.complete({:error, thrown}, execution) |> execute_async()
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%NativeFrame{} = native | callers]} = execution,
-         trace
-       ) do
-    execution = %{execution | callers: callers, depth: execution.depth - 1}
-    do_raise_js(reason, native.caller, execution, trace, true)
-  end
-
-  defp unwind_caller(
-         reason,
-         %Execution{callers: [%Frame{} = caller | callers]} = execution,
-         trace
-       ) do
-    execution = %{execution | callers: callers, depth: execution.depth - 1}
-    do_raise_js(reason, caller, execution, trace, true)
-  end
-
-  defp vm_stack_frame(frame, caller?) do
-    instruction_count = tuple_size(frame.function.instructions)
-    pc = if caller?, do: frame.pc - 1, else: frame.pc
-    pc = pc |> max(0) |> min(max(instruction_count - 1, 0))
-    {line, column} = source_position(frame.function, pc)
-
-    %{
-      function: normalize_function_name(frame.function.name),
-      filename: frame.function.filename,
-      line: line,
-      column: column
-    }
-  end
-
-  defp source_position(%Function{source_positions: positions}, pc)
-       when is_tuple(positions) and pc < tuple_size(positions),
-       do: elem(positions, pc)
-
-  defp source_position(%Function{line_num: line, col_num: column}, _pc),
-    do: {line, column}
-
-  defp normalize_function_name(name) when name in [nil, ""], do: "<anonymous>"
-
-  defp normalize_function_name({:predefined, index}),
-    do: PredefinedAtoms.lookup(index) || "<anonymous>"
-
-  defp normalize_function_name(name) when is_binary(name), do: name
-  defp normalize_function_name(name), do: inspect(name)
-
-  defp split_at_catch(stack) do
-    case Enum.split_while(stack, &(!match?({:catch, _target}, &1))) do
-      {_discarded, [{:catch, target} | stack]} -> {:caught, target, stack}
-      {_discarded, []} -> :uncaught
-    end
-  end
+  defp execute_exception({:async, action}), do: execute_async(action)
+  defp execute_exception({:idle, execution}), do: {:idle, execution}
+  defp execute_exception({:error, error, execution}), do: {:error, error, execution}
 
   defp complete_async(
          value,

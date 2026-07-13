@@ -502,6 +502,12 @@ cancellation mechanisms.
 
 ## Errors, tracing, and observability
 
+`QuickBEAM.VM.Exceptions` is the canonical exception layer. It materializes
+catchable heap-backed errors, locates catch targets, unwinds frame and native
+boundaries, preserves async stack frames, settles Promise-related boundaries,
+and returns explicit continuation actions. The interpreter only executes those
+actions.
+
 JavaScript throws become `%QuickBEAM.JSError{}` with JavaScript name, message,
 filename, line, column, and structured JavaScript stack frames when debug
 metadata is present. Generated errors are owner-local JavaScript objects with
