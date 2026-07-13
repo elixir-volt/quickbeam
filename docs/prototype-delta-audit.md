@@ -396,8 +396,12 @@ High-value test groups to adapt next:
 - String and Number primitive methods now resolve through their installed DSL
   prototype objects for both primitives and boxed values; numeric radix output
   is normalized to JavaScript lowercase form.
-- Continue with Promise constructors and combinators, then object/error
-  prototype methods that remain in the legacy dispatcher.
+- Promise construction, static combinators, and reaction methods now use full
+  constructor DSL topology. Combinators share a canonical iterable boundary
+  for sparse arrays, sets, strings, and internal lists; custom Symbol iterators
+  remain the next resumable extension.
+- Continue with object/error prototype methods that remain in the legacy
+  dispatcher.
 
 ### Phase C — expand conformance by profile demand
 

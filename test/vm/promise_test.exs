@@ -40,6 +40,8 @@ defmodule QuickBEAM.VM.PromiseTest do
       "new Promise((resolve,reject)=>reject(41)).catch(value=>value+1)",
       "new Promise(()=>{throw 42}).catch(value=>value)",
       "new Promise(async resolve=>{await 0;resolve(42)})",
+      "(()=>{try{Promise(()=>{})}catch(error){return error.name}})()",
+      "(()=>{try{new Promise()}catch(error){return error.name}})()",
       "Promise.reject(42).catch(value=>value)",
       "(()=>{let promise=Promise.resolve(1);return Promise.resolve(promise)===promise})()"
     ]
@@ -67,7 +69,11 @@ defmodule QuickBEAM.VM.PromiseTest do
       "Promise.race([Promise.resolve(42),Promise.resolve(1)])",
       "Promise.allSettled([Promise.resolve(1),Promise.reject(2)]).then(values=>values[1].reason)",
       "Promise.any([Promise.reject(1),Promise.resolve(42)])",
-      "Promise.any([Promise.reject(1),Promise.reject(2)]).catch(error=>error.errors.join(','))"
+      "Promise.any([Promise.reject(1),Promise.reject(2)]).catch(error=>error.errors.join(','))",
+      "Promise.all('ab').then(values=>values.join(''))",
+      "Promise.all(new Set([2,1,2])).then(values=>values.join(','))",
+      "Promise.all(Array(2)).then(values=>[values.length,values[0]===void 0,values[1]===void 0])",
+      "Promise.all(1).catch(error=>error.name)"
     ]
 
     for source <- sources do

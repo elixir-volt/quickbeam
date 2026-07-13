@@ -16,8 +16,6 @@ defmodule QuickBEAM.VM.Invocation do
     Frame,
     Function,
     Promise,
-    PromiseExecutorBoundary,
-    PromiseReference,
     Properties,
     Reference,
     Value
@@ -66,41 +64,6 @@ defmodule QuickBEAM.VM.Invocation do
       {:error, reason, execution} -> {:error, {:type_error, reason}, caller, execution}
       %Action{value: action} -> action
     end
-  end
-
-  def plan({:builtin, "Promise"}, [executor | _], _this, caller, execution, tail?) do
-    {promise, execution} = Promise.new(execution)
-
-    boundary = %PromiseExecutorBoundary{
-      promise: promise,
-      caller: caller,
-      depth: execution.depth,
-      tail?: tail?
-    }
-
-    if typeof(executor, execution) == "function" do
-      resolve = {:promise_resolver, promise, :resolve}
-      reject = {:promise_resolver, promise, :reject}
-      {:dispatch, executor, [resolve, reject], :undefined, boundary, execution, false}
-    else
-      execution =
-        Promise.settle(
-          execution,
-          promise,
-          {:error, {:type_error, :promise_executor_not_callable}}
-        )
-
-      {:complete, promise, caller, execution, tail?}
-    end
-  end
-
-  def plan({:builtin, "Promise"}, _arguments, _this, caller, execution, tail?) do
-    {promise, execution} = Promise.new(execution)
-
-    execution =
-      Promise.settle(execution, promise, {:error, {:type_error, :missing_promise_executor}})
-
-    {:complete, promise, caller, execution, tail?}
   end
 
   def plan({:promise_resolver, promise, kind}, arguments, _this, caller, execution, tail?) do
@@ -155,46 +118,6 @@ defmodule QuickBEAM.VM.Invocation do
       end
 
     {:dispatch, target, arguments, this, caller, execution, tail?}
-  end
-
-  def plan(
-        {:promise_method, "then"},
-        arguments,
-        %PromiseReference{} = promise,
-        caller,
-        execution,
-        tail?
-      ) do
-    on_fulfilled = Enum.at(arguments, 0, :undefined)
-    on_rejected = Enum.at(arguments, 1, :undefined)
-    {result, execution} = Promise.react(execution, promise, on_fulfilled, on_rejected)
-    {:complete, result, caller, execution, tail?}
-  end
-
-  def plan(
-        {:promise_method, "catch"},
-        arguments,
-        %PromiseReference{} = promise,
-        caller,
-        execution,
-        tail?
-      ) do
-    on_rejected = Enum.at(arguments, 0, :undefined)
-    {result, execution} = Promise.react(execution, promise, :undefined, on_rejected)
-    {:complete, result, caller, execution, tail?}
-  end
-
-  def plan(
-        {:promise_method, "finally"},
-        arguments,
-        %PromiseReference{} = promise,
-        caller,
-        execution,
-        tail?
-      ) do
-    callback = Enum.at(arguments, 0, :undefined)
-    {result, execution} = Promise.finally(execution, promise, callback)
-    {:complete, result, caller, execution, tail?}
   end
 
   def plan(%Reference{} = reference, arguments, this, caller, execution, tail?) do
@@ -299,7 +222,6 @@ defmodule QuickBEAM.VM.Invocation do
                :function_method,
                :host_function,
                :primitive_method,
-               :promise_method,
                :promise_resolver
              ],
       do: "function"

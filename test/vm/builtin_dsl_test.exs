@@ -112,10 +112,16 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.Array,
              QuickBEAM.VM.Builtins.String,
              QuickBEAM.VM.Builtins.Number,
-             QuickBEAM.VM.Builtins.Object
+             QuickBEAM.VM.Builtins.Object,
+             QuickBEAM.VM.Builtins.Promise
            ]
 
     assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :intrinsic
+
+    promise = QuickBEAM.VM.Builtins.Promise.builtin_spec()
+    assert promise.kind == :constructor
+    assert promise.constructor == :construct
+    assert promise.depends_on == ["Object", "Function"]
 
     assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
              ~w(assign create defineProperty getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)

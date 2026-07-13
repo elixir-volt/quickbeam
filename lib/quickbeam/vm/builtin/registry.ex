@@ -11,7 +11,8 @@ defmodule QuickBEAM.VM.Builtin.Registry do
     QuickBEAM.VM.Builtins.Array,
     QuickBEAM.VM.Builtins.String,
     QuickBEAM.VM.Builtins.Number,
-    QuickBEAM.VM.Builtins.Object
+    QuickBEAM.VM.Builtins.Object,
+    QuickBEAM.VM.Builtins.Promise
   ]
 
   @doc "Returns builtin modules installed for a profile in dependency order."

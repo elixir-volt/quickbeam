@@ -32,7 +32,6 @@ defmodule QuickBEAM.VM.Builtins do
     "TypeError" => [],
     "URIError" => [],
     "Error" => [],
-    "Promise" => ["all", "allSettled", "any", "race", "reject", "resolve"],
     "Set" => []
   }
 
@@ -93,55 +92,6 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec call(term(), term(), [term()], Execution.t()) ::
           {:ok, term(), Execution.t()} | {:error, term(), Execution.t()}
-  def call({:builtin_method, "Promise", method}, _this, [iterable | _], execution)
-      when method in ["all", "allSettled", "any", "race"] do
-    case array_values(iterable, execution) do
-      {:ok, values} ->
-        kind =
-          %{"all" => :all, "allSettled" => :all_settled, "any" => :any, "race" => :race}[method]
-
-        {promise, execution} = QuickBEAM.VM.Promise.aggregate(execution, kind, values)
-        {:ok, promise, execution}
-
-      {:error, reason} ->
-        {:error, reason, execution}
-    end
-  end
-
-  def call(
-        {:builtin_method, "Promise", "resolve"},
-        _this,
-        [%QuickBEAM.VM.PromiseReference{} = promise | _],
-        execution
-      ),
-      do: {:ok, promise, execution}
-
-  def call({:builtin_method, "Promise", "resolve"}, _this, values, execution) do
-    {promise, execution} = QuickBEAM.VM.Promise.new(execution)
-
-    value =
-      case values do
-        [value | _] -> value
-        [] -> :undefined
-      end
-
-    execution = QuickBEAM.VM.Promise.settle(execution, promise, {:ok, value})
-    {:ok, promise, execution}
-  end
-
-  def call({:builtin_method, "Promise", "reject"}, _this, values, execution) do
-    {promise, execution} = QuickBEAM.VM.Promise.new(execution)
-
-    reason =
-      case values do
-        [reason | _] -> reason
-        [] -> :undefined
-      end
-
-    execution = QuickBEAM.VM.Promise.settle(execution, promise, {:error, reason})
-    {:ok, promise, execution}
-  end
-
   def call(
         {:primitive_method, :object, "hasOwnProperty"},
         %Reference{} = object,
@@ -243,13 +193,15 @@ defmodule QuickBEAM.VM.Builtins do
           []
       end
 
-    {set, execution} = Heap.allocate(execution, :set, internal: MapSet.new(entries))
+    entries = Enum.uniq(entries)
+    internal = %{values: entries, index: MapSet.new(entries)}
+    {set, execution} = Heap.allocate(execution, :set, internal: internal)
     {:ok, set, execution}
   end
 
   def call({:primitive_method, :set, "has"}, %Reference{} = set, [value | _], execution) do
     case Heap.fetch_object(execution, set) do
-      {:ok, %Object{kind: :set, internal: entries}} ->
+      {:ok, %Object{kind: :set, internal: %{index: entries}}} ->
         {:ok, MapSet.member?(entries, value), execution}
 
       _ ->
@@ -259,7 +211,13 @@ defmodule QuickBEAM.VM.Builtins do
 
   def call({:primitive_method, :set, "add"}, %Reference{} = set, [value | _], execution) do
     case Heap.update_object(execution, set, fn object ->
-           %{object | internal: MapSet.put(object.internal, value)}
+           %{values: values, index: index} = object.internal
+
+           if MapSet.member?(index, value) do
+             object
+           else
+             %{object | internal: %{values: values ++ [value], index: MapSet.put(index, value)}}
+           end
          end) do
       {:ok, execution} -> {:ok, set, execution}
       {:error, reason} -> {:error, reason, execution}
@@ -443,20 +401,6 @@ defmodule QuickBEAM.VM.Builtins do
 
   defp maybe_install_prototype("Number", constructor, execution),
     do: install_primitive_prototype(constructor, :number, [], execution)
-
-  defp maybe_install_prototype("Promise", constructor, execution) do
-    {prototype, execution} = Heap.allocate(execution)
-
-    {:ok, execution} =
-      Properties.define(prototype, "then", {:promise_method, "then"}, execution,
-        enumerable: false
-      )
-
-    {:ok, execution} =
-      Properties.define(constructor, "prototype", prototype, execution, enumerable: false)
-
-    execution
-  end
 
   defp maybe_install_prototype(_name, _constructor, execution), do: execution
 

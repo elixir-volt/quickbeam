@@ -538,11 +538,19 @@ so several suspended async functions and host operations can coexist. Awaiting
 an already-settled Promise still enqueues resumption as a microtask rather than
 resuming inline.
 
-The Promise runtime provides FIFO `.then`, `.catch`, and `.finally` reactions,
-resolution and rejection propagation, Promise and thenable assimilation,
-self-resolution protection, idempotent resolver functions, and `all`,
-`allSettled`, `any`, and `race`. Callback results are assimilated before their
-reaction Promise settles, including thenables returned from `.finally`.
+The Promise constructor, static combinators, and `.then`, `.catch`, and
+`.finally` methods are declarative DSL builtins. The runtime provides FIFO
+reactions, resolution and rejection propagation, Promise and thenable
+assimilation, self-resolution protection, idempotent resolver functions, and
+`all`, `allSettled`, `any`, and `race`. Callback results are assimilated before
+their reaction Promise settles, including thenables returned from `.finally`.
+
+Combinators consume `QuickBEAM.VM.Iterator`, the canonical iterable-value
+boundary. The core profile currently supports sparse arrays (holes yield
+`undefined`), sets, strings, and internal BEAM lists; non-iterables produce a
+rejected TypeError Promise. Custom `Symbol.iterator` objects remain an explicit
+next extension and must use resumable invocation actions rather than a separate
+recursive execution path.
 
 ```text
 Evaluation owner                       Host Task Supervisor

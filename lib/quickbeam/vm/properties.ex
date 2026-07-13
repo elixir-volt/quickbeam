@@ -27,7 +27,6 @@ defmodule QuickBEAM.VM.Properties do
     :function_method,
     :host_function,
     :primitive_method,
-    :promise_method,
     :promise_resolver
   ]
 
@@ -46,7 +45,7 @@ defmodule QuickBEAM.VM.Properties do
           key in ["bind", "call"] and not is_nil(Builtins.callable(execution, object)) ->
             {:ok, {:function_method, key}}
 
-          kind in [:array, :set] and is_binary(key) ->
+          kind == :set and is_binary(key) ->
             {:ok, {:primitive_method, kind, key}}
 
           true ->
@@ -58,9 +57,8 @@ defmodule QuickBEAM.VM.Properties do
     end
   end
 
-  def get(%PromiseReference{}, method, _execution)
-      when method in ["catch", "finally", "then"],
-      do: {:ok, {:promise_method, method}}
+  def get(%PromiseReference{}, key, execution) when is_binary(key),
+    do: intrinsic_property(execution, "Promise", key)
 
   def get(%RegExp{}, key, _execution) when is_binary(key),
     do: {:ok, {:primitive_method, :regexp, key}}

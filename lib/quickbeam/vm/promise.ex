@@ -298,7 +298,6 @@ defmodule QuickBEAM.VM.Promise do
                :declared_builtin,
                :host_function,
                :primitive_method,
-               :promise_method,
                :promise_resolver
              ] ->
         {:ok, callable}
