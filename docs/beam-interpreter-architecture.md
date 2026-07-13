@@ -403,7 +403,10 @@ WTF-8 binaries at the BEAM boundary, matching native QuickJS conversion.
 The owner-local heap enforces data and accessor descriptors across prototype
 chains, array length truncation and write restrictions, sparse deletion,
 ECMAScript own-key ordering, prototype-cycle rejection, constructor return
-rules, and `instanceof`. Getter, setter, and `Object.assign` calls use resumable
+rules, and `instanceof`. Native Array callback frames retain explicit holes:
+`map` preserves their indices, while `filter`, `forEach`, `some`, and `reduce`
+skip them; reduction without an initial value starts at the first present
+entry. Getter, setter, and `Object.assign` calls use resumable
 boundaries so arbitrary JavaScript and exceptions do not escape the explicit
 machine state. Promise resolution reads accessor-backed `then` properties
 synchronously and queues invocation of returned then functions as microtasks.

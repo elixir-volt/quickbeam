@@ -458,25 +458,37 @@ defmodule QuickBEAM.VM.Interpreter do
         tail?: tail?
       }
 
-      native =
-        if operation == :reduce do
-          case rest do
-            [initial | _] -> %{native | accumulator: initial}
-            [] when tuple_size(values) > 0 -> %{native | accumulator: elem(values, 0), index: 1}
-            [] -> native
-          end
-        else
-          native
-        end
+      case initialize_native(native, rest) do
+        {:ok, native} ->
+          invoke_native_next(native, execution)
 
-      if operation == :reduce and tuple_size(values) == 0 and rest == [] do
-        raise_js_from_caller({:type_error, :reduce_of_empty_array}, caller, execution)
-      else
-        invoke_native_next(native, execution)
+        {:error, :reduce_of_empty_array} ->
+          raise_js_from_caller({:type_error, :reduce_of_empty_array}, caller, execution)
       end
     else
       {:error, reason} -> raise_js_from_caller({:type_error, reason}, caller, execution)
       [] -> raise_js_from_caller({:type_error, :missing_callback}, caller, execution)
+    end
+  end
+
+  defp initialize_native(%NativeFrame{operation: :reduce} = native, [initial | _]),
+    do: {:ok, %{native | accumulator: initial}}
+
+  defp initialize_native(%NativeFrame{operation: :reduce} = native, []) do
+    case next_present(native.values, 0) do
+      {:ok, index, value} -> {:ok, %{native | accumulator: value, index: index + 1}}
+      :none -> {:error, :reduce_of_empty_array}
+    end
+  end
+
+  defp initialize_native(%NativeFrame{} = native, _arguments), do: {:ok, native}
+
+  defp next_present(values, index) when index >= tuple_size(values), do: :none
+
+  defp next_present(values, index) do
+    case elem(values, index) do
+      :hole -> next_present(values, index + 1)
+      {:present, value} -> {:ok, index, value}
     end
   end
 
@@ -486,30 +498,39 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp invoke_native_next(%NativeFrame{} = native, execution) do
-    value = elem(native.values, native.index)
+    case elem(native.values, native.index) do
+      :hole ->
+        results = if native.operation == :map, do: [:hole | native.results], else: native.results
+        invoke_native_next(%{native | index: native.index + 1, results: results}, execution)
 
-    arguments =
-      if native.operation == :reduce,
-        do: [native.accumulator, value, native.index, native.receiver],
-        else: [value, native.index, native.receiver]
+      {:present, value} ->
+        arguments =
+          if native.operation == :reduce,
+            do: [native.accumulator, value, native.index, native.receiver],
+            else: [value, native.index, native.receiver]
 
-    dispatch_call(native.callback, arguments, :undefined, native, execution, false)
+        dispatch_call(native.callback, arguments, :undefined, native, execution, false)
+    end
   end
 
   defp resume_native(value, %NativeFrame{} = native, execution) do
-    current = elem(native.values, native.index)
+    {:present, current} = elem(native.values, native.index)
 
     native =
       case native.operation do
         :map ->
-          %{native | index: native.index + 1, results: [value | native.results]}
+          %{native | index: native.index + 1, results: [{:present, value} | native.results]}
 
         :filter ->
           %{
             native
             | index: native.index + 1,
               results:
-                if(Value.truthy?(value), do: [current | native.results], else: native.results)
+                if(
+                  Value.truthy?(value),
+                  do: [{:present, current} | native.results],
+                  else: native.results
+                )
           }
 
         :for_each ->
@@ -546,21 +567,27 @@ defmodule QuickBEAM.VM.Interpreter do
       else: run(%{native.caller | stack: [value | native.caller.stack]}, execution)
   end
 
-  defp allocate_array(values, execution) do
+  defp allocate_array(entries, execution) do
     {array, execution} = Heap.allocate(execution, :array)
 
     execution =
-      values
+      entries
       |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Properties.define(array, index, value, execution)
-        execution
+      |> Enum.reduce(execution, fn
+        {{:present, value}, index}, execution ->
+          {:ok, execution} = Properties.define(array, index, value, execution)
+          execution
+
+        {:hole, _index}, execution ->
+          execution
       end)
 
+    {:ok, execution} = Properties.define(array, "length", length(entries), execution)
     {:value, array, execution}
   end
 
-  defp interpreter_array_values(value, _execution) when is_list(value), do: {:ok, value}
+  defp interpreter_array_values(value, _execution) when is_list(value),
+    do: {:ok, Enum.map(value, &{:present, &1})}
 
   defp interpreter_array_values(%Reference{} = reference, execution) do
     case Heap.fetch_object(execution, reference) do
@@ -571,8 +598,8 @@ defmodule QuickBEAM.VM.Interpreter do
           else
             for index <- 0..(length - 1) do
               case Map.get(properties, index) do
-                %QuickBEAM.VM.Property{value: value} -> value
-                nil -> :undefined
+                %QuickBEAM.VM.Property{value: value} -> {:present, value}
+                nil -> :hole
               end
             end
           end

@@ -375,7 +375,9 @@ High-value test groups to adapt next:
 
 ### Phase C — expand conformance by profile demand
 
-- Add sparse-array tests and hole-aware native callback frames.
+- Added differential sparse-array tests and hole-aware native callback frames;
+  callbacks skip holes, `map` preserves them, and `reduce` finds the first
+  present element when no initial value is supplied.
 - Add Symbol/iterator foundations and iterable Promise combinators.
 - Expand the pinned Test262 manifest with exact classified thresholds.
 - Add decoder mutation fuzzing.

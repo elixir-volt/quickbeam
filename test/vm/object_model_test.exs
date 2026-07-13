@@ -31,6 +31,19 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     end
   end
 
+  test "matches native sparse-array callback and hole-preservation semantics", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value=Array(4);value[1]=2;let calls=[];let mapped=value.map((item,index)=>{calls.push(index);return item*2});return [calls.join(','),mapped.length,Object.keys(mapped).join(','),mapped[1]]})()",
+      "(()=>{let value=Array(5);value[1]=1;value[3]=3;let each=[];value.forEach((item,index)=>each.push(index));let filtered=value.filter(item=>item>1);let some=value.some((item,index)=>index===2);return [each.join(','),filtered.length,filtered[0],some]})()",
+      "(()=>{let value=Array(5);value[2]=4;value[4]=6;let calls=[];let result=value.reduce((sum,item,index)=>{calls.push(index);return sum+item});return [result,calls.join(',')]})()",
+      "(()=>{let value=Array(3);let calls=0;let initial=value.reduce(()=>{calls++;return 0},42);let error='';try{value.reduce(()=>0)}catch(reason){error=reason.name}return [initial,calls,error]})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
   test "matches native data descriptors and inherited write restrictions", %{runtime: runtime} do
     sources = [
       "(()=>{let value={};Object.defineProperty(value,'hidden',{value:42});let descriptor=Object.getOwnPropertyDescriptor(value,'hidden');return [value.hidden,Object.keys(value).length,descriptor.writable,descriptor.enumerable,descriptor.configurable]})()",
