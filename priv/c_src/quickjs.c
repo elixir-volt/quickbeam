@@ -47854,6 +47854,11 @@ static JSValue js_string_normalize(JSContext *ctx, JSValueConst this_val,
         JS_FreeCString(ctx, form);
     }
 
+    if (buf_len == 0) {
+        js_free(ctx, buf);
+        return JS_NewStringLen(ctx, "", 0);
+    }
+
     out_len = unicode_normalize(&out_buf, buf, buf_len, n_type,
                                 ctx->rt, (DynBufReallocFunc *)js_realloc_rt);
     js_free(ctx, buf);
