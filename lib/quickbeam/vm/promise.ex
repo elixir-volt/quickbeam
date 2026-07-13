@@ -7,9 +7,9 @@ defmodule QuickBEAM.VM.Promise do
   """
 
   alias QuickBEAM.VM.{
-    Builtins,
     Coroutine,
     Execution,
+    Invocation,
     Memory,
     Properties,
     PromiseReference,
@@ -287,7 +287,7 @@ defmodule QuickBEAM.VM.Promise do
         {:getter, getter, receiver}
 
       {:ok, %Reference{} = callable} ->
-        if Builtins.callable(execution, callable), do: {:ok, callable}, else: :none
+        if Invocation.callable?(callable, execution), do: {:ok, callable}, else: :none
 
       {:ok, callable}
       when is_tuple(callable) and

@@ -342,8 +342,11 @@ High-value test groups to adapt next:
 - Property semantics now live behind one canonical property layer, including
   explicit getter/setter actions used by the interpreter, built-ins, Promise
   thenable lookup, and exception conversion.
-- Split invocation, async, exceptions, and values from the current interpreter
-  without changing behavior.
+- Invocation now has one canonical planner for ordinary, closure, bound,
+  constructor, built-in, Promise, and host calls. The interpreter executes its
+  explicit actions to preserve resumable scheduling and exception unwinding.
+- Split async, exceptions, and values from the current interpreter without
+  changing behavior.
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
@@ -370,6 +373,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue Phase B with canonical invocation. Keep ordinary, bound, constructor,
-builtin, and host calls on one resumable path without copying the prototype's
-runtime modules or changing observable behavior.
+Continue Phase B with canonical async scheduling and Promise transitions while
+retaining explicit coroutines, jobs, handler ownership, limits, and resumable
+interpreter boundaries.

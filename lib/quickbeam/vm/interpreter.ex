@@ -22,6 +22,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Frame,
     Function,
     Heap,
+    Invocation,
     Memory,
     NativeFrame,
     ObjectAssignBoundary,
@@ -71,7 +72,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
     execution = Memory.charge(execution, Memory.estimate(vars))
     execution = install_host_globals(execution)
-    frame = new_frame(program.root, program.root, [], :undefined, {})
+    frame = Invocation.new_frame(program.root, program.root, [], :undefined, {})
     run(frame, execution)
   end
 
@@ -144,7 +145,7 @@ defmodule QuickBEAM.VM.Interpreter do
         {:error, _reason} -> reaction.on_rejected
       end
 
-    if type_of(callback, execution) == "function" do
+    if Invocation.typeof(callback, execution) == "function" do
       boundary = %ReactionBoundary{
         promise: reaction.result_promise,
         depth: execution.depth,
@@ -170,35 +171,38 @@ defmodule QuickBEAM.VM.Interpreter do
   def finish({:suspended, continuation}), do: {:suspended, continuation}
   def finish({:idle, _execution}), do: {:error, :idle_evaluation}
 
-  defp enter_call(callable, args, this, caller, execution, tail?, frame_callable \\ nil) do
-    with {:ok, function, closure_refs} <- callable_parts(callable) do
-      frame_callable = frame_callable || callable
-
-      if function.func_kind == 2 do
-        enter_async_call(
-          function,
-          frame_callable,
-          closure_refs,
-          args,
-          this,
-          caller,
-          execution,
-          tail?
-        )
-      else
-        enter_sync_call(
-          function,
-          frame_callable,
-          closure_refs,
-          args,
-          this,
-          caller,
-          execution,
-          tail?
-        )
-      end
+  defp enter_planned_call(
+         function,
+         callable,
+         closure_refs,
+         arguments,
+         this,
+         caller,
+         execution,
+         tail?
+       ) do
+    if function.func_kind == 2 do
+      enter_async_call(
+        function,
+        callable,
+        closure_refs,
+        arguments,
+        this,
+        caller,
+        execution,
+        tail?
+      )
     else
-      {:error, reason} -> raise_js_from_caller(reason, caller, execution)
+      enter_sync_call(
+        function,
+        callable,
+        closure_refs,
+        arguments,
+        this,
+        caller,
+        execution,
+        tail?
+      )
     end
   end
 
@@ -213,7 +217,7 @@ defmodule QuickBEAM.VM.Interpreter do
           do: execution,
           else: %{execution | callers: [caller | execution.callers], depth: depth}
 
-      run(new_frame(function, callable, args, this, closure_refs), execution)
+      run(Invocation.new_frame(function, callable, args, this, closure_refs), execution)
     end
   end
 
@@ -242,28 +246,8 @@ defmodule QuickBEAM.VM.Interpreter do
       }
 
       execution = %{execution | callers: [boundary | execution.callers], depth: depth}
-      run(new_frame(function, callable, args, this, closure_refs), execution)
+      run(Invocation.new_frame(function, callable, args, this, closure_refs), execution)
     end
-  end
-
-  defp callable_parts(%Function{} = function), do: {:ok, function, {}}
-
-  defp callable_parts({:closure, %Function{} = function, closure_refs}),
-    do: {:ok, function, closure_refs}
-
-  defp callable_parts(value), do: {:error, {:not_callable, value}}
-
-  defp new_frame(function, callable, args, this, closure_refs) do
-    local_count = max(function.arg_count + function.var_count, 1)
-
-    %Frame{
-      function: function,
-      callable: callable,
-      closure_refs: closure_refs,
-      locals: :erlang.make_tuple(local_count, :undefined),
-      args: List.to_tuple(args),
-      this: this
-    }
   end
 
   defp run(frame, %Execution{} = execution) when execution.sync_jobs != {[], []} do
@@ -463,7 +447,11 @@ defmodule QuickBEAM.VM.Interpreter do
     do: unary(frame, execution, &is_nil/1)
 
   defp execute(:is_function, [], %{stack: [value | stack]} = frame, execution),
-    do: continue(%{frame | stack: [type_of(value, execution) == "function" | stack]}, execution)
+    do:
+      continue(
+        %{frame | stack: [Invocation.typeof(value, execution) == "function" | stack]},
+        execution
+      )
 
   defp execute(:drop, [], %{stack: [_value | stack]} = frame, execution),
     do: continue(%{frame | stack: stack}, execution)
@@ -682,8 +670,9 @@ defmodule QuickBEAM.VM.Interpreter do
          %{stack: [constructor, object | stack]} = frame,
          execution
        ) do
-    with "function" <- type_of(constructor, execution),
-         {:ok, %Reference{} = prototype} <- instanceof_prototype(constructor, execution) do
+    with "function" <- Invocation.typeof(constructor, execution),
+         {:ok, %Reference{} = prototype} <-
+           Invocation.instanceof_prototype(constructor, execution) do
       result =
         is_struct(object, Reference) and
           Properties.prototype_chain_contains?(object, prototype, execution)
@@ -709,11 +698,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:lnot, [], frame, execution), do: unary(frame, execution, &(not Value.truthy?(&1)))
 
   defp execute(:typeof, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [type_of(value, execution) | stack]}, execution)
+    continue(%{frame | stack: [Invocation.typeof(value, execution) | stack]}, execution)
   end
 
   defp execute(:typeof_is_function, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [type_of(value, execution) == "function" | stack]}, execution)
+    continue(
+      %{frame | stack: [Invocation.typeof(value, execution) == "function" | stack]},
+      execution
+    )
   end
 
   defp execute(:typeof_is_undefined, [], frame, execution),
@@ -884,9 +876,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case constructor_and_new_target do
       [_new_target, constructor | rest] ->
-        if constructable?(constructor, execution) do
+        if Invocation.constructable?(constructor, execution) do
           caller = %{next_frame(frame) | stack: rest}
-          prototype = constructor_prototype(constructor, execution)
+          prototype = Invocation.constructor_prototype(constructor, execution)
 
           {instance, execution} =
             Heap.allocate(execution, :ordinary,
@@ -917,268 +909,55 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp constructable?(%Reference{} = constructor, execution) do
-    case Builtins.callable(execution, constructor) do
-      nil -> false
-      callable -> constructable?(callable, execution)
-    end
+  defp dispatch_call(callable, arguments, this, caller, execution, tail?) do
+    callable
+    |> Invocation.plan(arguments, this, caller, execution, tail?)
+    |> execute_invocation()
   end
 
-  defp constructable?(%Function{has_prototype: has_prototype}, _execution), do: has_prototype
+  defp execute_invocation({:dispatch, callable, arguments, this, caller, execution, tail?}),
+    do: dispatch_call(callable, arguments, this, caller, execution, tail?)
 
-  defp constructable?({:closure, %Function{has_prototype: has_prototype}, _refs}, _execution),
-    do: has_prototype
+  defp execute_invocation(
+         {:enter, function, callable, closure_refs, arguments, this, caller, execution, tail?}
+       ),
+       do:
+         enter_planned_call(
+           function,
+           callable,
+           closure_refs,
+           arguments,
+           this,
+           caller,
+           execution,
+           tail?
+         )
 
-  defp constructable?({:bound_function, target, _this, _arguments}, execution),
-    do: constructable?(target, execution)
+  defp execute_invocation({:complete, value, caller, execution, tail?}),
+    do: complete_call_result(value, caller, execution, tail?)
 
-  defp constructable?({:builtin, name}, _execution),
-    do:
-      name in [
-        "Array",
-        "Boolean",
-        "Error",
-        "EvalError",
-        "Number",
-        "Object",
-        "Promise",
-        "RangeError",
-        "ReferenceError",
-        "Set",
-        "String",
-        "SyntaxError",
-        "TypeError",
-        "URIError"
-      ]
+  defp execute_invocation({:error, reason, caller, execution}),
+    do: raise_js_from_caller(reason, caller, execution)
 
-  defp constructable?(_constructor, _execution), do: false
-
-  defp constructor_prototype({:bound_function, target, _this, _arguments}, execution),
-    do: constructor_prototype(target, execution)
-
-  defp constructor_prototype(constructor, execution) do
-    case Properties.get(constructor, "prototype", execution) do
-      {:ok, %Reference{} = prototype} -> prototype
-      _other -> nil
-    end
-  end
-
-  defp instanceof_prototype({:bound_function, target, _this, _arguments}, execution),
-    do: instanceof_prototype(target, execution)
-
-  defp instanceof_prototype(constructor, execution),
-    do: Properties.get(constructor, "prototype", execution)
-
-  defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
+  defp execute_invocation({:host_call, arguments, caller, execution, tail?}),
     do: start_host_call(arguments, caller, execution, tail?)
 
-  defp dispatch_call({:builtin, "Promise"}, [executor | _], _this, caller, execution, tail?) do
-    {promise, execution} = Promise.new(execution)
-
-    boundary = %PromiseExecutorBoundary{
-      promise: promise,
+  defp execute_invocation({:object_assign, target, sources, caller, execution, tail?}) do
+    boundary = %ObjectAssignBoundary{
+      target: target,
+      sources: sources,
       caller: caller,
       depth: execution.depth,
       tail?: tail?
     }
 
-    resolve = {:promise_resolver, promise, :resolve}
-    reject = {:promise_resolver, promise, :reject}
-
-    if type_of(executor, execution) == "function" do
-      dispatch_call(executor, [resolve, reject], :undefined, boundary, execution, false)
-    else
-      execution =
-        Promise.settle(
-          execution,
-          promise,
-          {:error, {:type_error, :promise_executor_not_callable}}
-        )
-
-      complete_executor(boundary, execution)
-    end
+    continue_object_assign(boundary, execution)
   end
 
-  defp dispatch_call({:builtin, "Promise"}, _arguments, _this, caller, execution, tail?) do
-    {promise, execution} = Promise.new(execution)
-
-    execution =
-      Promise.settle(execution, promise, {:error, {:type_error, :missing_promise_executor}})
-
-    complete_call_result(promise, caller, execution, tail?)
-  end
-
-  defp dispatch_call(
-         {:promise_resolver, promise, kind},
-         arguments,
-         _this,
-         caller,
-         execution,
-         tail?
-       ) do
-    value = Enum.at(arguments, 0, :undefined)
-
-    result =
-      if kind in [:resolve, :resolve_assimilated], do: {:ok, value}, else: {:error, value}
-
-    execution =
-      if kind in [:resolve_assimilated, :reject_assimilated] do
-        Promise.settle_assimilated(execution, promise, result)
-      else
-        Promise.settle(execution, promise, result)
-      end
-
-    complete_call_result(:undefined, caller, execution, tail?)
-  end
-
-  defp dispatch_call(
-         {:bound_function, target, _bound_this, bound_arguments},
-         arguments,
-         this,
-         %ConstructorBoundary{} = caller,
-         execution,
-         tail?
+  defp execute_invocation(
+         {:array_iteration, method, receiver, arguments, caller, execution, tail?}
        ),
-       do: dispatch_call(target, bound_arguments ++ arguments, this, caller, execution, tail?)
-
-  defp dispatch_call(
-         {:bound_function, target, bound_this, bound_arguments},
-         arguments,
-         _this,
-         caller,
-         execution,
-         tail?
-       ),
-       do:
-         dispatch_call(target, bound_arguments ++ arguments, bound_this, caller, execution, tail?)
-
-  defp dispatch_call(
-         {:function_method, "bind"},
-         [bound_this | bound_arguments],
-         target,
-         caller,
-         execution,
-         false
-       ) do
-    run(
-      %{caller | stack: [{:bound_function, target, bound_this, bound_arguments} | caller.stack]},
-      execution
-    )
-  end
-
-  defp dispatch_call({:function_method, "call"}, arguments, target, caller, execution, tail?) do
-    {this, arguments} =
-      case arguments do
-        [this | rest] -> {this, rest}
-        [] -> {:undefined, []}
-      end
-
-    dispatch_call(target, arguments, this, caller, execution, tail?)
-  end
-
-  defp dispatch_call(
-         {:promise_method, "then"},
-         arguments,
-         %PromiseReference{} = promise,
-         caller,
-         execution,
-         tail?
-       ) do
-    on_fulfilled = Enum.at(arguments, 0, :undefined)
-    on_rejected = Enum.at(arguments, 1, :undefined)
-    {result_promise, execution} = Promise.react(execution, promise, on_fulfilled, on_rejected)
-    complete_call_result(result_promise, caller, execution, tail?)
-  end
-
-  defp dispatch_call(
-         {:promise_method, "catch"},
-         arguments,
-         %PromiseReference{} = promise,
-         caller,
-         execution,
-         tail?
-       ) do
-    on_rejected = Enum.at(arguments, 0, :undefined)
-    {result_promise, execution} = Promise.react(execution, promise, :undefined, on_rejected)
-    complete_call_result(result_promise, caller, execution, tail?)
-  end
-
-  defp dispatch_call(
-         {:promise_method, "finally"},
-         arguments,
-         %PromiseReference{} = promise,
-         caller,
-         execution,
-         tail?
-       ) do
-    callback = Enum.at(arguments, 0, :undefined)
-    {result_promise, execution} = Promise.finally(execution, promise, callback)
-    complete_call_result(result_promise, caller, execution, tail?)
-  end
-
-  defp dispatch_call(%Reference{} = reference, arguments, this, caller, execution, tail?) do
-    case Builtins.callable(execution, reference) do
-      nil ->
-        raise_js_from_caller({:not_callable, reference}, caller, execution)
-
-      callable when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] ->
-        dispatch_call(callable, arguments, this, caller, execution, tail?)
-
-      callable ->
-        enter_call(callable, arguments, this, caller, execution, tail?, reference)
-    end
-  end
-
-  defp dispatch_call(
-         {:builtin_method, "Object", "assign"},
-         arguments,
-         _this,
-         caller,
-         execution,
-         tail?
-       ) do
-    case arguments do
-      [%Reference{} = target | sources] ->
-        boundary = %ObjectAssignBoundary{
-          target: target,
-          sources: sources,
-          caller: caller,
-          depth: execution.depth,
-          tail?: tail?
-        }
-
-        continue_object_assign(boundary, execution)
-
-      _arguments ->
-        raise_js_from_caller({:type_error, :not_an_object}, caller, execution)
-    end
-  end
-
-  defp dispatch_call(
-         {:primitive_method, :array, method},
-         arguments,
-         receiver,
-         caller,
-         execution,
-         tail?
-       )
-       when method in ["filter", "forEach", "map", "reduce", "some"] do
-    start_array_iteration(method, receiver, arguments, caller, execution, tail?)
-  end
-
-  defp dispatch_call(callable, arguments, this, caller, execution, tail?)
-       when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] do
-    case Builtins.call(callable, this, arguments, execution) do
-      {:ok, value, execution} ->
-        complete_call_result(value, caller, execution, tail?)
-
-      {:error, reason, execution} ->
-        raise_js_from_caller({:type_error, reason}, caller, execution)
-    end
-  end
-
-  defp dispatch_call(callable, arguments, this, caller, execution, tail?),
-    do: enter_call(callable, arguments, this, caller, execution, tail?)
+       do: start_array_iteration(method, receiver, arguments, caller, execution, tail?)
 
   defp complete_call_result(value, %ReactionBoundary{} = boundary, execution, _tail?),
     do: complete_reaction(boundary, value, execution)
@@ -1225,7 +1004,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp complete_then_getter(value, boundary, execution) do
     execution =
-      if type_of(value, execution) == "function" do
+      if Invocation.typeof(value, execution) == "function" do
         Promise.enqueue_assimilation(execution, boundary.promise, boundary.thenable, value)
       else
         Promise.fulfill_assimilated(execution, boundary.promise, boundary.thenable)
@@ -1637,26 +1416,6 @@ defmodule QuickBEAM.VM.Interpreter do
   catch
     kind, reason -> {:error, {:handler_exception, {kind, reason}, __STACKTRACE__}}
   end
-
-  defp type_of(%Reference{} = reference, execution) do
-    if Builtins.callable(execution, reference), do: "function", else: "object"
-  end
-
-  defp type_of(value, _execution)
-       when is_tuple(value) and
-              elem(value, 0) in [
-                :builtin,
-                :builtin_method,
-                :bound_function,
-                :function_method,
-                :host_function,
-                :primitive_method,
-                :promise_method,
-                :promise_resolver
-              ],
-       do: "function"
-
-  defp type_of(value, _execution), do: Value.typeof(value)
 
   defp get_property_and_continue(object, key, stack, frame, execution) do
     case Properties.get(object, key, execution) do
