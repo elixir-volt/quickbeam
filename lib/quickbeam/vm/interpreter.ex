@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   alias QuickBEAM.VM.{
     AccessorBoundary,
+    Async,
     AsyncBoundary,
     Builtins,
     Continuation,
@@ -91,79 +92,32 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   @doc "Resumes a detached async coroutine with a Promise settlement."
-  def resume_coroutine(%Coroutine{} = coroutine, result, %Execution{} = execution) do
-    callers = coroutine.callers ++ [coroutine.boundary]
-    frame_depth = Enum.count(coroutine.callers, &match?(%Frame{}, &1))
-    execution = %{execution | callers: callers, depth: coroutine.boundary.depth + frame_depth + 1}
-
-    case result do
-      {:ok, value} -> run(%{coroutine.frame | stack: [value | coroutine.frame.stack]}, execution)
-      {:error, reason} -> raise_js_from_caller(reason, coroutine.frame, execution)
-    end
-  end
+  def resume_coroutine(%Coroutine{} = coroutine, result, %Execution{} = execution),
+    do: coroutine |> Async.resume_coroutine(result, execution) |> execute_async()
 
   @doc "Reads a thenable's accessor-backed `then` property during Promise resolution."
   def read_thenable(promise, thenable, getter, %Execution{} = execution),
-    do: start_then_getter(promise, thenable, getter, nil, execution)
+    do: promise |> Async.read_thenable(thenable, getter, nil, execution) |> execute_async()
 
   @doc "Runs one pending synchronous Promise-resolution job, when present."
   def run_synchronous_job(%Execution{} = execution) do
     case :queue.out(execution.sync_jobs) do
       {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
         execution = %{execution | sync_jobs: sync_jobs}
-        start_then_getter(promise, thenable, getter, nil, execution)
+        promise |> Async.read_thenable(thenable, getter, nil, execution) |> execute_async()
 
       {:empty, _sync_jobs} ->
         {:none, execution}
     end
   end
 
-  defp start_then_getter(promise, thenable, getter, continuation, execution) do
-    boundary = %ThenGetterBoundary{
-      promise: promise,
-      thenable: thenable,
-      depth: execution.depth,
-      continuation: continuation
-    }
-
-    dispatch_call(getter, [], thenable, boundary, execution, false)
-  end
-
   @doc "Invokes a thenable and connects its resolver functions to a Promise."
-  def assimilate_thenable(promise, thenable, callable, %Execution{} = execution) do
-    boundary = %ThenableBoundary{promise: promise, depth: execution.depth}
-    resolve = {:promise_resolver, promise, :resolve_assimilated}
-    reject = {:promise_resolver, promise, :reject_assimilated}
-    dispatch_call(callable, [resolve, reject], thenable, boundary, execution, false)
-  end
+  def assimilate_thenable(promise, thenable, callable, %Execution{} = execution),
+    do: promise |> Async.assimilate_thenable(thenable, callable, execution) |> execute_async()
 
   @doc "Runs one queued Promise reaction against a source settlement."
-  def run_reaction(%Reaction{} = reaction, result, %Execution{} = execution) do
-    callback =
-      case result do
-        {:ok, _value} -> reaction.on_fulfilled
-        {:error, _reason} -> reaction.on_rejected
-      end
-
-    if Invocation.typeof(callback, execution) == "function" do
-      boundary = %ReactionBoundary{
-        promise: reaction.result_promise,
-        depth: execution.depth,
-        mode: reaction.kind,
-        original_result: result
-      }
-
-      arguments = if reaction.kind == :finally, do: [], else: [reaction_argument(result)]
-      dispatch_call(callback, arguments, :undefined, boundary, execution, false)
-    else
-      execution = Promise.settle(execution, reaction.result_promise, result)
-      {:idle, execution}
-    end
-  end
-
-  defp reaction_argument({:ok, value}), do: value
-  defp reaction_argument({:error, %Thrown{value: value}}), do: value
-  defp reaction_argument({:error, reason}), do: reason
+  def run_reaction(%Reaction{} = reaction, result, %Execution{} = execution),
+    do: reaction |> Async.run_reaction(result, execution) |> execute_async()
 
   @doc "Converts a raw machine result into the interpreter's public result."
   def finish({:ok, value, execution}), do: Export.value(value, execution)
@@ -222,39 +176,32 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp enter_async_call(function, callable, closure_refs, args, this, caller, execution, tail?) do
-    depth = if tail?, do: execution.depth, else: execution.depth + 1
-
-    if depth > execution.max_stack_depth do
-      {:error, {:limit_exceeded, :stack_depth, depth}, execution}
-    else
-      {promise, execution} = Promise.new(execution)
-
-      mode =
-        cond do
-          match?(%ReactionBoundary{}, caller) -> :reaction
-          match?(%PromiseExecutorBoundary{}, caller) -> :executor
-          match?(%ThenableBoundary{}, caller) -> :thenable
-          tail? -> :return
-          true -> :push
-        end
-
-      boundary = %AsyncBoundary{
-        promise: promise,
-        caller: if(tail?, do: nil, else: caller),
-        depth: execution.depth,
-        mode: mode
-      }
-
-      execution = %{execution | callers: [boundary | execution.callers], depth: depth}
-      run(Invocation.new_frame(function, callable, args, this, closure_refs), execution)
-    end
+    function
+    |> Async.enter(callable, closure_refs, args, this, caller, execution, tail?)
+    |> execute_async()
   end
+
+  defp execute_async({:run, frame, execution}), do: run(frame, execution)
+
+  defp execute_async({:raise, reason, frame, execution}),
+    do: raise_js_from_caller(reason, frame, execution)
+
+  defp execute_async({:invoke, callable, arguments, this, caller, execution, tail?}),
+    do: dispatch_call(callable, arguments, this, caller, execution, tail?)
+
+  defp execute_async({:complete, value, caller, execution, tail?}),
+    do: complete_call_result(value, caller, execution, tail?)
+
+  defp execute_async({:return, value, execution}), do: return_value(value, execution)
+  defp execute_async({:idle, execution}), do: {:idle, execution}
+  defp execute_async({:suspended, continuation}), do: {:suspended, continuation}
+  defp execute_async({:error, reason, execution}), do: {:error, reason, execution}
 
   defp run(frame, %Execution{} = execution) when execution.sync_jobs != {[], []} do
     case :queue.out(execution.sync_jobs) do
       {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
         execution = %{execution | sync_jobs: sync_jobs}
-        start_then_getter(promise, thenable, getter, frame, execution)
+        promise |> Async.read_thenable(thenable, getter, frame, execution) |> execute_async()
 
       {:empty, _sync_jobs} ->
         run(frame, %{execution | sync_jobs: {[], []}})
@@ -1002,16 +949,8 @@ defmodule QuickBEAM.VM.Interpreter do
       else: run(%{caller | stack: [value | caller.stack]}, execution)
   end
 
-  defp complete_then_getter(value, boundary, execution) do
-    execution =
-      if Invocation.typeof(value, execution) == "function" do
-        Promise.enqueue_assimilation(execution, boundary.promise, boundary.thenable, value)
-      else
-        Promise.fulfill_assimilated(execution, boundary.promise, boundary.thenable)
-      end
-
-    continue_after_then_getter(boundary, execution)
-  end
+  defp complete_then_getter(value, boundary, execution),
+    do: value |> Async.complete_then_getter(boundary, execution) |> execute_async()
 
   defp continue_after_then_getter(%ThenGetterBoundary{continuation: %Frame{} = frame}, execution),
     do: run(frame, execution)
@@ -1043,32 +982,8 @@ defmodule QuickBEAM.VM.Interpreter do
     complete_call_result(boundary.promise, boundary.caller, execution, boundary.tail?)
   end
 
-  defp complete_reaction(%ReactionBoundary{mode: :then} = boundary, value, execution) do
-    execution = Promise.settle(execution, boundary.promise, {:ok, value})
-    {:idle, execution}
-  end
-
-  defp complete_reaction(%ReactionBoundary{mode: :finally} = boundary, value, execution) do
-    {completion, execution} =
-      case value do
-        %PromiseReference{} = promise ->
-          {promise, execution}
-
-        value ->
-          {promise, execution} = Promise.new(execution)
-          {promise, Promise.settle(execution, promise, {:ok, value})}
-      end
-
-    execution =
-      Promise.settle_after_finally(
-        execution,
-        completion,
-        boundary.promise,
-        boundary.original_result
-      )
-
-    {:idle, execution}
-  end
+  defp complete_reaction(boundary, value, execution),
+    do: boundary |> Async.complete_reaction(value, execution) |> execute_async()
 
   defp continue_object_assign(%ObjectAssignBoundary{keys: [key | keys]} = boundary, execution) do
     case Properties.get(boundary.source, key, execution) do
@@ -1287,20 +1202,9 @@ defmodule QuickBEAM.VM.Interpreter do
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
 
   defp detach_async(frame, execution, awaited_promise) do
-    case Enum.split_while(execution.callers, &(!match?(%AsyncBoundary{}, &1))) do
-      {inner_callers, [%AsyncBoundary{} = boundary | outer_callers]} ->
-        coroutine = %Coroutine{
-          frame: next_frame(frame),
-          callers: inner_callers,
-          boundary: %{boundary | caller: nil, depth: 0, mode: :detached}
-        }
-
-        execution = %{execution | callers: outer_callers, depth: boundary.depth}
-        execution = Promise.await(execution, awaited_promise, coroutine)
-        {:ok, deliver_async_promise(boundary, execution)}
-
-      {_callers, []} ->
-        :no_async_boundary
+    case Async.detach_await(next_frame(frame), execution, awaited_promise) do
+      {:ok, action} -> {:ok, execute_async(action)}
+      :no_async_boundary -> :no_async_boundary
     end
   end
 
@@ -1312,48 +1216,17 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp detach_async_immediate(frame, execution, result) do
-    case Enum.split_while(execution.callers, &(!match?(%AsyncBoundary{}, &1))) do
-      {inner_callers, [%AsyncBoundary{} = boundary | outer_callers]} ->
-        coroutine = %Coroutine{
-          frame: next_frame(frame),
-          callers: inner_callers,
-          boundary: %{boundary | caller: nil, depth: 0, mode: :detached}
-        }
-
-        execution = %{execution | callers: outer_callers, depth: boundary.depth}
-        execution = Promise.enqueue_coroutine(execution, coroutine, result)
-        {:ok, deliver_async_promise(boundary, execution)}
-
-      {_callers, []} ->
-        :no_async_boundary
+    case Async.detach_immediate(next_frame(frame), execution, result) do
+      {:ok, action} -> {:ok, execute_async(action)}
+      :no_async_boundary -> :no_async_boundary
     end
   end
 
-  defp suspend_promise_legacy(frame, execution, promise) do
-    case Promise.state(execution, promise) do
-      :pending ->
-        {:suspended,
-         %Continuation{frame: next_frame(frame), execution: execution, awaiting: promise}}
+  defp suspend_promise_legacy(frame, execution, promise),
+    do: frame |> next_frame() |> Async.suspend_promise(execution, promise) |> execute_async()
 
-      {:fulfilled, value} ->
-        suspend_microtask({:ok, value}, frame, execution)
-
-      {:rejected, reason} ->
-        suspend_microtask({:error, reason}, frame, execution)
-    end
-  end
-
-  defp suspend_microtask(result, frame, execution) do
-    execution = %{execution | jobs: :queue.in(result, execution.jobs)}
-
-    continuation = %Continuation{
-      frame: next_frame(frame),
-      execution: execution,
-      awaiting: :microtask
-    }
-
-    {:suspended, continuation}
-  end
+  defp suspend_microtask(result, frame, execution),
+    do: frame |> next_frame() |> Async.suspend_microtask(execution, result) |> execute_async()
 
   defp install_host_globals(execution) do
     execution = Builtins.install(execution)
@@ -1375,46 +1248,11 @@ defmodule QuickBEAM.VM.Interpreter do
     %{execution | globals: globals}
   end
 
-  defp start_host_call([name | arguments], caller, execution, tail?) when is_binary(name) do
-    {promise, execution} = Promise.new(execution)
-
-    execution =
-      case Map.fetch(execution.handlers, name) do
-        {:ok, handler} -> start_handler_task(handler, arguments, promise, execution)
-        :error -> Promise.settle(execution, promise, {:error, {:unknown_handler, name}})
-      end
-
-    if tail?,
-      do: return_value(promise, execution),
-      else: run(%{caller | stack: [promise | caller.stack]}, execution)
-  end
-
-  defp start_host_call(_arguments, caller, execution, _tail?),
-    do: raise_js_from_caller({:type_error, :invalid_beam_call}, caller, execution)
-
-  defp start_handler_task(handler, arguments, promise, execution) do
-    operation = make_ref()
-    owner = self()
-
-    case Task.Supervisor.start_child(QuickBEAM.VM.TaskSupervisor, fn ->
-           Process.link(owner)
-           result = invoke_handler(handler, arguments)
-           send(owner, {:quickbeam_vm_host_reply, operation, result})
-         end) do
-      {:ok, pid} ->
-        %{execution | operations: Map.put(execution.operations, operation, {promise, pid})}
-
-      {:error, reason} ->
-        Promise.settle(execution, promise, {:error, {:handler_start_failed, reason}})
+  defp start_host_call(arguments, caller, execution, tail?) do
+    case Async.start_host_call(arguments, execution) do
+      {:ok, promise, execution} -> complete_call_result(promise, caller, execution, tail?)
+      {:error, reason, execution} -> raise_js_from_caller(reason, caller, execution)
     end
-  end
-
-  defp invoke_handler(handler, arguments) do
-    {:ok, handler.(arguments)}
-  rescue
-    exception -> {:error, {:handler_exception, exception, __STACKTRACE__}}
-  catch
-    kind, reason -> {:error, {:handler_exception, {kind, reason}, __STACKTRACE__}}
   end
 
   defp get_property_and_continue(object, key, stack, frame, execution) do
@@ -1622,8 +1460,7 @@ defmodule QuickBEAM.VM.Interpreter do
        ) do
     thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
     execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
-    deliver_async_promise(boundary, execution)
+    boundary |> Async.complete({:error, thrown}, execution) |> execute_async()
   end
 
   defp unwind_caller(
@@ -1685,36 +1522,10 @@ defmodule QuickBEAM.VM.Interpreter do
          %Execution{callers: [%AsyncBoundary{} = boundary | callers]} = execution
        ) do
     execution = %{execution | callers: callers, depth: boundary.depth}
-    execution = Promise.settle(execution, boundary.promise, {:ok, value})
-    deliver_async_promise(boundary, execution)
+    boundary |> Async.complete({:ok, value}, execution) |> execute_async()
   end
 
   defp complete_async(value, execution), do: return_value(value, execution)
-
-  defp deliver_async_promise(
-         %AsyncBoundary{mode: :push, caller: caller, promise: promise},
-         execution
-       ),
-       do: complete_call_result(promise, caller, execution, false)
-
-  defp deliver_async_promise(%AsyncBoundary{mode: :return, promise: promise}, execution),
-    do: return_value(promise, execution)
-
-  defp deliver_async_promise(
-         %AsyncBoundary{mode: :reaction, caller: boundary, promise: promise},
-         execution
-       ) do
-    complete_reaction(boundary, promise, execution)
-  end
-
-  defp deliver_async_promise(%AsyncBoundary{mode: :executor, caller: boundary}, execution),
-    do: complete_executor(boundary, execution)
-
-  defp deliver_async_promise(%AsyncBoundary{mode: :thenable}, execution),
-    do: {:idle, execution}
-
-  defp deliver_async_promise(%AsyncBoundary{mode: :detached}, execution),
-    do: {:idle, execution}
 
   defp return_value(value, %Execution{callers: []} = execution),
     do: {:ok, value, %{execution | depth: 0}}

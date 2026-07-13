@@ -7,12 +7,12 @@ defmodule QuickBEAM.VM.Evaluator do
   """
 
   alias QuickBEAM.VM.{
+    Async,
     Continuation,
     Coroutine,
     Execution,
     Exceptions,
     Interpreter,
-    Memory,
     Promise,
     PromiseReference,
     Program,
@@ -47,12 +47,12 @@ defmodule QuickBEAM.VM.Evaluator do
   defp drive({:suspended, _continuation} = suspended), do: Interpreter.finish(suspended)
 
   defp drive({status, _value, execution} = result) when status in [:ok, :error] do
-    cancel_operations(execution.operations)
+    Async.cancel_operations(execution)
     Interpreter.finish(result)
   end
 
   defp drive({:idle, execution}) do
-    cancel_operations(execution.operations)
+    Async.cancel_operations(execution)
     {:error, :idle_evaluation}
   end
 
@@ -155,7 +155,7 @@ defmodule QuickBEAM.VM.Evaluator do
   defp receive_host_reply(final_promise, execution) do
     receive do
       {:quickbeam_vm_host_reply, operation, result} ->
-        case settle_host_reply(execution, operation, result) do
+        case Async.settle_host_reply(execution, operation, result) do
           {:ok, execution} -> await_final_promise(final_promise, execution)
           :stale -> receive_host_reply(final_promise, execution)
         end
@@ -165,7 +165,7 @@ defmodule QuickBEAM.VM.Evaluator do
   defp await_legacy_promise(%Continuation{} = continuation) do
     receive do
       {:quickbeam_vm_host_reply, operation, result} ->
-        case settle_host_reply(continuation.execution, operation, result) do
+        case Async.settle_host_reply(continuation.execution, operation, result) do
           {:ok, execution} ->
             continuation = %{continuation | execution: execution}
 
@@ -183,24 +183,6 @@ defmodule QuickBEAM.VM.Evaluator do
     end
   end
 
-  defp settle_host_reply(execution, operation, result) do
-    case Map.pop(execution.operations, operation) do
-      {nil, _operations} ->
-        :stale
-
-      {{promise, _pid}, operations} ->
-        execution = %{execution | operations: operations}
-        execution = charge_host_result(execution, result)
-        {:ok, Promise.settle(execution, promise, result)}
-    end
-  end
-
-  defp charge_host_result(execution, {:ok, value}),
-    do: Memory.charge(execution, Memory.estimate(value))
-
-  defp charge_host_result(execution, {:error, reason}),
-    do: Memory.charge(execution, Memory.estimate(reason))
-
   defp settled_result(promise, execution) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} -> {:ok, value}
@@ -216,13 +198,7 @@ defmodule QuickBEAM.VM.Evaluator do
 
   defp finish_final({status, _value, %Execution{} = execution} = result)
        when status in [:ok, :error] do
-    cancel_operations(execution.operations)
+    Async.cancel_operations(execution)
     Interpreter.finish(result)
-  end
-
-  defp cancel_operations(operations) do
-    Enum.each(operations, fn {_operation, {_promise, pid}} ->
-      if Process.alive?(pid), do: Process.exit(pid, :kill)
-    end)
   end
 end

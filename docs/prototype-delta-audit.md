@@ -345,8 +345,11 @@ High-value test groups to adapt next:
 - Invocation now has one canonical planner for ordinary, closure, bound,
   constructor, built-in, Promise, and host calls. The interpreter executes its
   explicit actions to preserve resumable scheduling and exception unwinding.
-- Split async, exceptions, and values from the current interpreter without
-  changing behavior.
+- Async state transitions now have one canonical layer for async frame entry,
+  coroutine detachment/resumption, await suspension, reactions, thenables,
+  Promise-boundary completion, and supervised handler startup.
+- Split exceptions and values from the current interpreter without changing
+  behavior.
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
@@ -373,6 +376,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue Phase B with canonical async scheduling and Promise transitions while
-retaining explicit coroutines, jobs, handler ownership, limits, and resumable
-interpreter boundaries.
+Continue Phase B by consolidating JavaScript exception materialization and
+unwinding around the canonical exception layer while preserving catchable
+heap-backed errors and stable boundary conversion.

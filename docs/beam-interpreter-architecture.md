@@ -415,7 +415,12 @@ they do not silently delegate arbitrary object operations to the native runtime.
 ## Host calls and async work
 
 Async/await and asynchronous BEAM handlers are part of the first SSR milestone.
-Handlers are evaluation options, not fields in the immutable program:
+`QuickBEAM.VM.Async` is the canonical state-transition layer for async frame
+entry, coroutine detachment and resumption, await suspension, thenable and
+reaction planning, Promise-boundary completion, and supervised handler startup.
+It returns explicit actions; the interpreter remains responsible for executing
+frames and unwinding JavaScript exceptions. Handlers are evaluation options,
+not fields in the immutable program:
 
 ```elixir
 QuickBEAM.VM.eval(program,
