@@ -7,8 +7,6 @@ defmodule QuickBEAM.VM.Interpreter do
   Elixir or native call stack.
   """
 
-  import Bitwise
-
   alias QuickBEAM.VM.{
     AccessorBoundary,
     Async,
@@ -382,14 +380,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:to_object, [], frame, execution), do: continue(frame, execution)
 
-  defp execute(:is_undefined_or_null, [], frame, execution),
-    do: unary(frame, execution, &(&1 in [:undefined, nil]))
-
-  defp execute(:is_undefined, [], frame, execution),
-    do: unary(frame, execution, &(&1 == :undefined))
-
-  defp execute(:is_null, [], frame, execution),
-    do: unary(frame, execution, &is_nil/1)
+  defp execute(name, [], frame, execution)
+       when name in [:is_undefined_or_null, :is_undefined, :is_null],
+       do: value_unary(frame, execution, name)
 
   defp execute(:is_function, [], %{stack: [value | stack]} = frame, execution),
     do:
@@ -508,16 +501,16 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:close_loc, [_index], frame, execution), do: continue(frame, execution)
 
   defp execute(:inc_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.add(&1, 1))
+    do: update_local(frame, execution, index, &Value.unary(:inc, &1))
 
   defp execute(:dec_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.subtract(&1, 1))
+    do: update_local(frame, execution, index, &Value.unary(:dec, &1))
 
   defp execute(:add_loc, [index], %{stack: [value | stack]} = frame, execution) do
     current = read_slot(elem(frame.locals, index), execution)
 
     {locals, execution} =
-      write_tuple_slot(frame.locals, index, Value.add(current, value), execution)
+      write_tuple_slot(frame.locals, index, Value.binary(:add, current, value), execution)
 
     continue(%{frame | locals: locals, stack: stack}, execution)
   end
@@ -581,26 +574,24 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:return_async, [], %{stack: [value | _stack]}, execution),
     do: complete_async(value, execution)
 
-  defp execute(:add, [], frame, execution), do: binary(frame, execution, &Value.add/2)
-  defp execute(:sub, [], frame, execution), do: binary(frame, execution, &Value.subtract/2)
-  defp execute(:mul, [], frame, execution), do: binary(frame, execution, &Value.multiply/2)
-  defp execute(:div, [], frame, execution), do: binary(frame, execution, &Value.divide/2)
-  defp execute(:mod, [], frame, execution), do: binary(frame, execution, &Value.modulo/2)
-  defp execute(:pow, [], frame, execution), do: binary(frame, execution, &Value.power/2)
-  defp execute(:lt, [], frame, execution), do: compare(frame, execution, &Kernel.</2)
-  defp execute(:lte, [], frame, execution), do: compare(frame, execution, &Kernel.<=/2)
-  defp execute(:gt, [], frame, execution), do: compare(frame, execution, &Kernel.>/2)
-  defp execute(:gte, [], frame, execution), do: compare(frame, execution, &Kernel.>=/2)
-  defp execute(:eq, [], frame, execution), do: binary(frame, execution, &Value.abstract_equal?/2)
-
-  defp execute(:neq, [], frame, execution),
-    do: binary(frame, execution, &(not Value.abstract_equal?(&1, &2)))
-
-  defp execute(:strict_eq, [], frame, execution),
-    do: binary(frame, execution, &Value.strict_equal?/2)
-
-  defp execute(:strict_neq, [], frame, execution),
-    do: binary(frame, execution, &(not Value.strict_equal?(&1, &2)))
+  defp execute(name, [], frame, execution)
+       when name in [
+              :add,
+              :sub,
+              :mul,
+              :div,
+              :mod,
+              :pow,
+              :lt,
+              :lte,
+              :gt,
+              :gte,
+              :eq,
+              :neq,
+              :strict_eq,
+              :strict_neq
+            ],
+       do: value_binary(frame, execution, name)
 
   defp execute(:in, [], %{stack: [object, key | stack]} = frame, execution) do
     continue(
@@ -628,19 +619,12 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp execute(:and, [], frame, execution), do: bitwise(frame, execution, &band/2)
-  defp execute(:or, [], frame, execution), do: bitwise(frame, execution, &bor/2)
-  defp execute(:xor, [], frame, execution), do: bitwise(frame, execution, &bxor/2)
-  defp execute(:shl, [], frame, execution), do: binary(frame, execution, &Value.shift_left/2)
-  defp execute(:sar, [], frame, execution), do: binary(frame, execution, &Value.shift_right/2)
+  defp execute(name, [], frame, execution)
+       when name in [:and, :or, :xor, :shl, :sar, :shr],
+       do: value_binary(frame, execution, name)
 
-  defp execute(:shr, [], frame, execution),
-    do: binary(frame, execution, &Value.shift_right_unsigned/2)
-
-  defp execute(:neg, [], frame, execution), do: unary(frame, execution, &Value.negate/1)
-  defp execute(:plus, [], frame, execution), do: unary(frame, execution, &Value.to_number/1)
-  defp execute(:not, [], frame, execution), do: unary(frame, execution, &Value.bitwise_not/1)
-  defp execute(:lnot, [], frame, execution), do: unary(frame, execution, &(not Value.truthy?(&1)))
+  defp execute(name, [], frame, execution) when name in [:neg, :plus, :not, :lnot],
+    do: value_unary(frame, execution, name)
 
   defp execute(:typeof, [], %{stack: [value | stack]} = frame, execution) do
     continue(%{frame | stack: [Invocation.typeof(value, execution) | stack]}, execution)
@@ -654,17 +638,17 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp execute(:typeof_is_undefined, [], frame, execution),
-    do: unary(frame, execution, &(&1 == :undefined))
+    do: value_unary(frame, execution, :is_undefined)
 
-  defp execute(:inc, [], frame, execution), do: unary(frame, execution, &Value.add(&1, 1))
-  defp execute(:dec, [], frame, execution), do: unary(frame, execution, &Value.subtract(&1, 1))
+  defp execute(name, [], frame, execution) when name in [:inc, :dec],
+    do: value_unary(frame, execution, name)
 
   defp execute(:post_inc, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [Value.add(value, 1), value | stack]}, execution)
+    continue(%{frame | stack: [Value.unary(:inc, value), value | stack]}, execution)
   end
 
   defp execute(:post_dec, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [Value.subtract(value, 1), value | stack]}, execution)
+    continue(%{frame | stack: [Value.unary(:dec, value), value | stack]}, execution)
   end
 
   defp execute(:fclosure, [index], frame, execution) do
@@ -1187,17 +1171,15 @@ defmodule QuickBEAM.VM.Interpreter do
   defp continue(frame, execution), do: run(next_frame(frame), execution)
   defp next_frame(frame), do: %{frame | pc: frame.pc + 1}
 
-  defp unary(%Frame{stack: [value | stack]} = frame, execution, operation),
-    do: continue(%{frame | stack: [operation.(value) | stack]}, execution)
+  defp value_unary(%Frame{stack: [value | stack]} = frame, execution, operation),
+    do: continue(%{frame | stack: [Value.unary(operation, value) | stack]}, execution)
 
-  defp binary(%Frame{stack: [right, left | stack]} = frame, execution, operation),
-    do: continue(%{frame | stack: [operation.(left, right) | stack]}, execution)
-
-  defp compare(frame, execution, operation),
-    do: binary(frame, execution, &Value.compare(&1, &2, operation))
-
-  defp bitwise(frame, execution, operation),
-    do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
+  defp value_binary(
+         %Frame{stack: [right, left | stack]} = frame,
+         execution,
+         operation
+       ),
+       do: continue(%{frame | stack: [Value.binary(operation, left, right) | stack]}, execution)
 
   defp detach_async(frame, execution, awaited_promise) do
     case Async.detach_await(next_frame(frame), execution, awaited_promise) do

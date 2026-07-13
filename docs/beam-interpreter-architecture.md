@@ -357,9 +357,13 @@ terms, while semantic sentinels and reference types use explicit tagged values.
 The value representation, coercion rules, property semantics, invocation rules,
 and built-ins form one canonical semantic layer shared by the interpreter and
 any future compiler. A compiled path must not grow a second implementation of
-JavaScript semantics. `QuickBEAM.VM.Properties` is now the canonical boundary
-for get, put, define, delete, descriptors, enumeration, primitive properties,
-and prototype operations; accessor results remain explicit resumable actions.
+JavaScript semantics. `QuickBEAM.VM.Value` is the canonical boundary for
+truthiness, primitive coercion, arithmetic, equality, comparison, bitwise
+operations, `typeof`, and UTF-16 string operations. Opcode dispatch and
+built-ins select an operation but do not reimplement it.
+`QuickBEAM.VM.Properties` is the canonical boundary for get, put, define,
+delete, descriptors, enumeration, primitive properties, and prototype
+operations; accessor results remain explicit resumable actions.
 `QuickBEAM.VM.Invocation` is the corresponding canonical boundary for ordinary,
 bound, constructor, built-in, Promise, and host-function calls. It produces
 explicit call actions while the interpreter retains frame scheduling and

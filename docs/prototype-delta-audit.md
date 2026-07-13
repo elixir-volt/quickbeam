@@ -337,7 +337,7 @@ High-value test groups to adapt next:
 - Adapted `Object.getOwnPropertyNames` semantics and required harness helpers.
 - Raised the selected Test262 baseline from 88.9% to 100%.
 
-### Phase B — establish canonical semantic modules (in progress)
+### Phase B — establish canonical semantic modules (complete)
 
 - Property semantics now live behind one canonical property layer, including
   explicit getter/setter actions used by the interpreter, built-ins, Promise
@@ -351,7 +351,8 @@ High-value test groups to adapt next:
 - Exception materialization, catch lookup, frame and native-boundary unwinding,
   async stack preservation, Promise-boundary rejection, and public error
   conversion now share one canonical exception layer.
-- Split values from the current interpreter without changing behavior.
+- Value coercion, arithmetic, equality, comparison, bitwise operations,
+  `typeof`, and UTF-16 string operations now share one canonical value layer.
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
@@ -378,5 +379,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue Phase B by extracting canonical coercion, arithmetic, equality,
-comparison, bitwise, and UTF-16-aware value semantics from opcode dispatch.
+With the canonical semantic foundations in place, split opcode-family dispatch
+into smaller modules that delegate to properties, invocation, async,
+exceptions, and values without duplicating their behavior.

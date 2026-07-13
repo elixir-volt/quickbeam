@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Properties do
     Property,
     Reference,
     RegExp,
-    UTF16
+    Value
   }
 
   @function_tags [
@@ -76,10 +76,10 @@ defmodule QuickBEAM.VM.Properties do
   end
 
   def get(object, "length", _execution) when is_binary(object),
-    do: {:ok, UTF16.length(object)}
+    do: {:ok, Value.string_length(object)}
 
   def get(object, key, _execution) when is_binary(object) and is_integer(key),
-    do: {:ok, UTF16.at(object, key)}
+    do: {:ok, Value.string_at(object, key)}
 
   def get(object, key, _execution) when is_binary(object) and is_binary(key),
     do: {:ok, {:primitive_method, :string, key}}

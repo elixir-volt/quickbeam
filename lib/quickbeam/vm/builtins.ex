@@ -3,8 +3,6 @@ defmodule QuickBEAM.VM.Builtins do
   Installs and dispatches the JavaScript built-ins supported by the VM profile.
   """
 
-  import Bitwise
-
   alias QuickBEAM.VM.{
     Execution,
     Heap,
@@ -13,7 +11,6 @@ defmodule QuickBEAM.VM.Builtins do
     Property,
     Reference,
     RegExp,
-    UTF16,
     Value
   }
 
@@ -226,7 +223,7 @@ defmodule QuickBEAM.VM.Builtins do
     do: {:ok, Value.power(base, exponent), execution}
 
   def call({:builtin_method, "String", "fromCharCode"}, _this, values, execution) do
-    string = values |> Enum.map(&(Value.to_int32(&1) &&& 0xFFFF)) |> UTF16.from_units()
+    string = Value.string_from_char_codes(values)
     {:ok, string, execution}
   end
 
@@ -366,13 +363,13 @@ defmodule QuickBEAM.VM.Builtins do
     do: {:ok, String.contains?(value, Value.to_string_value(part)), execution}
 
   def call({:primitive_method, :string, "charCodeAt"}, value, [index | _], execution) do
-    result = UTF16.char_code_at(value, Value.to_int32(index))
+    result = Value.string_char_code_at(value, Value.to_int32(index))
     {:ok, result, execution}
   end
 
   def call({:primitive_method, :string, "slice"}, value, arguments, execution) do
-    {start, length} = slice_range(UTF16.length(value), arguments)
-    {:ok, UTF16.slice(value, start, length), execution}
+    {start, length} = slice_range(Value.string_length(value), arguments)
+    {:ok, Value.string_slice(value, start, length), execution}
   end
 
   def call({:primitive_method, :string, "replace"}, value, [pattern, replacement | _], execution) do
