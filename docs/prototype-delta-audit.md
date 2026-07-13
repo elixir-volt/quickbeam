@@ -356,6 +356,15 @@ High-value test groups to adapt next:
 - Keep the current tests and SSR fixture green after each extraction.
 - Avoid reproducing the prototype's hundreds of overlapping modules.
 
+### Interpreter decomposition (in progress)
+
+- Literal and operand-stack opcodes now live in one stack family module.
+- Coercion, arithmetic, comparison, bitwise, value-test, `in`, and `instanceof`
+  opcodes now live in one value family module.
+- Family-owned opcode lists are the interpreter's compile-time routing source.
+- Continue with control flow, locals/closures, properties/objects, invocation,
+  and async opcode families without moving the run loop out of the interpreter.
+
 ### Phase C — expand conformance by profile demand
 
 - Add sparse-array tests and hole-aware native callback frames.
@@ -379,6 +388,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-With the canonical semantic foundations in place, split opcode-family dispatch
-into smaller modules that delegate to properties, invocation, async,
-exceptions, and values without duplicating their behavior.
+Continue opcode-family decomposition with control flow and locals/closures,
+keeping frame stepping, resource accounting, and action execution centralized
+in the interpreter.

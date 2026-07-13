@@ -40,8 +40,14 @@ defmodule QuickBEAM.VM.Interpreter do
     Value
   }
 
+  alias QuickBEAM.VM.Opcodes.Stack, as: StackOpcodes
+  alias QuickBEAM.VM.Opcodes.Values, as: ValueOpcodes
+
   @default_max_steps 5_000_000
   @default_max_stack_depth 1_000
+
+  @stack_opcodes StackOpcodes.opcodes()
+  @value_opcodes ValueOpcodes.opcodes()
 
   @type result ::
           {:ok, term()}
@@ -222,27 +228,14 @@ defmodule QuickBEAM.VM.Interpreter do
     execute(name, operands, frame, execution)
   end
 
-  defp execute(:push_i32, [value], frame, execution), do: push(frame, execution, value)
-  defp execute(:push_i8, [value], frame, execution), do: push(frame, execution, value)
-  defp execute(:push_i16, [value], frame, execution), do: push(frame, execution, value)
-  defp execute(:undefined, [], frame, execution), do: push(frame, execution, :undefined)
-  defp execute(:null, [], frame, execution), do: push(frame, execution, nil)
-  defp execute(:push_false, [], frame, execution), do: push(frame, execution, false)
-  defp execute(:push_true, [], frame, execution), do: push(frame, execution, true)
+  defp execute(name, operands, frame, execution) when name in @stack_opcodes,
+    do: name |> StackOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
-  defp execute(:push_bigint_i32, [value], frame, execution),
-    do: push(frame, execution, {:bigint, value})
-
-  defp execute(:push_const, [index], frame, execution),
-    do: push(frame, execution, Enum.at(frame.function.constants, index))
-
-  defp execute(:push_const8, [index], frame, execution),
-    do: execute(:push_const, [index], frame, execution)
+  defp execute(name, operands, frame, execution) when name in @value_opcodes,
+    do: name |> ValueOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
   defp execute(:push_atom_value, [atom], frame, execution),
     do: push(frame, execution, resolve_atom(atom, execution))
-
-  defp execute(:push_this, [], frame, execution), do: push(frame, execution, frame.this)
 
   defp execute(:regexp, [], %{stack: [bytecode, source | stack]} = frame, execution) do
     push(%{frame | stack: stack}, execution, %RegExp{source: source, bytecode: bytecode})
@@ -372,82 +365,6 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp execute(:to_propkey, [], frame, execution), do: continue(frame, execution)
-
-  defp execute(:to_object, [], %{stack: [value | _]} = frame, execution)
-       when value in [nil, :undefined],
-       do: raise_js({:type_error, :cannot_convert_to_object}, frame, execution)
-
-  defp execute(:to_object, [], frame, execution), do: continue(frame, execution)
-
-  defp execute(name, [], frame, execution)
-       when name in [:is_undefined_or_null, :is_undefined, :is_null],
-       do: value_unary(frame, execution, name)
-
-  defp execute(:is_function, [], %{stack: [value | stack]} = frame, execution),
-    do:
-      continue(
-        %{frame | stack: [Invocation.typeof(value, execution) == "function" | stack]},
-        execution
-      )
-
-  defp execute(:drop, [], %{stack: [_value | stack]} = frame, execution),
-    do: continue(%{frame | stack: stack}, execution)
-
-  defp execute(:dup, [], %{stack: [value | _]} = frame, execution),
-    do: continue(%{frame | stack: [value | frame.stack]}, execution)
-
-  defp execute(:dup1, [], %{stack: [a, b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, b | stack]}, execution)
-
-  defp execute(:dup2, [], %{stack: [a, b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, a, b | stack]}, execution)
-
-  defp execute(:dup3, [], %{stack: [a, b, c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, c, a, b, c | stack]}, execution)
-
-  defp execute(:nip, [], %{stack: [a, _b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a | stack]}, execution)
-
-  defp execute(:nip_catch, [], frame, execution),
-    do: execute(:nip, [], frame, execution)
-
-  defp execute(:nip1, [], %{stack: [a, b, _c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b | stack]}, execution)
-
-  defp execute(:swap, [], %{stack: [a, b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [b, a | stack]}, execution)
-
-  defp execute(:swap2, [], %{stack: [a, b, c, d | stack]} = frame, execution),
-    do: continue(%{frame | stack: [c, d, a, b | stack]}, execution)
-
-  defp execute(:perm3, [], %{stack: [a, b, c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, c, b | stack]}, execution)
-
-  defp execute(:perm4, [], %{stack: [a, b, c, d | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, c, d, b | stack]}, execution)
-
-  defp execute(:perm5, [], %{stack: [a, b, c, d, e | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, c, d, e, b | stack]}, execution)
-
-  defp execute(:rot3l, [], %{stack: [a, b, c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [c, a, b | stack]}, execution)
-
-  defp execute(:rot3r, [], %{stack: [a, b, c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [b, c, a | stack]}, execution)
-
-  defp execute(:rot4l, [], %{stack: [a, b, c, d | stack]} = frame, execution),
-    do: continue(%{frame | stack: [d, a, b, c | stack]}, execution)
-
-  defp execute(:rot5l, [], %{stack: [a, b, c, d, e | stack]} = frame, execution),
-    do: continue(%{frame | stack: [e, a, b, c, d | stack]}, execution)
-
-  defp execute(:insert2, [], %{stack: [a, b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, a | stack]}, execution)
-
-  defp execute(:insert3, [], %{stack: [a, b, c | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, c, a | stack]}, execution)
-
   defp execute(:get_arg, [index], frame, execution),
     do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
 
@@ -573,83 +490,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:return_async, [], %{stack: [value | _stack]}, execution),
     do: complete_async(value, execution)
-
-  defp execute(name, [], frame, execution)
-       when name in [
-              :add,
-              :sub,
-              :mul,
-              :div,
-              :mod,
-              :pow,
-              :lt,
-              :lte,
-              :gt,
-              :gte,
-              :eq,
-              :neq,
-              :strict_eq,
-              :strict_neq
-            ],
-       do: value_binary(frame, execution, name)
-
-  defp execute(:in, [], %{stack: [object, key | stack]} = frame, execution) do
-    continue(
-      %{frame | stack: [Properties.has_property?(object, key, execution) | stack]},
-      execution
-    )
-  end
-
-  defp execute(
-         :instanceof,
-         [],
-         %{stack: [constructor, object | stack]} = frame,
-         execution
-       ) do
-    with "function" <- Invocation.typeof(constructor, execution),
-         {:ok, %Reference{} = prototype} <-
-           Invocation.instanceof_prototype(constructor, execution) do
-      result =
-        is_struct(object, Reference) and
-          Properties.prototype_chain_contains?(object, prototype, execution)
-
-      continue(%{frame | stack: [result | stack]}, execution)
-    else
-      _invalid -> raise_js({:type_error, :invalid_instanceof_target}, frame, execution)
-    end
-  end
-
-  defp execute(name, [], frame, execution)
-       when name in [:and, :or, :xor, :shl, :sar, :shr],
-       do: value_binary(frame, execution, name)
-
-  defp execute(name, [], frame, execution) when name in [:neg, :plus, :not, :lnot],
-    do: value_unary(frame, execution, name)
-
-  defp execute(:typeof, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [Invocation.typeof(value, execution) | stack]}, execution)
-  end
-
-  defp execute(:typeof_is_function, [], %{stack: [value | stack]} = frame, execution) do
-    continue(
-      %{frame | stack: [Invocation.typeof(value, execution) == "function" | stack]},
-      execution
-    )
-  end
-
-  defp execute(:typeof_is_undefined, [], frame, execution),
-    do: value_unary(frame, execution, :is_undefined)
-
-  defp execute(name, [], frame, execution) when name in [:inc, :dec],
-    do: value_unary(frame, execution, name)
-
-  defp execute(:post_inc, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [Value.unary(:inc, value), value | stack]}, execution)
-  end
-
-  defp execute(:post_dec, [], %{stack: [value | stack]} = frame, execution) do
-    continue(%{frame | stack: [Value.unary(:dec, value), value | stack]}, execution)
-  end
 
   defp execute(:fclosure, [index], frame, execution) do
     function = Enum.at(frame.function.constants, index)
@@ -1171,15 +1011,10 @@ defmodule QuickBEAM.VM.Interpreter do
   defp continue(frame, execution), do: run(next_frame(frame), execution)
   defp next_frame(frame), do: %{frame | pc: frame.pc + 1}
 
-  defp value_unary(%Frame{stack: [value | stack]} = frame, execution, operation),
-    do: continue(%{frame | stack: [Value.unary(operation, value) | stack]}, execution)
+  defp execute_opcode({:next, frame, execution}), do: continue(frame, execution)
 
-  defp value_binary(
-         %Frame{stack: [right, left | stack]} = frame,
-         execution,
-         operation
-       ),
-       do: continue(%{frame | stack: [Value.binary(operation, left, right) | stack]}, execution)
+  defp execute_opcode({:throw, reason, frame, execution}),
+    do: raise_js(reason, frame, execution)
 
   defp detach_async(frame, execution, awaited_promise) do
     case Async.detach_await(next_frame(frame), execution, awaited_promise) do
