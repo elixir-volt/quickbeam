@@ -309,10 +309,12 @@ Compiler extraction gate:
 The module-name, cache-lifecycle, runtime-ABI, prototype-analysis, and
 deoptimization design is now specified in
 [`beam-compiler-contract.md`](beam-compiler-contract.md). Static slot identities
-and owner-local deoptimization validation are executable contracts. The compiler
-remains quarantined until the supervised pool, minimal runtime ABI, and their
-acceptance tests are implemented; no prototype compiler runtime is approved for
-copying.
+and owner-local deoptimization validation are executable contracts. The
+supervisor-compatible fixed-slot pool now proves leases, owner monitoring,
+single-flight compilation, LRU reuse, bounded shutdown, and quarantine through a
+fake loader. The compiler remains quarantined until the minimal runtime ABI and
+production soft-purge loader pass their acceptance tests; no prototype compiler
+runtime is approved for copying.
 
 ## Test extraction policy
 

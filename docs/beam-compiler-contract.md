@@ -65,6 +65,12 @@ uses exactly the statically declared names returned by
 32 names. Configuration may use fewer slots but cannot create names or exceed
 that ceiling.
 
+`QuickBEAM.VM.Compiler.ModulePool` now implements the lifecycle as a
+supervisor-compatible singleton behind the `Compiler.Loader` behavior. Compile
+tasks have bounded wall time and a configurable BEAM heap ceiling. The current
+tests use a fake loader: no generated BEAM is installed until the minimal
+runtime ABI and production soft-purge loader land.
+
 A singleton supervised pool owns these states:
 
 ```text
@@ -108,10 +114,13 @@ error. Generated code must not expose BEAM funs or `{module, function}` tuples a
 JavaScript values; JavaScript closures remain canonical VM function values and
 acquire a fresh lease when invoked.
 
-Pool restart increments an epoch, invalidating every old lease. Shutdown stops
-compile tasks, rejects waiters, waits for leases for a bounded grace period, and
-then applies only soft purge. Code that cannot be safely purged remains loaded
-until VM shutdown.
+Pool restart increments an epoch, invalidating every old lease, and attempts to
+soft-retire every reserved static slot before admitting work, including slots
+outside the currently configured capacity. A slot that may still be referenced
+by pre-restart code is quarantined rather than treated as free. Shutdown stops
+compile tasks, rejects waiters, waits for leases for a
+bounded grace period, and then applies only soft purge. Code that cannot be
+safely purged remains loaded until VM shutdown.
 
 ## Compiler runtime ABI
 
@@ -230,10 +239,12 @@ not prototype runtime modules or fallback behavior.
 
 ## Extraction order
 
-1. Land contract types, static slot names, and invariant tests.
-2. Implement the supervised pool with a fake loader; prove bounds, owner
-   monitoring, generations, single-flight compilation, and quarantine.
-3. Add the minimal runtime ABI and disassembly allowlist.
+1. **Complete:** land contract types, static slot names, and invariant tests.
+2. **Complete:** implement the supervised pool with a fake loader; prove bounds,
+   owner monitoring, generations, single-flight compilation, bounded shutdown,
+   and quarantine.
+3. Add the minimal runtime ABI, production soft-purge loader, and disassembly
+   allowlist.
 4. Extract only CFG/stack analysis concepts and pure-block form emission.
 5. Compile literals, stack/local operations, primitive values, and branches.
 6. Add validated before-instruction deoptimization to the interpreter.

@@ -7,10 +7,10 @@ process-isolated evaluation, explicit frames and detached async continuations,
 closures, exceptions, owner-local objects, Promise reactions and combinators,
 asynchronous `Beam.call`, logical and process memory containment, stable
 JavaScript errors, pinned Preact, Vue, and Svelte SSR acceptance fixtures, and
-bounded deterministic decoder/verifier mutation fuzzing, and the bounded
-optional-compiler contract. Broader ECMAScript conformance, object-model
-hardening, garbage collection, compiler extraction, and release hardening remain
-in progress.
+bounded deterministic decoder/verifier mutation fuzzing, the bounded optional
+compiler contract, and its supervised fixed-slot lifecycle foundation. Broader
+ECMAScript conformance, object-model hardening, garbage collection, compiler
+lowering, and release hardening remain in progress.
 
 ## Summary
 
@@ -844,8 +844,8 @@ limits are enforced, and the compatibility matrix is published.
 
 Only after interpreter correctness is stable:
 
-- implement the static module pool and lifecycle specified in
-  [`beam-compiler-contract.md`](beam-compiler-contract.md);
+- build the production soft-purge loader on the implemented static module pool
+  lifecycle specified in [`beam-compiler-contract.md`](beam-compiler-contract.md);
 - compile verified pure basic blocks to Erlang abstract forms;
 - call the versioned ABI over the same canonical runtime semantics;
 - deopt before unsupported instructions into validated owner-local interpreter
