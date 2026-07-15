@@ -66,10 +66,11 @@ uses exactly the statically declared names returned by
 that ceiling.
 
 `QuickBEAM.VM.Compiler.ModulePool` now implements the lifecycle as a
-supervisor-compatible singleton behind the `Compiler.Loader` behavior. Compile
-tasks have bounded wall time and a configurable BEAM heap ceiling. The current
-tests use a fake loader: no generated BEAM is installed until the minimal
-runtime ABI and production soft-purge loader land.
+supervisor-compatible singleton behind the `Compiler.ModulePool.Backend`
+behavior. Compile tasks have bounded wall time and a configurable BEAM heap
+ceiling. Lifecycle tests use a fake backend. The production
+`Compiler.GeneratedModule` backend coordinates bounded template emission,
+import validation, artifact installation, and soft-purge code retirement.
 
 A singleton supervised pool owns these states:
 
@@ -118,8 +119,8 @@ Pool restart increments an epoch, invalidating every old lease, and attempts to
 soft-retire every reserved static slot before admitting work, including slots
 outside the currently configured capacity. A slot that may still be referenced
 by pre-restart code is quarantined rather than treated as free. Shutdown stops
-compile tasks, rejects waiters, waits for leases for a
-bounded grace period, and then applies only soft purge. Code that cannot be
+compile tasks, rejects waiters, waits for leases for a bounded grace period, and
+then applies only soft purge. Code that cannot be
 safely purged remains loaded until VM shutdown.
 
 ## Compiler runtime ABI
@@ -140,16 +141,20 @@ No generated external call to `Heap`, builtin installers, process dictionaries,
 or prototype compiler helpers is allowed. ABI functions return explicit actions
 rather than recursively invoking JavaScript.
 
-The first ABI should contain only:
+The first ABI now contains only:
 
 - exact step charging at basic-block boundaries;
-- local/argument/stack transforms over `%Frame{}`;
+- verified local/argument/stack transforms over `%Frame{}` through existing
+  opcode-family modules;
 - primitive unary/binary operations through `Value`;
 - truthiness and verified branch selection;
 - construction of a typed `%Compiler.Deopt{}`.
 
-Properties, calls, throws, and suspension are added only with differential and
-resource-limit tests for their action protocol.
+`Compiler.GeneratedModule.ImportPolicy` inspects every generated module import
+before installation. The closed initial allowlist contains this ABI plus the two
+Erlang `get_module_info` imports emitted for every generated module. Properties, calls,
+throws, and suspension are added only with differential and resource-limit tests
+for their action protocol.
 
 ## Steps, memory, timeout, and scheduling
 
@@ -240,12 +245,12 @@ not prototype runtime modules or fallback behavior.
 ## Extraction order
 
 1. **Complete:** land contract types, static slot names, and invariant tests.
-2. **Complete:** implement the supervised pool with a fake loader; prove bounds,
+2. **Complete:** implement the supervised pool with a fake backend; prove bounds,
    owner monitoring, generations, single-flight compilation, bounded shutdown,
    and quarantine.
-3. Add the minimal runtime ABI, production soft-purge loader, and disassembly
-   allowlist.
-4. Extract only CFG/stack analysis concepts and pure-block form emission.
+3. **Complete:** add the minimal runtime ABI, generated-module emitter and import
+   policy, and production soft-purge code lifecycle.
+4. Extract only CFG/basic-block analysis concepts and pure-block form emission.
 5. Compile literals, stack/local operations, primitive values, and branches.
 6. Add validated before-instruction deoptimization to the interpreter.
 7. Run interpreter/compiler/native differential tests plus exact limit and

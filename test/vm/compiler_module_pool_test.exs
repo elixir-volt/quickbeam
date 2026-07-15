@@ -3,14 +3,14 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
 
   alias QuickBEAM.VM.Compiler.{Contract, ModulePool}
 
-  defmodule FakeLoader do
-    @moduledoc "Test loader that records compiler module-pool lifecycle calls."
+  defmodule FakeBackend do
+    @moduledoc "Test backend that records compiler module-pool lifecycle calls."
 
-    @behaviour QuickBEAM.VM.Compiler.Loader
+    @behaviour QuickBEAM.VM.Compiler.ModulePool.Backend
 
     @state __MODULE__.State
 
-    @doc "Returns the fake loader state process name."
+    @doc "Returns the fake backend state process name."
     def state_name, do: @state
 
     @doc "Configures the next retirement result for one module."
@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
       Agent.update(@state, &put_in(&1, [:retire_results, module], result))
     end
 
-    @doc "Returns the recorded fake loader state."
+    @doc "Returns the recorded fake backend state."
     def state, do: Agent.get(@state, & &1)
 
     @doc "Clears recorded calls without changing configured retirement results."
@@ -98,8 +98,8 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     end
 
     start_supervised!(%{
-      id: FakeLoader.state_name(),
-      start: {Agent, :start_link, [initial_state, [name: FakeLoader.state_name()]]}
+      id: FakeBackend.state_name(),
+      start: {Agent, :start_link, [initial_state, [name: FakeBackend.state_name()]]}
     })
 
     :ok
@@ -137,7 +137,7 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
       end
 
     assert MapSet.size(MapSet.new(results, & &1.token)) == 20
-    assert FakeLoader.state().compiles[key] == 1
+    assert FakeBackend.state().compiles[key] == 1
     assert ModulePool.stats(pool).leases == 20
 
     Enum.each(owners, &send(&1, :release))
@@ -164,7 +164,7 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert eventually(fn -> ModulePool.stats(pool).counts == %{ready: 1} end)
     assert ModulePool.stats(pool).leases == 0
     assert {:ok, lease} = ModulePool.checkout(pool, key)
-    assert FakeLoader.state().compiles[key] == 1
+    assert FakeBackend.state().compiles[key] == 1
     assert :ok = ModulePool.checkin(pool, lease)
   end
 
@@ -192,8 +192,8 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert stats.capacity == 2
     assert stats.counts == %{ready: 2}
     assert Enum.all?(stats.slots, &(&1.module in Enum.take(Contract.pool_modules(), 2)))
-    assert length(Enum.uniq(FakeLoader.state().compile_modules)) == 2
-    assert length(FakeLoader.state().retires) == 98
+    assert length(Enum.uniq(FakeBackend.state().compile_modules)) == 2
+    assert length(FakeBackend.state().retires) == 98
     assert :erlang.system_info(:atom_count) == atom_count
   end
 
@@ -248,7 +248,7 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert {:ok, lease} = ModulePool.checkout(pool, key(1))
     first_epoch = ModulePool.stats(pool).epoch
 
-    FakeLoader.put_retire_result(lease.module, {:error, :live_code_reference})
+    FakeBackend.put_retire_result(lease.module, {:error, :live_code_reference})
     GenServer.stop(pool, :shutdown)
 
     assert eventually(fn -> is_pid(Process.whereis(name)) and Process.whereis(name) != pool end)
@@ -264,14 +264,14 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     pool = start_pool(capacity: 1)
     assert {:ok, lease} = ModulePool.checkout(pool, key(1))
     assert :ok = ModulePool.checkin(pool, lease)
-    FakeLoader.put_retire_result(lease.module, {:error, :live_code_reference})
+    FakeBackend.put_retire_result(lease.module, {:error, :live_code_reference})
 
     assert {:error, :compiler_pool_busy} = ModulePool.checkout(pool, key(2))
 
     assert [%{status: :quarantined, reason: :live_code_reference}] =
              ModulePool.stats(pool).slots
 
-    assert FakeLoader.state().retires == [lease.module]
+    assert FakeBackend.state().retires == [lease.module]
   end
 
   @tag capture_log: true
@@ -338,7 +338,7 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert :ok = Task.await(drain)
     assert ModulePool.stats(pool).mode == :drained
     assert ModulePool.stats(pool).counts == %{free: 1}
-    assert FakeLoader.state().retires == [lease.module]
+    assert FakeBackend.state().retires == [lease.module]
   end
 
   test "bounds shutdown waiting without hard-purging an active slot" do
@@ -346,23 +346,23 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert {:ok, lease} = ModulePool.checkout(pool, key(1))
 
     assert {:error, {:compiler_pool_shutdown_timeout, 1}} = ModulePool.drain(pool, 20)
-    assert FakeLoader.state().retires == []
+    assert FakeBackend.state().retires == []
     assert ModulePool.stats(pool).mode == :draining
 
     assert :ok = ModulePool.checkin(pool, lease)
     assert eventually(fn -> ModulePool.stats(pool).mode == :drained end)
-    assert FakeLoader.state().retires == [lease.module]
+    assert FakeBackend.state().retires == [lease.module]
   end
 
   test "soft-retires every reserved module name before admitting work" do
     pool =
       start_supervised!(
         {ModulePool,
-         loader: FakeLoader, task_supervisor: QuickBEAM.VM.TaskSupervisor, capacity: 1}
+         backend: FakeBackend, task_supervisor: QuickBEAM.VM.TaskSupervisor, capacity: 1}
       )
 
     assert Process.alive?(pool)
-    assert Enum.sort(FakeLoader.state().retires) == Enum.sort(Contract.pool_modules())
+    assert Enum.sort(FakeBackend.state().retires) == Enum.sort(Contract.pool_modules())
     assert ModulePool.stats(pool).counts == %{free: 1}
   end
 
@@ -370,24 +370,30 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     pool = start_pool(capacity: 1)
 
     assert {:error, {:already_started, ^pool}} =
-             ModulePool.start_link(loader: FakeLoader, capacity: 1)
+             ModulePool.start_link(backend: FakeBackend, capacity: 1)
 
     assert {:error, {:invalid_option, :name, :another_pool}} =
-             ModulePool.start_link(loader: FakeLoader, name: :another_pool)
+             ModulePool.start_link(backend: FakeBackend, name: :another_pool)
   end
 
   test "validates bounded startup options and artifact keys" do
     assert {:error, {:invalid_artifact_key, <<1>>}} =
              ModulePool.checkout(self(), <<1>>)
 
+    assert {:error, {{:missing_option, :backend}, _child}} =
+             start_supervised({ModulePool, []})
+
+    assert {:error, {{:invalid_compiler_backend, String}, _child}} =
+             start_supervised({ModulePool, backend: String})
+
     assert {:error, {{:invalid_option, :capacity, 33}, _child}} =
-             start_supervised({ModulePool, loader: FakeLoader, capacity: 33})
+             start_supervised({ModulePool, backend: FakeBackend, capacity: 33})
 
     assert {:error, {{:invalid_option, :compile_timeout, 0}, _child}} =
-             start_supervised({ModulePool, loader: FakeLoader, compile_timeout: 0})
+             start_supervised({ModulePool, backend: FakeBackend, compile_timeout: 0})
 
     assert {:error, {{:invalid_option, :compile_max_heap_bytes, 0}, _child}} =
-             start_supervised({ModulePool, loader: FakeLoader, compile_max_heap_bytes: 0})
+             start_supervised({ModulePool, backend: FakeBackend, compile_max_heap_bytes: 0})
   end
 
   defp start_pool(opts) do
@@ -395,12 +401,12 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
       start_supervised!(
         {ModulePool,
          Keyword.merge(
-           [loader: FakeLoader, task_supervisor: QuickBEAM.VM.TaskSupervisor],
+           [backend: FakeBackend, task_supervisor: QuickBEAM.VM.TaskSupervisor],
            opts
          )}
       )
 
-    FakeLoader.clear_calls()
+    FakeBackend.clear_calls()
     pool
   end
 

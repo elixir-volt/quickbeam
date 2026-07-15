@@ -1,8 +1,8 @@
-defmodule QuickBEAM.VM.Compiler.Loader do
+defmodule QuickBEAM.VM.Compiler.ModulePool.Backend do
   @moduledoc """
-  Defines the bounded module-pool loading boundary.
+  Defines the generated-module boundary used by the bounded module pool.
 
-  Compilation runs in a supervised task. Installation and retirement are
+  Preparation runs in a supervised task. Installation and retirement are
   serialized by the module pool. Retirement must use soft purge semantics and
   return an error rather than hard-purging live code.
   """

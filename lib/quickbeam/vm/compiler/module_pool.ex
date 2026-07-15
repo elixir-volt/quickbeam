@@ -3,13 +3,14 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   Owns a bounded cache of generated BEAM modules.
 
   The pool leases fixed module atoms to evaluation processes, compiles each
-  cache miss once, monitors lease owners, and reuses only idle slots. Loader
+  cache miss once, monitors lease owners, and reuses only idle slots. Backend
   installation and retirement are serialized in the pool process.
   """
 
   use GenServer
 
-  alias QuickBEAM.VM.Compiler.{Contract, Lease}
+  alias QuickBEAM.VM.Compiler.Contract
+  alias QuickBEAM.VM.Compiler.ModulePool.Lease
 
   @default_compile_timeout 5_000
   @default_compile_max_heap_bytes 64 * 1024 * 1024
@@ -17,7 +18,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
   @type server :: GenServer.server()
 
-  @doc "Starts a compiler module pool suitable for a supervision tree."
+  @doc "Starts the singleton pool with a required `:backend` module."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) when is_list(opts) do
     case Keyword.pop(opts, :name, __MODULE__) do
@@ -61,19 +62,19 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
   @impl true
   def init(opts) do
-    with {:ok, loader} <- fetch_loader(opts),
+    with {:ok, backend} <- fetch_backend(opts),
          {:ok, task_supervisor} <- fetch_task_supervisor(opts),
          {:ok, capacity} <- fetch_capacity(opts),
          {:ok, compile_timeout} <- fetch_compile_timeout(opts),
          {:ok, compile_max_heap_words} <- fetch_compile_max_heap_words(opts) do
       all_modules = Contract.pool_modules()
-      initialized_slots = Map.new(all_modules, &{&1, initialize_slot(loader, &1)})
+      initialized_slots = Map.new(all_modules, &{&1, initialize_slot(backend, &1)})
       modules = Enum.take(all_modules, capacity)
       slots = Map.take(initialized_slots, modules)
 
       {:ok,
        %{
-         loader: loader,
+         backend: backend,
          task_supervisor: task_supervisor,
          compile_timeout: compile_timeout,
          compile_max_heap_words: compile_max_heap_words,
@@ -230,7 +231,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
     Enum.each(state.slots, fn {module, slot} ->
       if slot.status == :ready and slot.lease_count == 0 do
-        safe_loader_call(state.loader, :retire, [module])
+        safe_backend_call(state.backend, :retire, [module])
       end
     end)
 
@@ -294,12 +295,12 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
     slot = Map.fetch!(state.slots, module)
     state = %{state | key_index: Map.delete(state.key_index, slot.key)}
 
-    case safe_loader_call(state.loader, :retire, [module]) do
+    case safe_backend_call(state.backend, :retire, [module]) do
       :ok ->
         {:ok, put_slot(state, free_slot(module, slot.generation))}
 
       result ->
-        reason = loader_error(result)
+        reason = backend_error(result)
 
         slot = %{
           module: module,
@@ -314,7 +315,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
   defp start_compilation(module, key, input, from, state) do
     {waiter, state} = monitor_waiter(module, from, state)
-    loader = state.loader
+    backend = state.backend
     max_heap_words = state.compile_max_heap_words
 
     task =
@@ -325,7 +326,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
           error_logger: false
         })
 
-        loader.compile(key, module, input)
+        backend.compile(key, module, input)
       end)
 
     timer = Process.send_after(self(), {:compile_timeout, task.ref}, state.compile_timeout)
@@ -363,9 +364,9 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   defp finish_compilation(module, {:ok, artifact}, state) do
     slot = Map.fetch!(state.slots, module)
 
-    case safe_loader_call(state.loader, :install, [module, artifact]) do
+    case safe_backend_call(state.backend, :install, [module, artifact]) do
       :ok -> compilation_ready(slot, state)
-      result -> compilation_failed(slot, {:install_failed, loader_error(result)}, state, true)
+      result -> compilation_failed(slot, {:install_failed, backend_error(result)}, state, true)
     end
   end
 
@@ -376,7 +377,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
   defp finish_compilation(module, result, state) do
     slot = Map.fetch!(state.slots, module)
-    compilation_failed(slot, {:invalid_loader_result, result}, state, false)
+    compilation_failed(slot, {:invalid_backend_result, result}, state, false)
   end
 
   defp compilation_ready(slot, state) do
@@ -508,8 +509,8 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   defp free_slot(module, generation),
     do: %{module: module, status: :free, generation: generation}
 
-  defp initialize_slot(loader, module) do
-    case safe_loader_call(loader, :retire, [module]) do
+  defp initialize_slot(backend, module) do
+    case safe_backend_call(backend, :retire, [module]) do
       :ok ->
         free_slot(module, 0)
 
@@ -518,19 +519,19 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
           module: module,
           status: :quarantined,
           generation: 0,
-          reason: loader_error(result)
+          reason: backend_error(result)
         }
     end
   end
 
-  defp safe_loader_call(loader, function, args) do
-    apply(loader, function, args)
+  defp safe_backend_call(backend, function, args) do
+    apply(backend, function, args)
   catch
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp loader_error({:error, reason}), do: reason
-  defp loader_error(result), do: {:invalid_loader_result, result}
+  defp backend_error({:error, reason}), do: reason
+  defp backend_error(result), do: {:invalid_backend_result, result}
 
   defp cancel_compilations(state) do
     Enum.reduce(state.tasks, state, fn {reference, task_record}, state ->
@@ -573,12 +574,12 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   defp retire_ready_slot(module, %{status: :ready, lease_count: 0} = slot, state, quarantined) do
     state = %{state | key_index: Map.delete(state.key_index, slot.key)}
 
-    case safe_loader_call(state.loader, :retire, [module]) do
+    case safe_backend_call(state.backend, :retire, [module]) do
       :ok ->
         {put_slot(state, free_slot(module, slot.generation)), quarantined}
 
       result ->
-        reason = loader_error(result)
+        reason = backend_error(result)
 
         replacement = %{
           module: module,
@@ -593,23 +594,23 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
 
   defp retire_ready_slot(_module, _slot, state, quarantined), do: {state, quarantined}
 
-  defp fetch_loader(opts) do
-    case Keyword.fetch(opts, :loader) do
-      {:ok, loader} when is_atom(loader) ->
-        if Code.ensure_loaded?(loader) and
-             function_exported?(loader, :compile, 3) and
-             function_exported?(loader, :install, 2) and
-             function_exported?(loader, :retire, 1) do
-          {:ok, loader}
+  defp fetch_backend(opts) do
+    case Keyword.fetch(opts, :backend) do
+      {:ok, backend} when is_atom(backend) ->
+        if Code.ensure_loaded?(backend) and
+             function_exported?(backend, :compile, 3) and
+             function_exported?(backend, :install, 2) and
+             function_exported?(backend, :retire, 1) do
+          {:ok, backend}
         else
-          {:error, {:invalid_compiler_loader, loader}}
+          {:error, {:invalid_compiler_backend, backend}}
         end
 
-      {:ok, loader} ->
-        {:error, {:invalid_compiler_loader, loader}}
+      {:ok, backend} ->
+        {:error, {:invalid_compiler_backend, backend}}
 
       :error ->
-        {:error, {:missing_option, :loader}}
+        {:error, {:missing_option, :backend}}
     end
   end
 

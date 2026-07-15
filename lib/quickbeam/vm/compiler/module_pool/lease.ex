@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Compiler.Lease do
+defmodule QuickBEAM.VM.Compiler.ModulePool.Lease do
   @moduledoc """
   Grants one evaluation process temporary access to a compiled module slot.
 
