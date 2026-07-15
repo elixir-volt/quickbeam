@@ -761,7 +761,8 @@ The reproducible fixture measurements are published in
 fairness and timeout gates in
 [`beam-scheduler-measurements.md`](beam-scheduler-measurements.md), the
 release-quarantined compiler SSR matrix in
-[`beam-compiler-ssr-measurements.md`](beam-compiler-ssr-measurements.md), and its
+[`beam-compiler-ssr-measurements.md`](beam-compiler-ssr-measurements.md), warm-loop results in
+[`beam-compiler-performance-measurements.md`](beam-compiler-performance-measurements.md), and its
 single-scheduler run in
 [`beam-compiler-scheduler-measurements.md`](beam-compiler-scheduler-measurements.md).
 The reports
@@ -793,9 +794,11 @@ children = [{QuickBEAM.VM.Compiler, capacity: 8}]
 QuickBEAM.VM.eval(program, engine: :compiler)
 ```
 
-The compiler runs one bounded specialized pure block and may deopt at a verified
-instruction boundary into the interpreter. Compiler infrastructure failures are
-typed errors and never restart the program or invoke native QuickJS. The default
+The generic compiler path runs one bounded pure block. Eligible lexical loops
+use bounded scalar generated forms, tail-call successor blocks, and reconstruct
+the canonical frame only at a verified deoptimization boundary. Compiler
+infrastructure failures are typed errors and never restart the program or invoke
+native QuickJS. The default
 `QuickBEAM.VM` path remains the interpreter until compiler resource, scheduler,
 and native differential gates are published.
 

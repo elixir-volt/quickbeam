@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   alias QuickBEAM.VM.Execution
   alias QuickBEAM.VM.Frame
   alias QuickBEAM.VM.Opcodes.{Control, Locals, Stack, Values}
-  alias QuickBEAM.VM.Value
+  alias QuickBEAM.VM.{StackState, Value}
 
   @stack_operations Stack.opcodes()
   @local_operations [
@@ -22,6 +22,9 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     :set_arg,
     :get_loc,
     :get_loc0_loc1,
+    :inc_loc,
+    :dec_loc,
+    :add_loc,
     :put_loc,
     :set_loc,
     :set_loc_uninitialized,
@@ -63,7 +66,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @max_block_instruction_count 256
 
   @type operation :: {:stack | :local | :value | :branch, atom(), [term()]}
-  @type plan :: %{optional(non_neg_integer()) => {[operation()], Deopt.reason()}}
+  @type block_boundary :: Deopt.reason() | :continue
+  @type plan :: %{optional(non_neg_integer()) => {[operation()], block_boundary()}}
 
   @type action ::
           {:ok, Frame.t(), Execution.t()}
@@ -74,6 +78,18 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @doc "Returns the generated-code runtime ABI version."
   @spec version() :: pos_integer()
   def version, do: Contract.runtime_abi_version()
+
+  @doc "Returns compact immutable fields used by scalar generated blocks."
+  @spec frame_state(Frame.t()) :: {non_neg_integer(), tuple(), tuple(), [term()]}
+  def frame_state(%Frame{} = frame), do: {frame.pc, frame.args, frame.locals, frame.stack}
+
+  @doc "Returns the current frame receiver for scalar literal lowering."
+  @spec frame_this(Frame.t()) :: term()
+  def frame_this(%Frame{this: this}), do: this
+
+  @doc "Returns one verified function constant for scalar literal lowering."
+  @spec frame_constant(Frame.t(), non_neg_integer()) :: term()
+  def frame_constant(%Frame{function: function}, index), do: Enum.at(function.constants, index)
 
   @doc "Returns the current verified instruction index from a canonical frame."
   @spec frame_pc(Frame.t()) :: non_neg_integer()
@@ -100,7 +116,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
         with {:ok, frame, execution} <-
                charge_block(lease, frame, execution, length(operations)),
              {:ok, frame, execution} <- execute_operations(operations, frame, execution) do
-          deopt(reason, lease, frame, execution)
+          finish_block(reason, lease, frame, execution, plan)
         end
 
       {:ok, invalid} ->
@@ -113,6 +129,38 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   def execute_plan(_lease, _frame, _execution, plan),
     do: {:error, {:invalid_compiler_plan, plan}}
+
+  defp finish_block(:continue, lease, frame, execution, plan),
+    do: execute_plan(lease, frame, execution, plan)
+
+  defp finish_block(reason, lease, frame, execution, _plan),
+    do: deopt(reason, lease, frame, execution)
+
+  @doc "Charges a scalar block or deoptimizes with its reconstructed before-block state."
+  @spec charge_state(Lease.t(), tuple(), Execution.t(), pos_integer()) ::
+          {:ok, Execution.t()} | action()
+  def charge_state(%Lease{owner: owner}, _state, _execution, _count) when owner != self(),
+    do: {:error, :compiler_lease_owner_mismatch}
+
+  def charge_state(_lease, _state, %Execution{memory_exceeded: true} = execution, _count),
+    do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
+
+  def charge_state(
+        %Lease{},
+        {%Frame{}, pc, args, locals, stack},
+        %Execution{remaining_steps: remaining} = execution,
+        count
+      )
+      when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) and
+             is_integer(count) and count > 0 and remaining >= count,
+      do: {:ok, %{execution | remaining_steps: remaining - count}}
+
+  def charge_state(%Lease{} = lease, state, %Execution{} = execution, count)
+      when is_integer(count) and count > 0,
+      do: deopt_state(:step_boundary, lease, state, execution)
+
+  def charge_state(_lease, state, _execution, count),
+    do: {:error, {:invalid_compiler_scalar_charge, count, state}}
 
   @doc "Charges a guaranteed straight-line block or deoptimizes before it."
   @spec charge_block(Lease.t(), Frame.t(), Execution.t(), pos_integer()) :: action()
@@ -151,6 +199,44 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     end
   end
 
+  @doc "Deoptimizes after rebuilding a canonical frame from bounded scalar state."
+  @spec deopt_state(Deopt.reason(), Lease.t(), tuple(), Execution.t()) :: action()
+  def deopt_state(
+        reason,
+        %Lease{} = lease,
+        {%Frame{} = frame, pc, args, locals, stack},
+        %Execution{} = execution
+      )
+      when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) do
+    deopt(reason, lease, %{frame | pc: pc, args: args, locals: locals, stack: stack}, execution)
+  end
+
+  def deopt_state(_reason, _lease, state, _execution),
+    do: {:error, {:invalid_compiler_scalar_state, state}}
+
+  @doc "Executes one compact stack/value/branch block with a single frame rebuild."
+  @spec execute_fast_block(Lease.t(), Frame.t(), Execution.t(), [operation()]) :: action()
+  def execute_fast_block(%Lease{} = lease, %Frame{} = frame, %Execution{} = execution, operations)
+      when is_list(operations) and length(operations) <= @max_block_instruction_count do
+    with {:ok, frame, execution} <- charge_block(lease, frame, execution, length(operations)),
+         {:ok, pc, args, locals, stack, execution} <-
+           execute_fast_operations(
+             operations,
+             frame.pc,
+             frame.args,
+             frame.locals,
+             frame.stack,
+             frame.this,
+             frame.function,
+             execution
+           ) do
+      {:ok, %{frame | pc: pc, args: args, locals: locals, stack: stack}, execution}
+    end
+  end
+
+  def execute_fast_block(_lease, _frame, _execution, operations),
+    do: {:error, {:invalid_compiler_fast_block, operations}}
+
   @doc "Executes one verified pure operand-stack instruction and advances the PC."
   @spec execute_stack(atom(), [term()], Frame.t(), Execution.t()) :: action()
   def execute_stack(name, operands, %Frame{} = frame, %Execution{} = execution)
@@ -186,6 +272,253 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   def execute_branch(name, operands, _frame, _execution),
     do: {:error, {:unsupported_compiler_branch_operation, name, operands}}
+
+  defp execute_fast_operations(
+         [],
+         pc,
+         args,
+         locals,
+         stack,
+         _this,
+         _function,
+         execution
+       ),
+       do: {:ok, pc, args, locals, stack, execution}
+
+  defp execute_fast_operations(
+         [{:stack, name, operands} | operations],
+         pc,
+         args,
+         locals,
+         stack,
+         this,
+         function,
+         execution
+       ) do
+    with {:ok, stack} <- StackState.execute(name, operands, stack, this, function.constants) do
+      execute_fast_operations(
+        operations,
+        pc + 1,
+        args,
+        locals,
+        stack,
+        this,
+        function,
+        execution
+      )
+    end
+  end
+
+  defp execute_fast_operations(
+         [{:local, name, operands} | operations],
+         pc,
+         args,
+         locals,
+         stack,
+         this,
+         function,
+         execution
+       ) do
+    with {:ok, args, locals, stack, execution} <-
+           Locals.execute_compact(name, operands, args, locals, stack, execution) do
+      execute_fast_operations(
+        operations,
+        pc + 1,
+        args,
+        locals,
+        stack,
+        this,
+        function,
+        execution
+      )
+    end
+  end
+
+  defp execute_fast_operations(
+         [{:value, name, []} | operations],
+         pc,
+         args,
+         locals,
+         [right, left | stack],
+         this,
+         function,
+         execution
+       )
+       when name in [
+              :add,
+              :sub,
+              :mul,
+              :div,
+              :mod,
+              :pow,
+              :lt,
+              :lte,
+              :gt,
+              :gte,
+              :eq,
+              :neq,
+              :strict_eq,
+              :strict_neq,
+              :and,
+              :or,
+              :xor,
+              :shl,
+              :sar,
+              :shr
+            ] do
+    value = fast_binary(name, left, right)
+
+    execute_fast_operations(
+      operations,
+      pc + 1,
+      args,
+      locals,
+      [value | stack],
+      this,
+      function,
+      execution
+    )
+  end
+
+  defp execute_fast_operations(
+         [{:value, name, []} | operations],
+         pc,
+         args,
+         locals,
+         [value | stack],
+         this,
+         function,
+         execution
+       )
+       when name in [
+              :neg,
+              :plus,
+              :not,
+              :lnot,
+              :inc,
+              :dec,
+              :is_undefined_or_null,
+              :is_undefined,
+              :is_null
+            ] do
+    value = fast_unary(name, value)
+
+    execute_fast_operations(
+      operations,
+      pc + 1,
+      args,
+      locals,
+      [value | stack],
+      this,
+      function,
+      execution
+    )
+  end
+
+  defp execute_fast_operations(
+         [{:branch, name, [target]} | operations],
+         pc,
+         args,
+         locals,
+         [value | stack],
+         this,
+         function,
+         execution
+       )
+       when name in [:if_false, :if_false8, :if_true, :if_true8] do
+    truthy? = Value.truthy?(value)
+
+    target_pc =
+      if name in [:if_false, :if_false8] do
+        if truthy?, do: pc + 1, else: target
+      else
+        if truthy?, do: target, else: pc + 1
+      end
+
+    execute_fast_operations(
+      operations,
+      target_pc,
+      args,
+      locals,
+      stack,
+      this,
+      function,
+      execution
+    )
+  end
+
+  defp execute_fast_operations(
+         [{:branch, name, [target]} | operations],
+         _pc,
+         args,
+         locals,
+         stack,
+         this,
+         function,
+         execution
+       )
+       when name in [:goto, :goto8, :goto16],
+       do:
+         execute_fast_operations(
+           operations,
+           target,
+           args,
+           locals,
+           stack,
+           this,
+           function,
+           execution
+         )
+
+  defp execute_fast_operations(
+         [operation | _],
+         pc,
+         _args,
+         _locals,
+         stack,
+         _this,
+         _function,
+         _execution
+       ),
+       do: {:error, {:invalid_compiler_fast_operation, pc, operation, stack}}
+
+  defp fast_binary(:add, left, right) when is_number(left) and is_number(right),
+    do: left + right
+
+  defp fast_binary(:sub, left, right) when is_number(left) and is_number(right),
+    do: left - right
+
+  defp fast_binary(:mul, left, right) when is_number(left) and is_number(right),
+    do: left * right
+
+  defp fast_binary(:mod, left, right)
+       when is_integer(left) and is_integer(right) and right != 0,
+       do: rem(left, right)
+
+  defp fast_binary(:lt, left, right) when is_number(left) and is_number(right), do: left < right
+  defp fast_binary(:lte, left, right) when is_number(left) and is_number(right), do: left <= right
+  defp fast_binary(:gt, left, right) when is_number(left) and is_number(right), do: left > right
+  defp fast_binary(:gte, left, right) when is_number(left) and is_number(right), do: left >= right
+  defp fast_binary(:eq, left, right) when is_number(left) and is_number(right), do: left == right
+  defp fast_binary(:neq, left, right) when is_number(left) and is_number(right), do: left != right
+
+  defp fast_binary(:strict_eq, left, right) when is_number(left) and is_number(right),
+    do: left == right
+
+  defp fast_binary(:strict_neq, left, right) when is_number(left) and is_number(right),
+    do: left != right
+
+  defp fast_binary(name, left, right), do: Value.binary(name, left, right)
+
+  defp fast_unary(:neg, value) when is_number(value), do: -value
+  defp fast_unary(:plus, value) when is_number(value), do: value
+  defp fast_unary(:inc, value) when is_number(value), do: value + 1
+  defp fast_unary(:dec, value) when is_number(value), do: value - 1
+  defp fast_unary(:lnot, value), do: not Value.truthy?(value)
+  defp fast_unary(:is_undefined_or_null, value), do: value in [:undefined, nil]
+  defp fast_unary(:is_undefined, value), do: value == :undefined
+  defp fast_unary(:is_null, value), do: is_nil(value)
+  defp fast_unary(name, value), do: Value.unary(name, value)
 
   defp execute_operations([], frame, execution), do: {:ok, frame, execution}
 

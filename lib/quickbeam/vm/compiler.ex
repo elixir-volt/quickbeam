@@ -92,6 +92,9 @@ defmodule QuickBEAM.VM.Compiler do
         {:ok, {:compile, key, template}} ->
           invoke_frame(pool, key, template, frame, execution)
 
+        {:ok, {:cached, key}} ->
+          invoke_cached(pool, key, function, frame, execution)
+
         :error ->
           prepare_frame(function, frame, execution)
       end
@@ -108,31 +111,60 @@ defmodule QuickBEAM.VM.Compiler do
            }
          } = execution
        ) do
-    minimum = if function.id == root.id, do: 0, else: nested_minimum
+    minimum = if function.id == root.id, do: 1, else: nested_minimum
 
+    with {:ok, key} <- Contract.artifact_key(program, function, profile: :pure_v1) do
+      case ModulePool.checkout_cached(execution.compiler_context.pool, key) do
+        {:ok, lease} ->
+          execution = cache_decision(execution, function.id, {:cached, key})
+          invoke_lease(execution.compiler_context.pool, lease, frame, execution)
+
+        :skip ->
+          {:skip, frame, cache_decision(execution, function.id, :skip)}
+
+        :miss ->
+          prepare_uncached_frame(function, minimum, key, frame, execution)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp prepare_uncached_frame(function, minimum, key, frame, execution) do
     case PureV1.prepare(function, minimum) do
       {:ok, template, _count} ->
-        with {:ok, key} <- Contract.artifact_key(program, function, profile: :pure_v1) do
-          execution = cache_decision(execution, function.id, {:compile, key, template})
-          invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
-        end
+        execution = cache_decision(execution, function.id, {:compile, key, template})
+        invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
 
       {:skip, _count} ->
-        {:skip, frame, cache_decision(execution, function.id, :skip)}
+        with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
+          {:skip, frame, cache_decision(execution, function.id, :skip)}
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp invoke_frame(pool, key, template, frame, execution) do
-    with {:ok, lease} <- ModulePool.checkout(pool, key, template) do
-      try do
-        GeneratedModule.invoke(pool, lease, frame, execution)
-      after
-        safe_checkin(pool, lease)
-      end
+  defp invoke_cached(pool, key, function, frame, execution) do
+    case ModulePool.checkout_cached(pool, key) do
+      {:ok, lease} -> invoke_lease(pool, lease, frame, execution)
+      :skip -> {:skip, frame, cache_decision(execution, function.id, :skip)}
+      :miss -> prepare_frame(function, frame, execution)
+      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp invoke_frame(pool, key, template, frame, execution) do
+    with {:ok, lease} <- ModulePool.checkout(pool, key, template),
+         do: invoke_lease(pool, lease, frame, execution)
+  end
+
+  defp invoke_lease(pool, lease, frame, execution) do
+    GeneratedModule.invoke(pool, lease, frame, execution)
+  after
+    safe_checkin(pool, lease)
   end
 
   defp cache_decision(%Execution{compiler_context: context} = execution, function_id, decision) do
@@ -171,7 +203,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp ensure_pool_available(pool), do: {:error, {:compiler_pool_unavailable, pool}}
 
   defp safe_checkin(pool, lease) do
-    ModulePool.checkin(pool, lease)
+    ModulePool.checkin_active(pool, lease)
   catch
     :exit, _reason -> :ok
   end

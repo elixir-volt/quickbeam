@@ -24,6 +24,10 @@ MIX_ENV=bench mix run bench/concurrent.exs
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --output docs/beam-ssr-measurements.md
 
+# Reproduce cold-versus-warm compiler loop measurements
+COMPILER_PERF_ITERATIONS=2000 MIX_ENV=bench \
+  mix run bench/vm_compiler_perf.exs
+
 # Reproduce the release-quarantined compiler SSR report
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --engine compiler --output docs/beam-compiler-ssr-measurements.md
@@ -43,6 +47,7 @@ endpoint BEAM process observations, sequential latency, concurrent throughput,
 and timeout/cancellation behavior for the pinned Preact, Vue, and Svelte
 fixtures. Published results are in
 [`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md),
+[`docs/beam-compiler-performance-measurements.md`](../docs/beam-compiler-performance-measurements.md),
 [`docs/beam-compiler-ssr-measurements.md`](../docs/beam-compiler-ssr-measurements.md),
 [`docs/beam-scheduler-measurements.md`](../docs/beam-scheduler-measurements.md),
 and

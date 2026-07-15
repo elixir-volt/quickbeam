@@ -12,7 +12,10 @@ defmodule QuickBEAM.VM.Compiler.Context do
   @type t :: %__MODULE__{
           pool: QuickBEAM.VM.Compiler.ModulePool.server(),
           program: QuickBEAM.VM.Program.t(),
-          decisions: %{optional(non_neg_integer()) => :skip | {:compile, binary(), term()}},
+          decisions: %{
+            optional(non_neg_integer()) =>
+              :skip | {:cached, binary()} | {:compile, binary(), term()}
+          },
           max_decisions: pos_integer(),
           min_nested_instructions: non_neg_integer()
         }

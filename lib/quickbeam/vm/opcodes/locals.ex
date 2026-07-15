@@ -26,6 +26,22 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     :get_var_ref_check
   ]
 
+  @compact_operations [
+    :get_arg,
+    :put_arg,
+    :set_arg,
+    :get_loc,
+    :get_loc0_loc1,
+    :inc_loc,
+    :dec_loc,
+    :add_loc,
+    :put_loc,
+    :set_loc,
+    :set_loc_uninitialized,
+    :put_loc_check_init,
+    :put_loc_check
+  ]
+
   @put_reference_ops [
     :put_var_ref,
     :put_var_ref0,
@@ -96,41 +112,12 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     push(frame, execution, array)
   end
 
-  def execute(:get_arg, [index], frame, execution),
-    do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
+  def execute(name, operands, %Frame{} = frame, %Execution{} = execution)
+      when name in @compact_operations do
+    {:ok, args, locals, stack, execution} =
+      execute_compact(name, operands, frame.args, frame.locals, frame.stack, execution)
 
-  def execute(:put_arg, [index], %{stack: [value | stack]} = frame, execution) do
-    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
-    next(%{frame | args: args, stack: stack}, execution)
-  end
-
-  def execute(:set_arg, [index], %{stack: [value | _]} = frame, execution) do
-    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
-    next(%{frame | args: args}, execution)
-  end
-
-  def execute(:get_loc, [index], frame, execution),
-    do: push(frame, execution, read_slot(elem(frame.locals, index), execution))
-
-  def execute(:get_loc0_loc1, [first, second], frame, execution) do
-    first = read_slot(elem(frame.locals, first), execution)
-    second = read_slot(elem(frame.locals, second), execution)
-    next(%{frame | stack: [first, second | frame.stack]}, execution)
-  end
-
-  def execute(:put_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
-    next(%{frame | locals: locals, stack: stack}, execution)
-  end
-
-  def execute(:set_loc, [index], %{stack: [value | _]} = frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
-    next(%{frame | locals: locals}, execution)
-  end
-
-  def execute(:set_loc_uninitialized, [index], frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, :uninitialized, execution)
-    next(%{frame | locals: locals}, execution)
+    next(%{frame | args: args, locals: locals, stack: stack}, execution)
   end
 
   def execute(:get_loc_check, [index], frame, execution) do
@@ -140,25 +127,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     end
   end
 
-  def execute(name, [index], frame, execution) when name in [:put_loc_check_init, :put_loc_check],
-    do: execute(:put_loc, [index], frame, execution)
-
   def execute(:close_loc, [_index], frame, execution), do: next(frame, execution)
-
-  def execute(:inc_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.unary(:inc, &1))
-
-  def execute(:dec_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.unary(:dec, &1))
-
-  def execute(:add_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    current = read_slot(elem(frame.locals, index), execution)
-
-    {locals, execution} =
-      write_tuple_slot(frame.locals, index, Value.binary(:add, current, value), execution)
-
-    next(%{frame | locals: locals, stack: stack}, execution)
-  end
 
   def execute(name, [index], frame, execution) when name in @get_reference_ops do
     value = read_reference(elem(frame.closure_refs, index), execution)
@@ -233,6 +202,72 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     {reference, frame, execution}
   end
 
+  @doc "Executes a verified local/argument operation over compact frame fields."
+  @spec execute_compact(atom(), [term()], tuple(), tuple(), [term()], Execution.t()) ::
+          {:ok, tuple(), tuple(), [term()], Execution.t()}
+  def execute_compact(:get_arg, [index], args, locals, stack, execution) do
+    value = read_slot(tuple_get(args, index), execution)
+    {:ok, args, locals, [value | stack], execution}
+  end
+
+  def execute_compact(:put_arg, [index], args, locals, [value | stack], execution) do
+    {args, execution} = write_tuple_slot(args, index, value, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:set_arg, [index], args, locals, [value | _] = stack, execution) do
+    {args, execution} = write_tuple_slot(args, index, value, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:get_loc, [index], args, locals, stack, execution) do
+    value = read_slot(elem(locals, index), execution)
+    {:ok, args, locals, [value | stack], execution}
+  end
+
+  def execute_compact(:get_loc0_loc1, [first, second], args, locals, stack, execution) do
+    first = read_slot(elem(locals, first), execution)
+    second = read_slot(elem(locals, second), execution)
+    {:ok, args, locals, [first, second | stack], execution}
+  end
+
+  def execute_compact(name, [index], args, locals, stack, execution)
+      when name in [:inc_loc, :dec_loc] do
+    operation = if name == :inc_loc, do: :inc, else: :dec
+    value = locals |> elem(index) |> read_slot(execution)
+    value = Value.unary(operation, value)
+    {locals, execution} = write_tuple_slot(locals, index, value, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:add_loc, [index], args, locals, [value | stack], execution) do
+    current = read_slot(elem(locals, index), execution)
+
+    {locals, execution} =
+      write_tuple_slot(locals, index, Value.binary(:add, current, value), execution)
+
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:put_loc, [index], args, locals, [value | stack], execution) do
+    {locals, execution} = write_tuple_slot(locals, index, value, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:set_loc, [index], args, locals, [value | _] = stack, execution) do
+    {locals, execution} = write_tuple_slot(locals, index, value, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(:set_loc_uninitialized, [index], args, locals, stack, execution) do
+    {locals, execution} = write_tuple_slot(locals, index, :uninitialized, execution)
+    {:ok, args, locals, stack, execution}
+  end
+
+  def execute_compact(name, [index], args, locals, stack, execution)
+      when name in [:put_loc_check_init, :put_loc_check],
+      do: execute_compact(:put_loc, [index], args, locals, stack, execution)
+
   @doc "Reads a direct value or owner-local cell/global slot."
   @spec read_slot(term(), Execution.t()) :: term()
   def read_slot({:cell, _id} = reference, execution), do: read_reference(reference, execution)
@@ -282,12 +317,6 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
       _other ->
         execution
     end
-  end
-
-  defp update_local(frame, execution, index, operation) do
-    value = read_slot(elem(frame.locals, index), execution)
-    {locals, execution} = write_tuple_slot(frame.locals, index, operation.(value), execution)
-    next(%{frame | locals: locals}, execution)
   end
 
   defp allocate_function(callable, function, execution) do

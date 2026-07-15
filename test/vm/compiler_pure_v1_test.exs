@@ -61,16 +61,18 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert {:ok, template} = PureV1.lower(function)
     assert prepared == template
 
-    assert [:run, :block, :step] ==
+    assert [:run, :block] ==
              for({:function, _line, name, _arity, _clauses} <- template.forms, do: name)
 
     module = hd(Contract.pool_modules())
     assert {:ok, artifact} = Emitter.emit(key(1), module, template)
 
     assert {:ok, imports} = ImportPolicy.imports(artifact.binary)
-    assert {Runtime, :charge_block, 4} in imports
-    assert {Runtime, :execute_stack, 4} in imports
-    assert {Runtime, :execute_value, 4} in imports
+    assert {Runtime, :deopt_state, 4} in imports
+    refute {Runtime, :binary, 3} in imports
+    refute {Runtime, :execute_fast_block, 4} in imports
+    refute {Runtime, :execute_stack, 4} in imports
+    refute {Runtime, :execute_value, 4} in imports
     refute {Runtime, :execute_plan, 4} in imports
   end
 
@@ -216,6 +218,51 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert Interpreter.eval(program, max_steps: 3) == expected
   end
 
+  test "scalarizes bounded lexical loops with direct guarded BEAM operations" do
+    source = "(function(n){let s=0; for(let i=0;i<n;i++) s=s+i*2; return s})(100)"
+    assert {:ok, %Program{} = program} = QuickBEAM.VM.compile(source)
+    assert %Function{} = function = Enum.find(program.root.constants, &is_struct(&1, Function))
+    assert {:ok, template, _count} = PureV1.prepare(function, 32)
+
+    assert [{:function, _, :block, 7, _}] =
+             Enum.filter(template.forms, &match?({:function, _, :block, 7, _}, &1))
+
+    module = hd(Contract.pool_modules())
+    assert {:ok, artifact} = Emitter.emit(key(77), module, template)
+    assert {:ok, imports} = ImportPolicy.imports(artifact.binary)
+    assert {:erlang, :+, 2} in imports
+    assert {:erlang, :*, 2} in imports
+    refute {Runtime, :execute_fast_block, 4} in imports
+
+    local_source =
+      "(function(n){let a=1,b=2,c=3; for(let i=0;i<n;i++){a=b+c+i;b=a+c;c=a+b} return c})(100)"
+
+    assert {:ok, local_program} = QuickBEAM.VM.compile(local_source)
+    local_function = Enum.find(local_program.root.constants, &is_struct(&1, Function))
+    assert {:ok, local_template, _count} = PureV1.prepare(local_function, 32)
+    assert Enum.any?(local_template.forms, &match?({:function, _, :block, 7, _}, &1))
+
+    start_pool()
+    assert {:ok, interpreter} = QuickBEAM.VM.measure(program, max_steps: 10_000)
+    assert {:ok, compiler} = QuickBEAM.VM.measure(program, engine: :compiler, max_steps: 10_000)
+    assert compiler.result == interpreter.result
+    assert compiler.steps == interpreter.steps
+    assert compiler.logical_memory_bytes == interpreter.logical_memory_bytes
+
+    for limit <- [1, 7, 50, interpreter.steps - 1] do
+      assert QuickBEAM.VM.eval(program, engine: :compiler, max_steps: limit) ==
+               QuickBEAM.VM.eval(program, max_steps: limit)
+    end
+  end
+
+  test "scalar guarded operations retain canonical nonnumeric fallback semantics" do
+    source = "(function(n){let s=''; for(let i=0;i<n;i++) s=s+'x'; return s})(5)"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    start_pool()
+    assert QuickBEAM.VM.eval(program, engine: :compiler) == QuickBEAM.VM.eval(program)
+    assert QuickBEAM.VM.eval(program) == {:ok, "xxxxx"}
+  end
+
   test "matches the interpreter across decoded v26 pure expressions" do
     pool = start_pool()
 
@@ -258,7 +305,7 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert Interpreter.resume_deopt(deopt) == {:ok, 42}
   end
 
-  test "executes a compiled branch before deoptimizing at its selected successor" do
+  test "tail-calls compiled successor blocks before deoptimizing at return" do
     function = branch_function()
     program = program(function)
     pool = start_pool()
@@ -270,10 +317,10 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert {:deopt, %Deopt{} = deopt} =
              GeneratedModule.invoke(pool, lease, frame(function), execution(10))
 
-    assert deopt.reason == :unsupported_semantics
-    assert deopt.frame.pc == 2
-    assert deopt.frame.stack == []
-    assert deopt.execution.remaining_steps == 8
+    assert deopt.reason == :unsupported_opcode
+    assert deopt.frame.pc == 5
+    assert deopt.frame.stack == [10]
+    assert deopt.execution.remaining_steps == 6
     assert :ok = ModulePool.checkin(pool, lease)
 
     assert Interpreter.resume_deopt(deopt) == {:ok, 10}

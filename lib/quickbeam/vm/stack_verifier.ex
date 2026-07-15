@@ -28,12 +28,9 @@ defmodule QuickBEAM.VM.StackVerifier do
 
   @doc "Checks stack underflow, joins, catch state, and the declared maximum."
   @spec verify(Function.t()) :: :ok | {:error, term()}
-  def verify(%Function{instructions: instructions, stack_size: declared} = function)
-      when is_tuple(instructions) and tuple_size(instructions) > 0 do
-    initial = %{function: function, levels: %{0 => {0, nil}}, queue: [0], maximum: 0}
-
-    with {:ok, state} <- walk(initial),
-         true <- state.maximum == declared do
+  def verify(%Function{stack_size: declared} = function) do
+    with {:ok, analysis} <- analyze(function),
+         true <- analysis.maximum == declared do
       :ok
     else
       false -> {:error, {:stack_size_mismatch, declared}}
@@ -41,7 +38,24 @@ defmodule QuickBEAM.VM.StackVerifier do
     end
   end
 
-  def verify(%Function{}), do: {:error, :empty_instruction_stream}
+  @doc "Returns verified instruction-entry stack and catch levels for compiler analysis."
+  @spec analyze(Function.t()) ::
+          {:ok,
+           %{
+             levels: %{non_neg_integer() => {non_neg_integer(), term()}},
+             maximum: non_neg_integer()
+           }}
+          | {:error, term()}
+  def analyze(%Function{instructions: instructions} = function)
+      when is_tuple(instructions) and tuple_size(instructions) > 0 do
+    initial = %{function: function, levels: %{0 => {0, nil}}, queue: [0], maximum: 0}
+
+    with {:ok, state} <- walk(initial) do
+      {:ok, %{levels: state.levels, maximum: state.maximum}}
+    end
+  end
+
+  def analyze(%Function{}), do: {:error, :empty_instruction_stream}
 
   defp walk(%{queue: []} = state), do: {:ok, state}
 

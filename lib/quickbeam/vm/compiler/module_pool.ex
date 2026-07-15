@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   @default_compile_timeout 5_000
   @default_compile_max_heap_bytes 64 * 1024 * 1024
   @max_capacity Contract.pool_capacity()
+  @max_skip_entries @max_capacity * 8
 
   @type server :: GenServer.server()
 
@@ -37,10 +38,40 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
     end
   end
 
+  @doc "Checks out an already-ready artifact without starting compilation on a miss."
+  @spec checkout_cached(server(), binary()) ::
+          {:ok, Lease.t()} | :skip | :miss | {:error, term()}
+  def checkout_cached(server, key) do
+    if valid_key?(key) do
+      GenServer.call(server, {:checkout_cached, key}, :infinity)
+    else
+      {:error, {:invalid_artifact_key, key}}
+    end
+  end
+
+  @doc "Remembers a bounded negative lowering decision for a verified artifact key."
+  @spec remember_skip(server(), binary()) :: :ok | {:error, term()}
+  def remember_skip(server, key) do
+    if valid_key?(key) do
+      GenServer.call(server, {:remember_skip, key})
+    else
+      {:error, {:invalid_artifact_key, key}}
+    end
+  end
+
   @doc "Returns a lease after execution. Repeated or stale returns are rejected."
   @spec checkin(server(), Lease.t()) :: :ok | {:error, term()}
   def checkin(server, %Lease{} = lease),
     do: GenServer.call(server, {:checkin, lease, self()})
+
+  @doc "Returns a freshly checked-out lease asynchronously after generated execution."
+  @spec checkin_active(server(), Lease.t()) :: :ok | {:error, term()}
+  def checkin_active(server, %Lease{owner: owner} = lease) when owner == self() do
+    GenServer.cast(server, {:checkin_active, lease, self()})
+    :ok
+  end
+
+  def checkin_active(_server, %Lease{}), do: {:error, :compiler_lease_owner_mismatch}
 
   @doc "Checks whether a lease is currently active for the calling process."
   @spec validate_lease(server(), Lease.t()) :: :ok | {:error, term()}
@@ -81,6 +112,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
          modules: modules,
          slots: slots,
          key_index: %{},
+         skip_index: %{},
          leases: %{},
          monitor_index: %{},
          tasks: %{},
@@ -104,6 +136,31 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
       {:ok, module} -> checkout_indexed(module, key, input, from, state)
       :error -> checkout_miss(key, input, from, state)
     end
+  end
+
+  def handle_call({:checkout_cached, _key}, _from, %{mode: mode} = state)
+      when mode != :running,
+      do: {:reply, {:error, :compiler_pool_stopping}, state}
+
+  def handle_call({:checkout_cached, key}, from, state) do
+    case Map.fetch(state.key_index, key) do
+      {:ok, module} ->
+        checkout_cached_indexed(module, key, from, state)
+
+      :error ->
+        if Map.has_key?(state.skip_index, key),
+          do: {:reply, :skip, touch_skip(state, key)},
+          else: {:reply, :miss, state}
+    end
+  end
+
+  def handle_call({:remember_skip, _key}, _from, %{mode: mode} = state)
+      when mode != :running,
+      do: {:reply, {:error, :compiler_pool_stopping}, state}
+
+  def handle_call({:remember_skip, key}, _from, state) do
+    state = state |> put_skip(key) |> trim_skips()
+    {:reply, :ok, state}
   end
 
   def handle_call({:checkin, lease, caller}, _from, state) do
@@ -163,9 +220,21 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
        counts: counts,
        leases: map_size(state.leases),
        compilations: map_size(state.tasks),
+       skips: map_size(state.skip_index),
        mode: state.mode,
        slots: slots
      }, state}
+  end
+
+  @impl true
+  def handle_cast({:checkin_active, lease, caller}, state) do
+    state =
+      case fetch_lease(lease, caller, state) do
+        {:ok, record} -> release_lease(lease.token, record, state, true)
+        {:error, _reason} -> state
+      end
+
+    {:noreply, maybe_complete_drain(state)}
   end
 
   @impl true
@@ -236,6 +305,22 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
     end)
 
     :ok
+  end
+
+  defp checkout_cached_indexed(module, key, from, state) do
+    case Map.fetch!(state.slots, module) do
+      %{status: :ready, key: ^key} ->
+        {lease, state} = issue_lease(module, from, state)
+        {:reply, {:ok, lease}, state}
+
+      %{status: :compiling, key: ^key} ->
+        state = add_waiter(module, from, state)
+        {:noreply, state}
+
+      _stale ->
+        state = %{state | key_index: Map.delete(state.key_index, key)}
+        {:reply, :miss, state}
+    end
   end
 
   defp checkout_indexed(module, key, input, from, state) do
@@ -314,6 +399,7 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   end
 
   defp start_compilation(module, key, input, from, state) do
+    state = %{state | skip_index: Map.delete(state.skip_index, key)}
     {waiter, state} = monitor_waiter(module, from, state)
     backend = state.backend
     max_heap_words = state.compile_max_heap_words
@@ -500,6 +586,20 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   defp touch_slot(state, module) do
     state = tick(state)
     update_slot(state, module, &Map.put(&1, :last_used, state.clock))
+  end
+
+  defp put_skip(state, key) do
+    state = tick(state)
+    put_in(state, [:skip_index, key], state.clock)
+  end
+
+  defp touch_skip(state, key), do: put_skip(state, key)
+
+  defp trim_skips(state) when map_size(state.skip_index) <= @max_skip_entries, do: state
+
+  defp trim_skips(state) do
+    {key, _clock} = Enum.min_by(state.skip_index, fn {_key, clock} -> clock end)
+    %{state | skip_index: Map.delete(state.skip_index, key)}
   end
 
   defp tick(state), do: %{state | clock: state.clock + 1}

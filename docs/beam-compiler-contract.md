@@ -14,14 +14,26 @@ one evaluation process.
 The first extraction slice is intentionally narrow: verified basic blocks
 containing literals, stack movement, local reads/writes, primitive value
 operations, and terminal branches. Lowering first builds a bounded immutable
-block plan, then emits specialized fixed-name `run/3`, `block/4`, and `step/4`
-clauses whose operations call the canonical runtime ABI. Calls, accessors,
-constructors, iterators, exceptions, Promise
-operations, host calls, and `await` deopt before their instruction until their
-resumable compiler ABI exists. The root frame always receives an entry attempt;
-nested frames require at least 32 pure entry instructions. Owner-local compile
-or skip decisions are cached for at most 256 function IDs per evaluation, which
-bounds metadata while avoiding repeated CFG analysis for hot calls.
+block plan, then emits fixed-name generated forms. The generic path uses
+`run/3` and `block/4` with bounded canonical runtime block calls. Eligible scalar
+loops use `run/3` and `block/7`, retain stack values as BEAM expressions, carry
+locals as bounded tuples, and rebuild canonical frames only at deoptimization.
+Calls, accessors, constructors, iterators, exceptions, Promise operations, host
+calls, and `await` deopt before their instruction until their resumable compiler
+ABI exists.
+
+The root frame always receives an eligibility attempt. Nested frames are
+selected by a 32-operation entry prefix on the generic path; scalar-eligible
+functions may instead qualify by total lowered size or a verified backward CFG
+edge. Owner-local compile or skip decisions are cached for at most 256
+function IDs per evaluation. The module pool also keeps at most 256 binary-keyed
+negative decisions, avoiding repeated warm lowering without creating atoms.
+
+Scalar lowering is deliberately narrower: at most 64 lowered operations, eight
+blocks, 32 operations per block, eight arguments, eight locals, and stack depth
+64. Locals captured by nested functions are excluded. Lexical checked-local
+reads require a successful initialization dataflow proof; otherwise the generic
+before-instruction deoptimization path remains authoritative.
 
 ## Non-negotiable invariants
 
@@ -29,8 +41,9 @@ bounds metadata while avoiding repeated CFG analysis for hot calls.
 2. Generated code never owns a heap, globals, cells, Promise state, jobs, or
    handler tasks. It receives and returns canonical `%Frame{}` and
    `%Execution{}` values.
-3. Generated code calls one versioned compiler runtime ABI. It does not call
-   heap internals or copy JavaScript semantic algorithms.
+3. Generated code calls one versioned compiler runtime ABI and never calls heap
+   internals. Allowlisted BEAM primitives may specialize proven or guarded
+   primitive values; every guard miss calls the canonical runtime semantics.
 4. Every transition to the interpreter is an explicit, validated deoptimization
    at a verified instruction boundary.
 5. A timeout, memory failure, step failure, throw, or suspension has the same
@@ -132,8 +145,8 @@ safely purged remains loaded until VM shutdown.
 
 Generated modules may call `:erlang` guard/BIF operations approved by a
 BEAM-disassembly test and one module, `QuickBEAM.VM.Compiler.Runtime`. That
-module is the versioned ABI and delegates semantics to the existing canonical
-layers:
+module is runtime ABI version 2 and delegates semantics to the existing
+canonical layers:
 
 - `Value` for primitive coercion and operators;
 - `Properties` for descriptors, prototypes, and accessor actions;
@@ -148,16 +161,17 @@ rather than recursively invoking JavaScript.
 
 The first ABI now contains only:
 
-- exact step charging at basic-block boundaries;
-- verified local/argument/stack transforms over `%Frame{}` through existing
-  opcode-family modules;
-- primitive unary/binary operations through `Value`;
+- exact canonical-frame and compact-state charging at basic-block boundaries;
+- verified local/argument/stack transforms shared with opcode-family modules;
+- guarded primitive operations with canonical `Value` fallback;
 - truthiness and verified branch selection;
-- construction of a typed `%Compiler.Deopt{}`.
+- reconstruction of canonical frames and typed `%Compiler.Deopt{}` values.
 
 `Compiler.GeneratedModule.ImportPolicy` inspects every generated module import
-before installation. The closed initial allowlist contains this ABI plus the two
-Erlang `get_module_info` imports emitted for every generated module. Properties, calls,
+before installation. The closed allowlist contains this ABI, a fixed set of
+numeric/tuple guard primitives, and the two Erlang `get_module_info` imports
+emitted for every generated module. Generated variable names come only from a
+fixed compiler-owned bank; no source value becomes an atom. Properties, calls,
 throws, and suspension are added only with differential and resource-limit tests
 for their action protocol.
 
@@ -166,8 +180,8 @@ for their action protocol.
 A compiled basic block may debit its instruction count once only when every
 instruction in the block is guaranteed to execute and cannot throw or suspend.
 If insufficient steps remain, it deopts before the block without charging any of
-its instructions. Blocks with dynamic exits charge at individual instruction
-boundaries. This preserves the interpreter's exact `remaining_steps` contract
+its instructions. A terminal conditional still executes exactly once after the
+preceding straight-line operations. This preserves the interpreter's exact `remaining_steps` contract
 and `measure/2` counters.
 
 All allocation goes through canonical runtime layers and their logical memory
@@ -175,12 +189,12 @@ charges. The compiled path runs in the same monitored evaluation process, so
 process heap limits, outer timeout, handler ownership, and cancellation remain
 unchanged.
 
-Generated basic blocks are capped at 256 QuickJS instructions and one function
-artifact at 4,096 blocks and 4,096 lowered instructions. The initial profile
-deoptimizes at a
-control-flow edge rather than recursively running another JavaScript block. The
-existing `+S 1:1` ticker-gap and timeout report remains a regression gate for
-compiled execution.
+Generated generic blocks are capped at 256 QuickJS instructions and one function
+artifact at 4,096 blocks and 4,096 lowered instructions. Generic blocks still
+deoptimize at control-flow edges. The narrower scalar profile may tail-call at
+most eight generated successor blocks while preserving per-block charging and
+outer process containment. The existing `+S 1:1` ticker-gap and timeout report
+remains a regression gate for compiled execution.
 
 ## Deoptimization state
 
@@ -233,8 +247,8 @@ An adaptive policy, if added, must be explicitly selected by the caller and
 reported by measurement/telemetry. It still may never fall back to native
 QuickJS.
 
-The current `+S 1:1` compiler-tier Vue probe reports a 33.0 ms maximum ticker
-gap against the 75 ms bound and a 50.99 ms timeout p95 against the 60 ms bound.
+The current `+S 1:1` compiler-tier Vue probe reports a 31.67 ms maximum ticker
+gap against the 75 ms bound and a 51.03 ms timeout p95 against the 60 ms bound.
 The pinned compiler SSR report covers 30 sequential samples plus concurrency
 1/4/8 for Preact, Vue, and Svelte, with 100/100 isolated Preact renders and
 successful step, memory, timeout, and cancellation checks. The Vue parity gate
@@ -242,8 +256,14 @@ also requires more than the root generated module, proving selected nested-frame
 coverage. The selected Test262 gate passes 65/65 supported tests through both
 the interpreter and compiler tier.
 
-On the published runs, compiler-tier sequential medians are 10.71 ms for Preact,
-69.95 ms for Vue, and 16.50 ms for Svelte, versus interpreter medians of 8.49 ms,
+The separate warm loop report now measures 1.72× arithmetic-loop, 1.97×
+branch-loop, and 2.31× local-arithmetic speedups over the interpreter after cold
+compilation costs of 9.26–42.61 ms. Those bounded micro-workloads demonstrate
+that scalar generated execution can amortize compilation; they do not replace
+the SSR release gate.
+
+On the published runs, compiler-tier sequential medians are 9.83 ms for Preact,
+72.42 ms for Vue, and 17.05 ms for Svelte, versus interpreter medians of 8.49 ms,
 48.55 ms, and 12.36 ms respectively. These separate reproducible runs are not a
 paired statistical comparison, but they show that selective nested-function
 re-entry is still not a performance release candidate.
@@ -255,8 +275,8 @@ The compiler remains release-quarantined despite those compatibility results:
 - `engine: :interpreter` remains the documented default;
 - compiler selection and supervision must always be explicit;
 - compiler infrastructure failures never restart in another engine;
-- fixture parity does not imply that the current one-entry-block-per-selected-
-  frame specialization has a production performance benefit;
+- scalar loop speedups do not imply that unsupported SSR-heavy opcode families
+  have a production performance benefit;
 - stable release promotion requires broader useful compiled coverage, a
   non-regressing compiler/interpreter performance comparison, and no regression
   in the existing safety gates;
@@ -272,8 +292,8 @@ Prototype code is not copied as a subsystem. Each part has one bounded target:
 | CFG/basic-block discovery | Adapt the pure graph algorithm to current v26 instruction tuples. Targets remain verified instruction indexes. |
 | Stack analysis | Do not extract. `StackVerifier` remains authoritative; lowering consumes its verified heights and joins. |
 | Opcode support analysis | Replace broad fallback analysis with a closed `:pure_v1` allowlist. Every other opcode emits a before-instruction deopt. |
-| Local/stack lowering | Adapt abstract-form patterns to transformations over canonical `%Frame{}` through the compiler runtime ABI. |
-| Value lowering | Call `Value`; do not retain prototype coercion or object tags. Guards deopt before an instruction when specialization assumptions fail. |
+| Local/stack lowering | Adapt scalar block arguments only under fixed stack/slot/form bounds. Rebuild canonical `%Frame{}` at deoptimization and exclude captured locals. |
+| Value lowering | Use allowlisted guarded BEAM primitives with canonical `Value` fallback. Do not retain prototype coercion or object tags. |
 | Property lowering | Initially deopt. Later call `Properties` and preserve its accessor boundary actions. |
 | Call lowering | Initially deopt. Later call `Invocation`; calls never recursively enter generated code or the interpreter. |
 | Promise/async lowering | Initially deopt before Promise, host-call, and `await` instructions. Later preserve `Async`, Promise jobs, and typed suspension boundaries. |

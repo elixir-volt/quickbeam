@@ -54,7 +54,9 @@ defmodule QuickBEAM.VM.VueSSRTest do
 
       assert beam_html == native_html
       assert compiler_html == native_html
-      assert ModulePool.stats(ModulePool).counts.ready >= 2
+      stats = ModulePool.stats(ModulePool)
+      assert stats.counts.ready >= 1
+      assert stats.skips >= 1
     after
       QuickBEAM.stop(runtime)
     end

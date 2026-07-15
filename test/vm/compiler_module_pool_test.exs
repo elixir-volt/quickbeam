@@ -168,6 +168,38 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert :ok = ModulePool.checkin(pool, lease)
   end
 
+  test "probes warm artifacts without compiling on a miss" do
+    pool = start_pool(capacity: 1)
+    key = key(1)
+
+    assert :miss = ModulePool.checkout_cached(pool, key)
+    assert :ok = ModulePool.remember_skip(pool, key(2))
+    assert :skip = ModulePool.checkout_cached(pool, key(2))
+    assert ModulePool.stats(pool).skips == 1
+    assert FakeBackend.state().compiles == %{}
+
+    assert {:ok, cold_lease} = ModulePool.checkout(pool, key, :cold_input)
+    assert :ok = ModulePool.checkin(pool, cold_lease)
+    assert {:ok, warm_lease} = ModulePool.checkout_cached(pool, key)
+    assert warm_lease.key == key
+    assert FakeBackend.state().compiles[key] == 1
+    assert :ok = ModulePool.checkin(pool, warm_lease)
+  end
+
+  test "bounds shared negative decisions without allocating key atoms" do
+    pool = start_pool(capacity: 1)
+    atom_count = :erlang.system_info(:atom_count)
+
+    for id <- 1..300 do
+      assert :ok = ModulePool.remember_skip(pool, key(id))
+    end
+
+    assert ModulePool.stats(pool).skips == 256
+    assert :miss = ModulePool.checkout_cached(pool, key(1))
+    assert :skip = ModulePool.checkout_cached(pool, key(300))
+    assert :erlang.system_info(:atom_count) == atom_count
+  end
+
   @tag capture_log: true
   test "makes a slot reusable after a compiler task exits" do
     pool = start_pool(capacity: 1)

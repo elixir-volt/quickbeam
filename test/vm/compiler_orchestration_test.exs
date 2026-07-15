@@ -54,21 +54,33 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
     assert {:ok, 40} = QuickBEAM.VM.eval(program, engine: :compiler)
 
     stats = ModulePool.stats(ModulePool)
-    assert stats.counts.ready >= 2
+    assert stats.counts.ready >= 1
     assert stats.leases == 0
   end
 
-  test "caches bounded owner-local compile and skip decisions" do
+  test "caches bounded owner-local skip decisions" do
     start_compiler()
     assert {:ok, program} = QuickBEAM.VM.compile("(function add(value) { return value + 1 })(41)")
     assert {:ok, 42, execution} = Compiler.start(program)
 
     decisions = execution.compiler_context.decisions
     assert map_size(decisions) == 2
-    assert Enum.count(decisions, fn {_id, decision} -> decision == :skip end) == 1
+    assert Enum.count(decisions, fn {_id, decision} -> decision == :skip end) == 2
+  end
 
-    assert Enum.count(decisions, fn {_id, decision} -> match?({:compile, _, _}, decision) end) ==
-             1
+  test "uses the loaded artifact before repeating warm lowering" do
+    start_compiler()
+    assert {:ok, program} = QuickBEAM.VM.compile("40 + 2")
+    assert {:ok, 42, cold_execution} = Compiler.start(program)
+    assert {:ok, 42, warm_execution} = Compiler.start(program)
+
+    assert Enum.any?(cold_execution.compiler_context.decisions, fn {_id, decision} ->
+             match?({:compile, _, _}, decision)
+           end)
+
+    assert Enum.any?(warm_execution.compiler_context.decisions, fn {_id, decision} ->
+             match?({:cached, _}, decision)
+           end)
   end
 
   test "caps owner-local eligibility metadata across many nested functions" do
