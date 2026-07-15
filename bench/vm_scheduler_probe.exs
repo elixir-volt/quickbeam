@@ -1,6 +1,8 @@
 defmodule QuickBEAM.Bench.VMSchedulerProbe do
   @moduledoc "Single-scheduler fairness and timeout probe for the BEAM VM."
 
+  alias QuickBEAM.VM.Compiler
+
   @fixture "test/fixtures/vm/vue_ssr.js"
   @bundle_opts [
     format: :esm,
@@ -24,7 +26,9 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
 
   def run(args) do
     {opts, positional, invalid} =
-      OptionParser.parse(args, strict: [samples: :integer, output: :string])
+      OptionParser.parse(args,
+        strict: [engine: :string, samples: :integer, output: :string]
+      )
 
     if positional != [] or invalid != [],
       do: raise(ArgumentError, "invalid arguments: #{inspect(positional ++ invalid)}")
@@ -34,12 +38,16 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     end
 
     samples = positive!(Keyword.get(opts, :samples, 10), :samples)
+    engine = engine!(Keyword.get(opts, :engine, "interpreter"))
+    maybe_start_compiler!(engine)
     fixture = compile_fixture!()
 
-    Enum.each(1..2, fn _iteration -> render!(fixture) end)
+    Enum.each(1..2, fn _iteration -> render!(fixture, engine) end)
 
     render_observations =
-      Enum.map(1..samples, fn _iteration -> observe_ticker(fn -> render!(fixture) end) end)
+      Enum.map(1..samples, fn _iteration ->
+        observe_ticker(fn -> render!(fixture, engine) end)
+      end)
 
     render_wall = render_observations |> Enum.map(& &1.wall_time_us) |> Enum.sort()
     baseline_ms = max(round(percentile(render_wall, 0.50) / 1_000), 1)
@@ -55,6 +63,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
       Enum.map(1..samples, fn _iteration ->
         {:ok, measurement} =
           QuickBEAM.VM.measure(timeout_program,
+            engine: engine,
             max_steps: 1_000_000_000,
             timeout: 50
           )
@@ -71,7 +80,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     enforce_gates!(render_summary, timeout_summary)
 
     report =
-      report(samples, baseline_ms, render_summary, baseline_summary, timeout_summary)
+      report(engine, samples, baseline_ms, render_summary, baseline_summary, timeout_summary)
 
     IO.write(report)
 
@@ -93,11 +102,14 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     program
   end
 
-  defp render!(fixture) do
+  defp render!(fixture, engine) do
     handler = fn [] -> fixture.props end
 
     {:ok, measurement} =
-      QuickBEAM.VM.measure(fixture.program, [handlers: %{"load_props" => handler}] ++ @eval_opts)
+      QuickBEAM.VM.measure(
+        fixture.program,
+        [engine: engine, handlers: %{"load_props" => handler}] ++ @eval_opts
+      )
 
     unless match?({:ok, _rendered}, measurement.result),
       do: raise("Vue scheduler probe failed: #{inspect(measurement.result)}")
@@ -174,14 +186,15 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
       do: raise("timeout p95 #{timeout.p95} µs exceeded #{@max_timeout_wall_us} µs")
   end
 
-  defp report(samples, baseline_ms, render, baseline, timeout) do
+  defp report(engine, samples, baseline_ms, render, baseline, timeout) do
     """
     # BEAM VM single-scheduler probe
 
     Run with `ERL_FLAGS="+S 1:1"`. The pinned Vue SSR fixture and a periodic BEAM
     ticker share one scheduler. The baseline sleeps for the median render wall
-    time, allowing the same ticker to run without interpreter work.
+    time, allowing the same ticker to run without #{engine} work.
 
+    - Engine: #{engine}
     - Git base: `#{command("git", ["rev-parse", "--short", "HEAD"])}`
     - Working tree at measurement: #{tree_state()}
     - Generated: #{DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()}
@@ -251,6 +264,22 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     case System.cmd(executable, args, stderr_to_stdout: true) do
       {output, 0} -> String.trim(output)
       {_output, _status} -> "unknown"
+    end
+  end
+
+  defp engine!("interpreter"), do: :interpreter
+  defp engine!("compiler"), do: :compiler
+
+  defp engine!(engine),
+    do: raise(ArgumentError, "engine must be interpreter or compiler, got: #{inspect(engine)}")
+
+  defp maybe_start_compiler!(:interpreter), do: :ok
+
+  defp maybe_start_compiler!(:compiler) do
+    case Compiler.start_link(capacity: 8) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> raise "compiler start failed: #{inspect(reason)}"
     end
   end
 

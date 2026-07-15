@@ -317,9 +317,12 @@ import policy, and soft-purge code lifecycle now pass their acceptance tests.
 Bounded v26 CFG analysis now produces deterministic `:pure_v1` plans and
 specialized fixed-name block/step forms. Canonical pure operations resume
 explicit interpreter deoptimization with synthetic, decoded-expression,
-argument/local, and exact-step differential tests. The compiler remains
-quarantined until broader decoded/native fixtures and scheduler gates pass; no
-prototype compiler runtime is approved for copying.
+argument/local, and exact-step differential tests. Explicit supervised
+orchestration now exercises isolated evaluation, measurement, asynchronous
+handler deoptimization, native pure-expression parity, timeout/memory/step
+containment, and concurrent cache reuse. The compiler remains release
+quarantined until broader SSR/native fixtures and single-scheduler gates pass;
+no prototype compiler runtime is approved for copying.
 
 ## Test extraction policy
 

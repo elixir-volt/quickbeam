@@ -109,6 +109,7 @@ defmodule QuickBEAM.MixProject do
         "docs/architecture.md",
         "docs/beam-interpreter-architecture.md",
         "docs/beam-compiler-contract.md",
+        "docs/beam-compiler-scheduler-measurements.md",
         "docs/beam-scheduler-measurements.md",
         "docs/beam-ssr-measurements.md",
         "docs/prototype-delta-audit.md",
@@ -121,6 +122,7 @@ defmodule QuickBEAM.MixProject do
           "docs/architecture.md",
           "docs/beam-interpreter-architecture.md",
           "docs/beam-compiler-contract.md",
+          "docs/beam-compiler-scheduler-measurements.md",
           "docs/beam-scheduler-measurements.md",
           "docs/beam-ssr-measurements.md",
           "docs/prototype-delta-audit.md",
@@ -157,6 +159,7 @@ defmodule QuickBEAM.MixProject do
     public_vm_modules = [
       QuickBEAM.VM.ABI,
       QuickBEAM.VM.ClosureVariable,
+      QuickBEAM.VM.Compiler,
       QuickBEAM.VM.Function,
       QuickBEAM.VM.Measurement,
       QuickBEAM.VM.Program,

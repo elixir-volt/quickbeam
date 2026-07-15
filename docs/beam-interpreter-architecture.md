@@ -757,8 +757,11 @@ Minimum scheduler acceptance scenarios:
 
 The reproducible fixture measurements are published in
 [`beam-ssr-measurements.md`](beam-ssr-measurements.md), with the `+S 1:1`
-fairness and timeout gate in
-[`beam-scheduler-measurements.md`](beam-scheduler-measurements.md). The reports
+fairness and timeout gates in
+[`beam-scheduler-measurements.md`](beam-scheduler-measurements.md) and the
+release-quarantined compiler run in
+[`beam-compiler-scheduler-measurements.md`](beam-compiler-scheduler-measurements.md).
+The reports
 separate deterministic VM steps/logical allocation from endpoint BEAM process
 observations, wall latency, concurrent throughput, and cancellation. Current
 single-scheduler acceptance bounds are a maximum 75 ms ticker gap during the
@@ -778,6 +781,20 @@ QuickBEAM.VM.eval/2
 Do not automatically fall back between engines. Silent fallback hides semantic
 and scheduling differences. If an application wants fallback, it can choose it
 explicitly after handling an unsupported-feature error.
+
+The optional compiler tier has an explicit, release-quarantined orchestration
+path:
+
+```elixir
+children = [{QuickBEAM.VM.Compiler, capacity: 8}]
+QuickBEAM.VM.eval(program, engine: :compiler)
+```
+
+The compiler runs one bounded specialized pure block and may deopt at a verified
+instruction boundary into the interpreter. Compiler infrastructure failures are
+typed errors and never restart the program or invoke native QuickJS. The default
+`QuickBEAM.VM` path remains the interpreter until compiler resource, scheduler,
+and native differential gates are published.
 
 After the SSR profile is stable, a convenience integration may preload programs
 for Phoenix rendering. A stateful `QuickBEAM.VM.Session` and an optimizing

@@ -215,16 +215,26 @@ only as a distinct protocol carrying an explicit completed semantic action.
 
 ## Public execution policy
 
-`QuickBEAM.VM.eval/2` remains the interpreter API. Compiler execution will be an
-explicit option or API. The first compiler mode does not silently interpret an
-unsupported whole program. A compiled basic block may return the documented
+`QuickBEAM.VM.eval/2` remains interpreter-first. The optional tier is selected
+with `engine: :compiler` after supervising `QuickBEAM.VM.Compiler`; the default
+remains `engine: :interpreter`. A compiled basic block may return the documented
 deoptimization action because that transition is part of the selected compiler
 engine. Capacity, compile-task, load, stale-lease, and purge failures remain
-typed compiler errors.
+typed compiler errors rather than silently restarting the whole program in the
+interpreter.
+
+The orchestration API is present for acceptance testing but remains release
+quarantined until the pinned resource, scheduler, and broader native
+differential gates pass.
 
 An adaptive policy, if added, must be explicitly selected by the caller and
 reported by measurement/telemetry. It still may never fall back to native
 QuickJS.
+
+The current `+S 1:1` compiler-tier Vue probe reports a 35.48 ms maximum ticker
+gap against the 75 ms bound and a 51.0 ms timeout p95 against the 60 ms bound.
+These fixture-specific results satisfy the initial scheduler gate but do not
+remove the broader release quarantine.
 
 ## Prototype analysis map
 

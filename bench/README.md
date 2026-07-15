@@ -24,9 +24,13 @@ MIX_ENV=bench mix run bench/concurrent.exs
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --output docs/beam-ssr-measurements.md
 
-# Reproduce the single-scheduler fairness/timeout probe
+# Reproduce the interpreter single-scheduler fairness/timeout probe
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
   --output docs/beam-scheduler-measurements.md
+
+# Reproduce the release-quarantined compiler-tier probe
+ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
+  --engine compiler --output docs/beam-compiler-scheduler-measurements.md
 ```
 
 The SSR runner accepts `--samples`, `--warmup`, and a comma-separated
@@ -34,8 +38,10 @@ The SSR runner accepts `--samples`, `--warmup`, and a comma-separated
 endpoint BEAM process observations, sequential latency, concurrent throughput,
 and timeout/cancellation behavior for the pinned Preact, Vue, and Svelte
 fixtures. Published results are in
-[`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md) and
-[`docs/beam-scheduler-measurements.md`](../docs/beam-scheduler-measurements.md).
+[`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md),
+[`docs/beam-scheduler-measurements.md`](../docs/beam-scheduler-measurements.md),
+and
+[`docs/beam-compiler-scheduler-measurements.md`](../docs/beam-compiler-scheduler-measurements.md).
 
 ## Results
 

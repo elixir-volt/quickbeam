@@ -12,10 +12,10 @@ defmodule QuickBEAM.VM.Interpreter do
     Async,
     AsyncBoundary,
     Builtins,
-    Compiler.Deopt,
     Continuation,
     ConstructorBoundary,
     Coroutine,
+    Compiler.Deopt,
     Execution,
     Exceptions,
     Export,
@@ -67,10 +67,10 @@ defmodule QuickBEAM.VM.Interpreter do
   @spec eval(Program.t(), keyword()) :: result()
   def eval(%Program{} = program, opts \\ []), do: program |> start(opts) |> finish()
 
-  @doc "Starts interpreting a program and returns its raw machine result."
-  def start(%Program{} = program, opts \\ []) do
+  @doc "Initializes the canonical owner-local frame and execution state."
+  @spec initialize(Program.t(), keyword()) :: {Frame.t(), Execution.t()}
+  def initialize(%Program{} = program, opts \\ []) do
     max_steps = Keyword.get(opts, :max_steps, @default_max_steps)
-
     vars = Map.new(Keyword.get(opts, :vars, %{}))
 
     execution = %Execution{
@@ -87,6 +87,12 @@ defmodule QuickBEAM.VM.Interpreter do
     execution = Memory.charge(execution, Memory.estimate(vars))
     execution = install_host_globals(execution, Keyword.get(opts, :profile, :core))
     frame = Invocation.new_frame(program.root, program.root, [], :undefined, {})
+    {frame, execution}
+  end
+
+  @doc "Starts interpreting a program and returns its raw machine result."
+  def start(%Program{} = program, opts \\ []) do
+    {frame, execution} = initialize(program, opts)
     run(frame, execution)
   end
 

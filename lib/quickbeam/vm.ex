@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM do
   heap, Promise state, host operations, and resource limits.
   """
 
-  alias QuickBEAM.VM.{ABI, Decoder, Evaluator, Function, Measurement, Program, Verifier}
+  alias QuickBEAM.VM.{ABI, Compiler, Decoder, Evaluator, Function, Measurement, Program, Verifier}
 
   @type program :: QuickBEAM.VM.Program.t()
 
@@ -94,18 +94,19 @@ defmodule QuickBEAM.VM do
   @doc """
   Evaluates a verified program in an isolated BEAM process.
 
-  Supported options include `:vars`, asynchronous `:handlers`, the builtin
-  `:profile` (`:core` or `:ssr`), `:timeout`, `:max_steps`, `:max_stack_depth`, and the JavaScript allocation budget
-  `:memory_limit`. Isolated workers also receive a BEAM process heap ceiling.
-  `isolation: :caller` is available for
-  trusted diagnostics.
+  Supported options include the explicit `:engine` (`:interpreter` or
+  `:compiler`), `:vars`, asynchronous `:handlers`, the builtin `:profile`
+  (`:core` or `:ssr`), `:timeout`, `:max_steps`, `:max_stack_depth`, and the
+  JavaScript allocation budget `:memory_limit`. Isolated workers also receive a
+  BEAM process heap ceiling. `isolation: :caller` is available for trusted
+  diagnostics. The compiler engine requires a supervised `QuickBEAM.VM.Compiler`.
   """
   @spec eval(Program.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def eval(%Program{} = program, opts \\ []) when is_list(opts) do
     with :ok <- Verifier.verify(program),
          {:ok, options} <- evaluation_options(opts) do
       case options.isolation do
-        :caller -> Evaluator.eval(program, Map.to_list(options.interpreter))
+        :caller -> evaluate(program, options)
         :process -> eval_isolated(program, options)
       end
     end
@@ -128,7 +129,7 @@ defmodule QuickBEAM.VM do
 
       payload =
         case options.isolation do
-          :caller -> safe_measure(program, options.interpreter)
+          :caller -> safe_measure(program, options)
           :process -> measure_isolated(program, options)
         end
 
@@ -140,6 +141,8 @@ defmodule QuickBEAM.VM do
 
   defp evaluation_options(opts) do
     allowed = [
+      :compiler_pool,
+      :engine,
       :handlers,
       :isolation,
       :max_stack_depth,
@@ -158,6 +161,8 @@ defmodule QuickBEAM.VM do
 
   defp validate_evaluation_options(opts) do
     isolation = Keyword.get(opts, :isolation, :process)
+    engine = Keyword.get(opts, :engine, :interpreter)
+    compiler_pool = Keyword.get(opts, :compiler_pool, QuickBEAM.VM.Compiler.ModulePool)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
@@ -169,6 +174,12 @@ defmodule QuickBEAM.VM do
     cond do
       isolation not in [:caller, :process] ->
         {:error, {:invalid_option, :isolation, isolation}}
+
+      engine not in [:interpreter, :compiler] ->
+        {:error, {:invalid_option, :engine, engine}}
+
+      not (is_atom(compiler_pool) or is_pid(compiler_pool)) ->
+        {:error, {:invalid_option, :compiler_pool, compiler_pool}}
 
       timeout != :infinity and (not is_integer(timeout) or timeout <= 0) ->
         {:error, {:invalid_option, :timeout, timeout}}
@@ -198,9 +209,11 @@ defmodule QuickBEAM.VM do
         {:ok,
          %{
            isolation: isolation,
+           engine: engine,
            memory_limit: memory_limit,
            timeout: timeout,
            interpreter: %{
+             compiler_pool: compiler_pool,
              handlers: handlers,
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
@@ -217,7 +230,7 @@ defmodule QuickBEAM.VM do
     reply_ref = make_ref()
 
     worker = fn ->
-      result = safe_interpret(program, options.interpreter)
+      result = safe_evaluate(program, options)
       send(caller, {reply_ref, result})
     end
 
@@ -226,15 +239,21 @@ defmodule QuickBEAM.VM do
     await_evaluation(pid, monitor_ref, reply_ref, options.timeout, options.memory_limit)
   end
 
-  defp safe_interpret(program, options) do
-    case Evaluator.eval(program, Map.to_list(options)) do
+  defp evaluate(program, %{engine: :interpreter, interpreter: options}),
+    do: Evaluator.eval(program, Map.to_list(options))
+
+  defp evaluate(program, %{engine: :compiler, interpreter: options}),
+    do: Compiler.eval(program, Map.to_list(options))
+
+  defp safe_evaluate(program, options) do
+    case evaluate(program, options) do
       {:suspended, _continuation} -> {:error, {:unsupported, :async_wait}}
       result -> result
     end
   rescue
-    exception -> {:error, {:interpreter_crash, exception, __STACKTRACE__}}
+    exception -> {:error, {engine_crash(options.engine), exception, __STACKTRACE__}}
   catch
-    kind, reason -> {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}
+    kind, reason -> {:error, {engine_crash(options.engine), {kind, reason}, __STACKTRACE__}}
   end
 
   defp measure_isolated(program, options) do
@@ -242,7 +261,7 @@ defmodule QuickBEAM.VM do
     reply_ref = make_ref()
 
     worker = fn ->
-      payload = safe_measure(program, options.interpreter)
+      payload = safe_measure(program, options)
       send(caller, {reply_ref, payload})
     end
 
@@ -254,8 +273,8 @@ defmodule QuickBEAM.VM do
     end
   end
 
-  defp safe_measure(program, options) do
-    {result, metrics} = Evaluator.eval_with_metrics(program, Map.to_list(options))
+  defp safe_measure(program, %{engine: engine, interpreter: options}) do
+    {result, metrics} = measure_engine(engine, program, Map.to_list(options))
 
     result =
       if match?({:suspended, _continuation}, result),
@@ -264,11 +283,20 @@ defmodule QuickBEAM.VM do
 
     {:measured, result, metrics}
   rescue
-    exception -> {:measured, {:error, {:interpreter_crash, exception, __STACKTRACE__}}, nil}
+    exception -> {:measured, {:error, {engine_crash(engine), exception, __STACKTRACE__}}, nil}
   catch
     kind, reason ->
-      {:measured, {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}, nil}
+      {:measured, {:error, {engine_crash(engine), {kind, reason}, __STACKTRACE__}}, nil}
   end
+
+  defp measure_engine(:interpreter, program, options),
+    do: Evaluator.eval_with_metrics(program, options)
+
+  defp measure_engine(:compiler, program, options),
+    do: Compiler.eval_with_metrics(program, options)
+
+  defp engine_crash(:interpreter), do: :interpreter_crash
+  defp engine_crash(:compiler), do: :compiler_crash
 
   defp measurement({:measured, result, metrics}, wall_time_us) do
     metrics = metrics || %{}

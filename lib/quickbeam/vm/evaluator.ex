@@ -39,10 +39,12 @@ defmodule QuickBEAM.VM.Evaluator do
     end
   end
 
-  defp drive({:ok, %PromiseReference{} = promise, execution}),
+  @doc "Drives a raw interpreter or compiler machine result through the owner-local event loop."
+  @spec drive(term()) :: Interpreter.result()
+  def drive({:ok, %PromiseReference{} = promise, execution}),
     do: await_final_promise(promise, execution)
 
-  defp drive({:suspended, %Continuation{awaiting: :microtask} = continuation}) do
+  def drive({:suspended, %Continuation{awaiting: :microtask} = continuation}) do
     case :queue.out(continuation.execution.jobs) do
       {{:value, result}, jobs} when elem(result, 0) in [:ok, :error] ->
         continuation = %{continuation | execution: %{continuation.execution | jobs: jobs}}
@@ -53,17 +55,17 @@ defmodule QuickBEAM.VM.Evaluator do
     end
   end
 
-  defp drive({:suspended, %Continuation{awaiting: %PromiseReference{}} = continuation}) do
+  def drive({:suspended, %Continuation{awaiting: %PromiseReference{}} = continuation}) do
     await_legacy_promise(continuation)
   end
 
-  defp drive({:suspended, %Continuation{} = continuation} = suspended),
+  def drive({:suspended, %Continuation{} = continuation} = suspended),
     do: finish_suspended(suspended, continuation.execution)
 
-  defp drive({status, _value, _execution} = result) when status in [:ok, :error],
+  def drive({status, _value, _execution} = result) when status in [:ok, :error],
     do: finish_final(result)
 
-  defp drive({:idle, execution}),
+  def drive({:idle, execution}),
     do: finish_final({:error, :idle_evaluation, execution})
 
   defp await_final_promise(%PromiseReference{} = promise, execution) do
