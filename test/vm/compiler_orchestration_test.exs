@@ -27,6 +27,25 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
     end
   end
 
+  test "preserves JavaScript error identity across native, interpreter, and compiler tiers" do
+    start_compiler()
+    source = "(function explode(){ throw new TypeError('boom') })()"
+    assert {:ok, program} = QuickBEAM.VM.compile(source, filename: "compiler-error.js")
+    assert {:ok, runtime} = QuickBEAM.start(apis: false)
+
+    try do
+      assert {:error, native_error} = QuickBEAM.eval(runtime, source)
+      assert {:error, interpreted_error} = QuickBEAM.VM.eval(program)
+      assert {:error, compiled_error} = QuickBEAM.VM.eval(program, engine: :compiler)
+
+      assert %QuickBEAM.JSError{name: "TypeError", message: "boom"} = native_error
+      assert %QuickBEAM.JSError{name: "TypeError", message: "boom"} = interpreted_error
+      assert compiled_error == interpreted_error
+    after
+      QuickBEAM.stop(runtime)
+    end
+  end
+
   test "deoptimizes into asynchronous handlers without duplicating effects" do
     start_compiler()
     assert {:ok, program} = QuickBEAM.VM.compile("Beam.call('double', 21)")

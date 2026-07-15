@@ -758,8 +758,10 @@ Minimum scheduler acceptance scenarios:
 The reproducible fixture measurements are published in
 [`beam-ssr-measurements.md`](beam-ssr-measurements.md), with the `+S 1:1`
 fairness and timeout gates in
-[`beam-scheduler-measurements.md`](beam-scheduler-measurements.md) and the
-release-quarantined compiler run in
+[`beam-scheduler-measurements.md`](beam-scheduler-measurements.md), the
+release-quarantined compiler SSR matrix in
+[`beam-compiler-ssr-measurements.md`](beam-compiler-ssr-measurements.md), and its
+single-scheduler run in
 [`beam-compiler-scheduler-measurements.md`](beam-compiler-scheduler-measurements.md).
 The reports
 separate deterministic VM steps/logical allocation from endpoint BEAM process

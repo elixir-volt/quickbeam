@@ -9,7 +9,8 @@ gate for `QuickBEAM.VM`. Full Test262 compliance is not claimed.
 - Selected tests: 69
 - Explicitly unsupported by flags: 4 asynchronous tests
 - Supported tests: 65
-- Passing: 65
+- Interpreter passing: 65
+- Compiler tier passing: 65
 - Known failures: 0
 - Supported-test pass rate: **100%**
 - Required pass rate: **100%**
@@ -42,11 +43,12 @@ external corpus gate is reported as skipped.
 
 ## Classification
 
-Each selected path is run in a fresh native QuickJS runtime and an isolated
-BEAM VM evaluation. Results are classified as:
+Each selected path is run in a fresh native QuickJS runtime and isolated BEAM
+interpreter and release-quarantined compiler-tier evaluations. Results are
+classified as:
 
-- `pass` — both engines satisfy the Test262 expectation;
-- `vm_failure` — native QuickJS passes and the BEAM VM fails;
+- `pass` — native QuickJS and the selected BEAM tier satisfy the expectation;
+- `vm_failure` — native QuickJS passes and the selected BEAM tier fails;
 - `native_failure` — the selected test or harness is incompatible with the
   vendored native engine;
 - `unsupported_flag` — module, raw, or asynchronous harness behavior is outside

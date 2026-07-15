@@ -233,8 +233,31 @@ QuickJS.
 
 The current `+S 1:1` compiler-tier Vue probe reports a 35.48 ms maximum ticker
 gap against the 75 ms bound and a 51.0 ms timeout p95 against the 60 ms bound.
-These fixture-specific results satisfy the initial scheduler gate but do not
-remove the broader release quarantine.
+The pinned compiler SSR report covers 30 sequential samples plus concurrency
+1/4/8 for Preact, Vue, and Svelte, with 100/100 isolated Preact renders and
+successful step, memory, timeout, and cancellation checks. The selected Test262
+gate passes 65/65 supported tests through both the interpreter and compiler tier.
+
+On the published runs, compiler-tier sequential medians are 10.11 ms for Preact,
+84.56 ms for Vue, and 19.06 ms for Svelte, versus interpreter medians of 8.49 ms,
+48.55 ms, and 12.36 ms respectively. These separate reproducible runs are not a
+paired statistical comparison, but they show that the current one-block tier is
+not a performance release candidate.
+
+### Release policy
+
+The compiler remains release-quarantined despite those compatibility results:
+
+- `engine: :interpreter` remains the documented default;
+- compiler selection and supervision must always be explicit;
+- compiler infrastructure failures never restart in another engine;
+- fixture parity does not imply that the current one-block specialization has a
+  production performance benefit;
+- stable release promotion requires bounded re-entry for nested functions or
+  equivalent useful compiled coverage, a published compiler/interpreter
+  performance comparison, and no regression in the existing safety gates;
+- until promotion, compiler API compatibility may change within the development
+  major release.
 
 ## Prototype analysis map
 

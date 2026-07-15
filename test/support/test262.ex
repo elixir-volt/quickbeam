@@ -104,14 +104,14 @@ defmodule QuickBEAM.Test262 do
   end
 
   @doc "Runs every entry in a selected manifest and returns classified results."
-  @spec run_manifest(Path.t(), keyword()) :: [result()]
-  def run_manifest(root, manifest) do
-    Enum.map(manifest[:tests], &run(root, &1))
+  @spec run_manifest(Path.t(), keyword(), keyword()) :: [result()]
+  def run_manifest(root, manifest, opts \\ []) do
+    Enum.map(manifest[:tests], &run(root, &1, opts))
   end
 
-  @doc "Runs one Test262 path against both engines."
-  @spec run(Path.t(), Path.t()) :: result()
-  def run(root, relative_path) do
+  @doc "Runs one Test262 path against native QuickJS and the selected BEAM engine."
+  @spec run(Path.t(), Path.t(), keyword()) :: result()
+  def run(root, relative_path, opts \\ []) do
     path = Path.join([root, "test", relative_path])
 
     if File.regular?(path) do
@@ -120,7 +120,7 @@ defmodule QuickBEAM.Test262 do
 
       case unsupported_flag(metadata.flags) do
         nil ->
-          run_supported(root, relative_path, source, metadata)
+          run_supported(root, relative_path, source, metadata, opts)
 
         flag ->
           result(relative_path, :unsupported_flag, {:unsupported_flag, flag}, :not_run, metadata)
@@ -139,12 +139,12 @@ defmodule QuickBEAM.Test262 do
     %{total: length(results), supported: supported, pass_rate: pass_rate, counts: counts}
   end
 
-  defp run_supported(root, relative_path, source, metadata) do
+  defp run_supported(root, relative_path, source, metadata, opts) do
     full_source =
       harness_source(root, metadata.includes) <> strict_prefix(metadata.flags) <> source
 
     native = native_result(full_source, metadata.negative)
-    vm = vm_result(full_source, metadata.negative)
+    vm = vm_result(full_source, metadata.negative, opts)
 
     classification =
       cond do
@@ -166,10 +166,15 @@ defmodule QuickBEAM.Test262 do
     |> then(&(@minimal_harness <> "\n" <> &1 <> "\n"))
   end
 
-  defp vm_result(source, negative) do
+  defp vm_result(source, negative, opts) do
+    engine = Keyword.get(opts, :engine, :interpreter)
+
     case QuickBEAM.VM.compile(source, filename: "test262.js") do
-      {:ok, program} -> classify_execution(QuickBEAM.VM.eval(program), negative, :runtime)
-      {:error, error} -> classify_execution({:error, error}, negative, :parse)
+      {:ok, program} ->
+        classify_execution(QuickBEAM.VM.eval(program, engine: engine), negative, :runtime)
+
+      {:error, error} ->
+        classify_execution({:error, error}, negative, :parse)
     end
   end
 

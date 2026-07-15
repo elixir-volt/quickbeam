@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.SvelteSSRTest do
   use ExUnit.Case, async: false
 
+  alias QuickBEAM.VM.Compiler
+
   @fixture "test/fixtures/vm/svelte_ssr.js"
   @eval_opts [
     profile: :ssr,
@@ -10,6 +12,8 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
   ]
 
   setup_all do
+    start_supervised!({Compiler, capacity: 8})
+
     assert {:ok, source} =
              QuickBEAM.JS.bundle_file(@fixture, format: :esm, minify: true)
 
@@ -39,7 +43,12 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
                QuickBEAM.eval(runtime, "await globalThis.__quickbeamSSRResult", timeout: 5_000)
 
       assert {:ok, beam_rendered} = QuickBEAM.VM.eval(program, [handlers: handlers] ++ @eval_opts)
+
+      assert {:ok, compiler_rendered} =
+               QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
+
       assert beam_rendered == native_rendered
+      assert compiler_rendered == native_rendered
     after
       QuickBEAM.stop(runtime)
     end

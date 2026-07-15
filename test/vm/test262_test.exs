@@ -89,6 +89,34 @@ defmodule QuickBEAM.VM.Test262Test do
              failure_message(summary, failures)
     end
 
+    @tag timeout: 180_000
+    test "compiler tier meets the selected differential conformance threshold" do
+      start_supervised!({QuickBEAM.VM.Compiler, capacity: 8})
+      results = QuickBEAM.Test262.run_manifest(@root, @manifest, engine: :compiler)
+      summary = QuickBEAM.Test262.summarize(results)
+
+      failures =
+        Enum.filter(results, &(&1.classification in [:missing, :native_failure, :vm_failure]))
+
+      actual_vm_failures =
+        results
+        |> Enum.filter(&(&1.classification == :vm_failure))
+        |> Enum.map(& &1.path)
+        |> MapSet.new()
+
+      expected_vm_failures = @manifest[:known_failures] |> Map.keys() |> MapSet.new()
+      assert actual_vm_failures == expected_vm_failures, failure_message(summary, failures)
+
+      assert summary.pass_rate >= @manifest[:minimum_pass_rate],
+             failure_message(summary, failures)
+
+      refute Enum.any?(results, &(&1.classification == :missing)),
+             failure_message(summary, failures)
+
+      refute Enum.any?(results, &(&1.classification == :native_failure)),
+             failure_message(summary, failures)
+    end
+
     defp failure_message(summary, failures) do
       details =
         Enum.map_join(failures, "\n", fn result ->
@@ -100,6 +128,10 @@ defmodule QuickBEAM.VM.Test262Test do
   else
     @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
     test "selected manifest meets its pinned differential conformance threshold" do
+    end
+
+    @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
+    test "compiler tier meets the selected differential conformance threshold" do
     end
   end
 end

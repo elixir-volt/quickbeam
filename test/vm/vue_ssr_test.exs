@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.VueSSRTest do
   use ExUnit.Case, async: false
 
+  alias QuickBEAM.VM.Compiler
+
   @fixture "test/fixtures/vm/vue_ssr.js"
   @bundle_opts [
     format: :esm,
@@ -20,6 +22,7 @@ defmodule QuickBEAM.VM.VueSSRTest do
   ]
 
   setup_all do
+    start_supervised!({Compiler, capacity: 8})
     assert {:ok, source} = QuickBEAM.JS.bundle_file(@fixture, @bundle_opts)
     assert {:ok, program} = QuickBEAM.VM.compile(source, filename: @fixture)
     {:ok, source: source, program: program}
@@ -44,7 +47,12 @@ defmodule QuickBEAM.VM.VueSSRTest do
                QuickBEAM.eval(runtime, "await globalThis.__quickbeamSSRResult", timeout: 5_000)
 
       assert {:ok, beam_html} = QuickBEAM.VM.eval(program, [handlers: handlers] ++ @eval_opts)
+
+      assert {:ok, compiler_html} =
+               QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
+
       assert beam_html == native_html
+      assert compiler_html == native_html
     after
       QuickBEAM.stop(runtime)
     end

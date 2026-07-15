@@ -320,9 +320,13 @@ explicit interpreter deoptimization with synthetic, decoded-expression,
 argument/local, and exact-step differential tests. Explicit supervised
 orchestration now exercises isolated evaluation, measurement, asynchronous
 handler deoptimization, native pure-expression parity, timeout/memory/step
-containment, and concurrent cache reuse. The compiler remains release
-quarantined until broader SSR/native fixtures and single-scheduler gates pass;
-no prototype compiler runtime is approved for copying.
+containment, and concurrent cache reuse. Preact, Vue, and Svelte now have
+compiler/interpreter/native parity; compiler measurements cover sequential and
+concurrent SSR, cancellation, reclamation, and `+S 1:1`; and the selected
+Test262 compiler gate passes 65/65 supported cases. The compiler remains release
+quarantined because one-block specialization does not yet provide useful nested
+compiled coverage or a demonstrated production performance benefit. No
+prototype compiler runtime is approved for copying.
 
 ## Test extraction policy
 

@@ -3,6 +3,8 @@ defmodule QuickBEAM.Bench.VMSSR do
   Reproducible fixture-specific measurements for the isolated BEAM VM SSR path.
   """
 
+  alias QuickBEAM.VM.Compiler
+
   @default_samples 30
   @default_warmup 3
   @default_concurrency [1, 4, 8]
@@ -10,19 +12,27 @@ defmodule QuickBEAM.Bench.VMSSR do
   def run(args) do
     {opts, positional, invalid} =
       OptionParser.parse(args,
-        strict: [samples: :integer, warmup: :integer, concurrency: :string, output: :string]
+        strict: [
+          engine: :string,
+          samples: :integer,
+          warmup: :integer,
+          concurrency: :string,
+          output: :string
+        ]
       )
 
     if positional != [] or invalid != [],
       do: raise(ArgumentError, "invalid arguments: #{inspect(positional ++ invalid)}")
 
+    engine = engine!(Keyword.get(opts, :engine, "interpreter"))
+    maybe_start_compiler!(engine)
     samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
     warmup = non_negative!(Keyword.get(opts, :warmup, @default_warmup), :warmup)
 
     concurrency =
       concurrency!(Keyword.get(opts, :concurrency, Enum.join(@default_concurrency, ",")))
 
-    fixtures = Enum.map(fixture_specs(), &compile_fixture!/1)
+    fixtures = Enum.map(fixture_specs(), &compile_fixture!(&1, engine))
 
     results =
       Enum.map(fixtures, fn fixture ->
@@ -37,7 +47,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       end)
 
     isolation = isolation_probe(hd(fixtures))
-    report = markdown_report(results, isolation, samples, warmup, concurrency)
+    report = markdown_report(engine, results, isolation, samples, warmup, concurrency)
     IO.write(report)
 
     if output = opts[:output] do
@@ -93,10 +103,13 @@ defmodule QuickBEAM.Bench.VMSSR do
     ]
   end
 
-  defp compile_fixture!(spec) do
+  defp compile_fixture!(spec, engine) do
     {:ok, source} = QuickBEAM.JS.bundle_file(spec.fixture, spec.bundle_opts)
     {:ok, program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
-    Map.put(spec, :program, program)
+
+    spec
+    |> Map.put(:program, program)
+    |> update_in([:eval_opts], &Keyword.put(&1, :engine, engine))
   end
 
   defp warm(_fixture, 0), do: :ok
@@ -310,20 +323,31 @@ defmodule QuickBEAM.Bench.VMSSR do
   defp result_label({:error, reason}), do: "error:#{inspect(reason)}"
   defp result_label({:ok, _value}), do: "ok"
 
-  defp markdown_report(results, isolation, samples, warmup, concurrency) do
+  defp markdown_report(engine, results, isolation, samples, warmup, concurrency) do
     metadata = metadata()
 
+    scheduler_report =
+      if engine == :compiler,
+        do: "beam-compiler-scheduler-measurements.md",
+        else: "beam-scheduler-measurements.md"
+
+    title =
+      if engine == :compiler,
+        do: "BEAM compiler SSR measurements",
+        else: "BEAM VM SSR measurements"
+
     """
-    # BEAM VM SSR measurements
+    # #{title}
 
     These results cover only the pinned, non-streaming fixtures listed below. They
     are not browser, DOM, or general framework compatibility claims. Each render
     performs one asynchronous `Beam.call` with a fixed 5 ms handler delay. The
     single-scheduler fairness and timeout gate is published separately in
-    [`beam-scheduler-measurements.md`](beam-scheduler-measurements.md).
+    [`#{scheduler_report}`](#{scheduler_report}).
 
     ## Environment
 
+    - Engine: #{engine}
     - Git base: `#{metadata.git}`
     - Working tree at measurement: #{metadata.tree_state}
     - Generated: #{metadata.generated}
@@ -480,6 +504,22 @@ defmodule QuickBEAM.Bench.VMSSR do
   defp bytes(value), do: "#{value} B"
 
   defp integer(value), do: Integer.to_string(value)
+
+  defp engine!("interpreter"), do: :interpreter
+  defp engine!("compiler"), do: :compiler
+
+  defp engine!(engine),
+    do: raise(ArgumentError, "engine must be interpreter or compiler, got: #{inspect(engine)}")
+
+  defp maybe_start_compiler!(:interpreter), do: :ok
+
+  defp maybe_start_compiler!(:compiler) do
+    case Compiler.start_link(capacity: 8) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> raise "compiler start failed: #{inspect(reason)}"
+    end
+  end
 
   defp positive!(value, _name) when is_integer(value) and value > 0, do: value
 
