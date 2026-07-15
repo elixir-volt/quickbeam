@@ -49,6 +49,10 @@ defmodule QuickBEAM.VM.CompilerGeneratedModuleTest do
     assert deopt.frame == frame
 
     assert :ok = ModulePool.checkin(pool, lease)
+
+    assert {:error, :stale_compiler_lease} =
+             GeneratedModule.invoke(pool, lease, frame, execution)
+
     assert :ok = ModulePool.drain(pool)
     assert :code.is_loaded(lease.module) == false
   end

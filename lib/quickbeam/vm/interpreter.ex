@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Async,
     AsyncBoundary,
     Builtins,
+    Compiler.Deopt,
     Continuation,
     ConstructorBoundary,
     Coroutine,
@@ -92,6 +93,20 @@ defmodule QuickBEAM.VM.Interpreter do
   @spec resume(Continuation.t(), {:ok, term()} | {:error, term()}) :: result()
   def resume(%Continuation{} = continuation, result),
     do: continuation |> resume_raw(result) |> finish()
+
+  @doc "Resumes a validated owner-local compiler deoptimization."
+  @spec resume_deopt(Deopt.t()) :: result()
+  def resume_deopt(%Deopt{} = deopt), do: deopt |> resume_deopt_raw() |> finish()
+
+  @doc "Resumes compiler deoptimization without exporting the resulting value."
+  @spec resume_deopt_raw(Deopt.t()) ::
+          {:ok, term(), Execution.t()} | {:error, term(), Execution.t()} | {:suspended, term()}
+  def resume_deopt_raw(%Deopt{} = deopt) do
+    case Deopt.validate(deopt) do
+      :ok -> run(deopt.frame, deopt.execution)
+      {:error, reason} -> {:error, {:invalid_compiler_deopt, reason}, deopt.execution}
+    end
+  end
 
   @doc "Resumes a legacy continuation without exporting the resulting value."
   def resume_raw(%Continuation{} = continuation, {:ok, value}) do

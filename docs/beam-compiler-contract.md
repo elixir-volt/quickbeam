@@ -12,11 +12,13 @@ or a native fallback. QuickJS still produces bytecode, the current decoder and
 verifier remain authoritative, and all mutable JavaScript state remains owned by
 one evaluation process.
 
-The first extraction slice is intentionally narrow: verified straight-line
-basic blocks containing literals, stack movement, local reads/writes, primitive
-value operations, and branches. Calls, accessors, constructors, iterators,
-exceptions, Promise operations, host calls, and `await` deopt before their
-instruction until their resumable compiler ABI exists.
+The first extraction slice is intentionally narrow: verified basic blocks
+containing literals, stack movement, local reads/writes, primitive value
+operations, and terminal branches. The initial unspecialized lowering emits a
+bounded immutable block plan and delegates those operations to the canonical
+runtime ABI. Calls, accessors, constructors, iterators, exceptions, Promise
+operations, host calls, and `await` deopt before their instruction until their
+resumable compiler ABI exists.
 
 ## Non-negotiable invariants
 
@@ -250,12 +252,17 @@ not prototype runtime modules or fallback behavior.
    and quarantine.
 3. **Complete:** add the minimal runtime ABI, generated-module emitter and import
    policy, and production soft-purge code lifecycle.
-4. Extract only CFG/basic-block analysis concepts and pure-block form emission.
-5. Compile literals, stack/local operations, primitive values, and branches.
-6. Add validated before-instruction deoptimization to the interpreter.
-7. Run interpreter/compiler/native differential tests plus exact limit and
+4. **Complete:** adapt bounded v26 CFG/basic-block analysis and unspecialized
+   `:pure_v1` block-plan emission.
+5. **Complete:** execute literals, stack/local operations, primitive values, and
+   terminal branches through the canonical ABI.
+6. **Complete:** resume validated before-instruction deoptimization in the
+   interpreter.
+7. Expand differential tests from synthetic verified functions to decoded
+   JavaScript fixtures, then specialize generated forms without changing the ABI.
+8. Run interpreter/compiler/native differential tests plus exact limit and
    scheduler gates.
-8. Expand one resumable semantic family at a time.
+9. Expand one resumable semantic family at a time.
 
 ## Acceptance gates
 

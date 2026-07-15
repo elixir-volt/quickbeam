@@ -9,10 +9,10 @@ asynchronous `Beam.call`, logical and process memory containment, stable
 JavaScript errors, pinned Preact, Vue, and Svelte SSR acceptance fixtures, and
 bounded deterministic decoder/verifier mutation fuzzing, the bounded optional
 compiler contract, its supervised fixed-slot lifecycle, the minimal generated
-code ABI, and a generated-module backend with import policy and soft-purge code
-lifecycle. Broader
+code ABI, a generated-module backend with import policy and soft-purge code
+lifecycle, and the first bounded unspecialized `:pure_v1` lowering. Broader
 ECMAScript conformance, object-model hardening, garbage collection, compiler
-lowering, and release hardening remain in progress.
+specialization, and release hardening remain in progress.
 
 ## Summary
 
@@ -846,10 +846,10 @@ limits are enforced, and the compatibility matrix is published.
 
 Only after interpreter correctness is stable:
 
-- extract bounded CFG/basic-block analysis onto the implemented module pool,
-  runtime ABI, and generated-module backend specified in
-  [`beam-compiler-contract.md`](beam-compiler-contract.md);
-- compile verified pure basic blocks to Erlang abstract forms;
+- expand the implemented bounded CFG and unspecialized pure-block lowering from
+  synthetic verified functions to decoded JavaScript fixtures;
+- specialize pure generated forms on the module pool and runtime ABI specified
+  in [`beam-compiler-contract.md`](beam-compiler-contract.md);
 - call the versioned ABI over the same canonical runtime semantics;
 - deopt before unsupported instructions into validated owner-local interpreter
   state;

@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.ImportPolicy do
     {Runtime, :version, 0},
     {Runtime, :charge_block, 4},
     {Runtime, :deopt, 4},
+    {Runtime, :execute_plan, 4},
     {Runtime, :execute_stack, 4},
     {Runtime, :execute_local, 4},
     {Runtime, :execute_value, 4},

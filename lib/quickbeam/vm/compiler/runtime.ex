@@ -49,6 +49,10 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     :is_null
   ]
   @branch_operations [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16]
+  @max_block_instruction_count 256
+
+  @type operation :: {:stack | :local | :value | :branch, atom(), [term()]}
+  @type plan :: %{optional(non_neg_integer()) => {[operation()], Deopt.reason()}}
 
   @type action ::
           {:ok, Frame.t(), Execution.t()}
@@ -59,6 +63,41 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @doc "Returns the generated-code runtime ABI version."
   @spec version() :: pos_integer()
   def version, do: Contract.runtime_abi_version()
+
+  @doc "Returns the pure compiler family for a supported canonical opcode."
+  @spec operation_family(atom()) :: {:ok, :stack | :local | :value | :branch} | :error
+  def operation_family(name) when name in @stack_operations, do: {:ok, :stack}
+  def operation_family(name) when name in @local_operations, do: {:ok, :local}
+  def operation_family(name) when name in @value_operations, do: {:ok, :value}
+  def operation_family(name) when name in @branch_operations, do: {:ok, :branch}
+  def operation_family(_name), do: :error
+
+  @doc "Executes one bounded lowered block and deoptimizes at its next boundary."
+  @spec execute_plan(Lease.t(), Frame.t(), Execution.t(), plan()) :: action()
+  def execute_plan(%Lease{} = lease, %Frame{} = frame, %Execution{} = execution, plan)
+      when is_map(plan) do
+    case Map.fetch(plan, frame.pc) do
+      {:ok, {[], reason}} ->
+        deopt(reason, lease, frame, execution)
+
+      {:ok, {operations, reason}}
+      when is_list(operations) and length(operations) <= @max_block_instruction_count ->
+        with {:ok, frame, execution} <-
+               charge_block(lease, frame, execution, length(operations)),
+             {:ok, frame, execution} <- execute_operations(operations, frame, execution) do
+          deopt(reason, lease, frame, execution)
+        end
+
+      {:ok, invalid} ->
+        {:error, {:invalid_compiler_block_plan, frame.pc, invalid}}
+
+      :error ->
+        deopt(:unsupported_semantics, lease, frame, execution)
+    end
+  end
+
+  def execute_plan(_lease, _frame, _execution, plan),
+    do: {:error, {:invalid_compiler_plan, plan}}
 
   @doc "Charges a guaranteed straight-line block or deoptimizes before it."
   @spec charge_block(Lease.t(), Frame.t(), Execution.t(), pos_integer()) :: action()
@@ -132,6 +171,30 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   def execute_branch(name, operands, _frame, _execution),
     do: {:error, {:unsupported_compiler_branch_operation, name, operands}}
+
+  defp execute_operations([], frame, execution), do: {:ok, frame, execution}
+
+  defp execute_operations([{family, name, operands} | operations], frame, execution) do
+    case execute_operation(family, name, operands, frame, execution) do
+      {:ok, frame, execution} -> execute_operations(operations, frame, execution)
+      action -> action
+    end
+  end
+
+  defp execute_operation(:stack, name, operands, frame, execution),
+    do: execute_stack(name, operands, frame, execution)
+
+  defp execute_operation(:local, name, operands, frame, execution),
+    do: execute_local(name, operands, frame, execution)
+
+  defp execute_operation(:value, name, operands, frame, execution),
+    do: execute_value(name, operands, frame, execution)
+
+  defp execute_operation(:branch, name, operands, frame, execution),
+    do: execute_branch(name, operands, frame, execution)
+
+  defp execute_operation(family, name, operands, _frame, _execution),
+    do: {:error, {:unsupported_compiler_operation, family, name, operands}}
 
   @doc "Returns canonical JavaScript truthiness for a represented value."
   @spec truthy?(term()) :: boolean()

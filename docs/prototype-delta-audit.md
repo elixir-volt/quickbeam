@@ -313,10 +313,13 @@ and owner-local deoptimization validation are executable contracts. The
 supervisor-compatible fixed-slot pool now proves leases, owner monitoring,
 single-flight compilation, LRU reuse, bounded shutdown, and quarantine through a
 fake backend. A minimal canonical runtime ABI, bounded generated-module emitter,
-import policy, and soft-purge code lifecycle now pass their
-acceptance tests. The compiler remains quarantined until adapted CFG/basic-block
-analysis emits the first differential-tested `:pure_v1` lowering; no prototype
-compiler runtime is approved for copying.
+import policy, and soft-purge code lifecycle now pass their acceptance tests.
+Bounded v26 CFG analysis and the first unspecialized `:pure_v1` block-plan
+lowering now execute canonical pure operations and resume explicit interpreter
+deoptimization with synthetic differential and exact-step tests. The compiler
+remains quarantined until decoded JavaScript fixtures and specialized form
+emission pass broader differential and scheduler gates; no prototype compiler
+runtime is approved for copying.
 
 ## Test extraction policy
 
