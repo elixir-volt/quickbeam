@@ -46,6 +46,62 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
     end
   end
 
+  test "re-enters cached compilation for nested bytecode function frames" do
+    start_compiler()
+    expression = Enum.join(List.duplicate("value", 40), " + ")
+    source = "(function add(value) { return #{expression} })(1)"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, 40} = QuickBEAM.VM.eval(program, engine: :compiler)
+
+    stats = ModulePool.stats(ModulePool)
+    assert stats.counts.ready >= 2
+    assert stats.leases == 0
+  end
+
+  test "caches bounded owner-local compile and skip decisions" do
+    start_compiler()
+    assert {:ok, program} = QuickBEAM.VM.compile("(function add(value) { return value + 1 })(41)")
+    assert {:ok, 42, execution} = Compiler.start(program)
+
+    decisions = execution.compiler_context.decisions
+    assert map_size(decisions) == 2
+    assert Enum.count(decisions, fn {_id, decision} -> decision == :skip end) == 1
+
+    assert Enum.count(decisions, fn {_id, decision} -> match?({:compile, _, _}, decision) end) ==
+             1
+  end
+
+  test "caps owner-local eligibility metadata across many nested functions" do
+    start_compiler()
+
+    source =
+      0..299
+      |> Enum.map_join(",", fn value -> "(function(){return #{value}})()" end)
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, 299, execution} = Compiler.start(program)
+    assert map_size(execution.compiler_context.decisions) == 256
+  end
+
+  test "preserves stack limits and tail calls across nested compiler re-entry" do
+    start_compiler()
+
+    assert {:ok, recursive} =
+             QuickBEAM.VM.compile("(function recurse(n){return 1+recurse(n+1)})(0)")
+
+    expected = {:error, {:limit_exceeded, :stack_depth, 6}}
+    assert QuickBEAM.VM.eval(recursive, max_stack_depth: 5) == expected
+    assert QuickBEAM.VM.eval(recursive, engine: :compiler, max_stack_depth: 5) == expected
+
+    assert {:ok, tail_recursive} =
+             QuickBEAM.VM.compile(
+               "(function recurse(n){if(n===0)return 0;return recurse(n-1)})(1000)"
+             )
+
+    assert {:ok, 0} =
+             QuickBEAM.VM.eval(tail_recursive, engine: :compiler, max_stack_depth: 2)
+  end
+
   test "deoptimizes into asynchronous handlers without duplicating effects" do
     start_compiler()
     assert {:ok, program} = QuickBEAM.VM.compile("Beam.call('double', 21)")

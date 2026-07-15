@@ -56,7 +56,10 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
                  ], :unsupported_opcode}
             }} = PureV1.plan(function)
 
+    assert {:skip, 3} = PureV1.prepare(function, 4)
+    assert {:ok, prepared, 3} = PureV1.prepare(function, 3)
     assert {:ok, template} = PureV1.lower(function)
+    assert prepared == template
 
     assert [:run, :block, :step] ==
              for({:function, _line, name, _arity, _clauses} <- template.forms, do: name)

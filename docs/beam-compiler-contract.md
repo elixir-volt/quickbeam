@@ -1,8 +1,7 @@
 # Bounded BEAM compiler contract
 
-Status: design gate for the optional compiler. No prototype compiler source is
-approved for extraction until this contract and its acceptance tests are in
-place.
+Status: implemented experimental gate for the optional compiler. The tier remains
+release-quarantined, and no prototype compiler runtime is approved for copying.
 
 ## Scope
 
@@ -19,7 +18,10 @@ block plan, then emits specialized fixed-name `run/3`, `block/4`, and `step/4`
 clauses whose operations call the canonical runtime ABI. Calls, accessors,
 constructors, iterators, exceptions, Promise
 operations, host calls, and `await` deopt before their instruction until their
-resumable compiler ABI exists.
+resumable compiler ABI exists. The root frame always receives an entry attempt;
+nested frames require at least 32 pure entry instructions. Owner-local compile
+or skip decisions are cached for at most 256 function IDs per evaluation, which
+bounds metadata while avoiding repeated CFG analysis for hot calls.
 
 ## Non-negotiable invariants
 
@@ -231,18 +233,20 @@ An adaptive policy, if added, must be explicitly selected by the caller and
 reported by measurement/telemetry. It still may never fall back to native
 QuickJS.
 
-The current `+S 1:1` compiler-tier Vue probe reports a 35.48 ms maximum ticker
-gap against the 75 ms bound and a 51.0 ms timeout p95 against the 60 ms bound.
+The current `+S 1:1` compiler-tier Vue probe reports a 33.0 ms maximum ticker
+gap against the 75 ms bound and a 50.99 ms timeout p95 against the 60 ms bound.
 The pinned compiler SSR report covers 30 sequential samples plus concurrency
 1/4/8 for Preact, Vue, and Svelte, with 100/100 isolated Preact renders and
-successful step, memory, timeout, and cancellation checks. The selected Test262
-gate passes 65/65 supported tests through both the interpreter and compiler tier.
+successful step, memory, timeout, and cancellation checks. The Vue parity gate
+also requires more than the root generated module, proving selected nested-frame
+coverage. The selected Test262 gate passes 65/65 supported tests through both
+the interpreter and compiler tier.
 
-On the published runs, compiler-tier sequential medians are 10.11 ms for Preact,
-84.56 ms for Vue, and 19.06 ms for Svelte, versus interpreter medians of 8.49 ms,
+On the published runs, compiler-tier sequential medians are 10.71 ms for Preact,
+69.95 ms for Vue, and 16.50 ms for Svelte, versus interpreter medians of 8.49 ms,
 48.55 ms, and 12.36 ms respectively. These separate reproducible runs are not a
-paired statistical comparison, but they show that the current one-block tier is
-not a performance release candidate.
+paired statistical comparison, but they show that selective nested-function
+re-entry is still not a performance release candidate.
 
 ### Release policy
 
@@ -251,11 +255,11 @@ The compiler remains release-quarantined despite those compatibility results:
 - `engine: :interpreter` remains the documented default;
 - compiler selection and supervision must always be explicit;
 - compiler infrastructure failures never restart in another engine;
-- fixture parity does not imply that the current one-block specialization has a
-  production performance benefit;
-- stable release promotion requires bounded re-entry for nested functions or
-  equivalent useful compiled coverage, a published compiler/interpreter
-  performance comparison, and no regression in the existing safety gates;
+- fixture parity does not imply that the current one-entry-block-per-selected-
+  frame specialization has a production performance benefit;
+- stable release promotion requires broader useful compiled coverage, a
+  non-regressing compiler/interpreter performance comparison, and no regression
+  in the existing safety gates;
 - until promotion, compiler API compatibility may change within the development
   major release.
 

@@ -19,8 +19,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.Artifact do
     if byte_size(binary) <= @max_binary_bytes do
       {:ok, %__MODULE__{module: module, binary: binary, digest: digest(binary)}}
     else
-      {:error,
-       {:compiler_resource_limit, :module_bytes, byte_size(binary), @max_binary_bytes}}
+      {:error, {:compiler_resource_limit, :module_bytes, byte_size(binary), @max_binary_bytes}}
     end
   end
 
@@ -31,8 +30,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.Artifact do
   def validate(%__MODULE__{binary: binary, digest: expected}) when is_binary(binary) do
     cond do
       byte_size(binary) > @max_binary_bytes ->
-        {:error,
-         {:compiler_resource_limit, :module_bytes, byte_size(binary), @max_binary_bytes}}
+        {:error, {:compiler_resource_limit, :module_bytes, byte_size(binary), @max_binary_bytes}}
 
       expected != digest(binary) ->
         {:error, :artifact_digest_mismatch}

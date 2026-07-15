@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Execution do
     :step_limit,
     callers: [],
     cells: %{},
+    compiler_context: nil,
     depth: 1,
     default_prototypes: %{},
     error_prototypes: %{},
@@ -51,6 +52,7 @@ defmodule QuickBEAM.VM.Execution do
             | QuickBEAM.VM.ThenGetterBoundary.t()
           ],
           cells: %{optional(non_neg_integer()) => term()},
+          compiler_context: QuickBEAM.VM.Compiler.Context.t() | nil,
           depth: non_neg_integer(),
           default_prototypes: %{
             optional(QuickBEAM.VM.Object.kind()) => QuickBEAM.VM.Reference.t()

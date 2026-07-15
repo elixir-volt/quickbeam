@@ -9,9 +9,9 @@ single-scheduler fairness and timeout gate is published separately in
 ## Environment
 
 - Engine: compiler
-- Git base: `cad39310`
+- Git base: `a703c929`
 - Working tree at measurement: modified
-- Generated: 2026-07-15T20:22:55Z
+- Generated: 2026-07-15T21:27:57Z
 - Elixir: 1.20.2
 - OTP: 29
 - ERTS: 17.0.2
@@ -27,9 +27,9 @@ single-scheduler fairness and timeout gate is published separately in
 
 | Fixture | wall median | wall p95 | VM steps | logical memory | endpoint process memory | reductions median |
 |---|---:|---:|---:|---:|---:|---:|
-| Preact 10.29.7 | 10.11 ms | 11.02 ms | 3651 | 266.2 KiB | 4.5 MiB | 324701 |
-| Vue 3.5.39 | 84.56 ms | 91.19 ms | 11957 | 992.3 KiB | 77.15 MiB | 3304925 |
-| Svelte 5.56.4 | 19.06 ms | 20.71 ms | 1777 | 397.3 KiB | 12.48 MiB | 720499 |
+| Preact 10.29.7 | 10.71 ms | 11.44 ms | 3651 | 266.2 KiB | 4.5 MiB | 515490 |
+| Vue 3.5.39 | 69.95 ms | 75.98 ms | 11957 | 992.3 KiB | 77.15 MiB | 3872070 |
+| Svelte 5.56.4 | 16.5 ms | 19.3 ms | 1777 | 397.3 KiB | 15.61 MiB | 770310 |
 
 `VM steps` and `logical memory` are deterministic counters. Endpoint process
 memory and reductions are observed once after result conversion; they are not
@@ -40,15 +40,15 @@ rendering, conversion, and reply delivery.
 
 | Fixture | concurrency | renders | throughput | per-render wall median | per-render wall p95 |
 |---|---:|---:|---:|---:|---:|
-| Preact 10.29.7 | 1 | 30 | 77.1 renders/s | 9.74 ms | 10.97 ms |
-| Preact 10.29.7 | 4 | 30 | 252.2 renders/s | 10.45 ms | 12.57 ms |
-| Preact 10.29.7 | 8 | 30 | 388.5 renders/s | 12.7 ms | 14.4 ms |
-| Vue 3.5.39 | 1 | 30 | 6.7 renders/s | 88.39 ms | 102.6 ms |
-| Vue 3.5.39 | 4 | 30 | 15.8 renders/s | 139.16 ms | 176.45 ms |
-| Vue 3.5.39 | 8 | 30 | 16.6 renders/s | 241.41 ms | 301.65 ms |
-| Svelte 5.56.4 | 1 | 30 | 34.3 renders/s | 18.73 ms | 26.33 ms |
-| Svelte 5.56.4 | 4 | 30 | 88.6 renders/s | 26.56 ms | 30.59 ms |
-| Svelte 5.56.4 | 8 | 30 | 109.5 renders/s | 39.57 ms | 46.1 ms |
+| Preact 10.29.7 | 1 | 30 | 73.3 renders/s | 10.52 ms | 11.61 ms |
+| Preact 10.29.7 | 4 | 30 | 248.7 renders/s | 11.17 ms | 12.12 ms |
+| Preact 10.29.7 | 8 | 30 | 410.5 renders/s | 12.57 ms | 14.32 ms |
+| Vue 3.5.39 | 1 | 30 | 7.5 renders/s | 82.1 ms | 87.74 ms |
+| Vue 3.5.39 | 4 | 30 | 16.5 renders/s | 132.6 ms | 153.1 ms |
+| Vue 3.5.39 | 8 | 30 | 18.1 renders/s | 226.17 ms | 270.85 ms |
+| Svelte 5.56.4 | 1 | 30 | 35.8 renders/s | 18.63 ms | 19.86 ms |
+| Svelte 5.56.4 | 4 | 30 | 94.7 renders/s | 24.23 ms | 28.54 ms |
+| Svelte 5.56.4 | 8 | 30 | 103.9 renders/s | 39.81 ms | 48.51 ms |
 
 ## 100-render isolation and reclamation probe
 
@@ -57,7 +57,7 @@ data and one shared immutable program.
 
 | successful isolated renders | throughput | caller memory delta after GC | process-count delta |
 |---:|---:|---:|---:|
-| 100/100 | 483.6 renders/s | -941.8 KiB | 0 |
+| 100/100 | 520.9 renders/s | -941.8 KiB | 0 |
 
 Request-specific IDs were checked in every result. Memory and process deltas
 are endpoint observations after explicit caller GC, not operating-system RSS
@@ -67,9 +67,9 @@ measurements.
 
 | Fixture | step rejection | memory rejection | timeout | observed timeout wall | handler cancellation after return |
 |---|---:|---:|---:|---:|---:|
-| Preact 10.29.7 | limit:steps at 3650 | limit:memory_bytes at 133.1 KiB | limit:timeout at 200 ms | 201.77 ms | 37 µs |
-| Vue 3.5.39 | limit:steps at 11956 | limit:memory_bytes at 496.1 KiB | limit:timeout at 200 ms | 213.2 ms | 19 µs |
-| Svelte 5.56.4 | limit:steps at 1776 | limit:memory_bytes at 198.7 KiB | limit:timeout at 200 ms | 202.36 ms | 22 µs |
+| Preact 10.29.7 | limit:steps at 3650 | limit:memory_bytes at 133.1 KiB | limit:timeout at 200 ms | 201.59 ms | 36 µs |
+| Vue 3.5.39 | limit:steps at 11956 | limit:memory_bytes at 496.1 KiB | limit:timeout at 200 ms | 212.02 ms | 23 µs |
+| Svelte 5.56.4 | limit:steps at 1776 | limit:memory_bytes at 198.7 KiB | limit:timeout at 200 ms | 203.43 ms | 28 µs |
 
 Memory rejection uses half the fixture's successful logical allocation.
 Timeout uses a non-returning asynchronous handler and verifies that its BEAM

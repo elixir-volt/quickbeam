@@ -13,11 +13,12 @@ defmodule QuickBEAM.VM.Compiler do
   as typed compiler errors and never invoke native QuickJS.
   """
 
-  alias QuickBEAM.VM.Compiler.{Contract, GeneratedModule, ModulePool}
+  alias QuickBEAM.VM.Compiler.{Context, Contract, GeneratedModule, ModulePool}
   alias QuickBEAM.VM.Compiler.Lowering.PureV1
-  alias QuickBEAM.VM.{Evaluator, Execution, Interpreter, Program}
+  alias QuickBEAM.VM.{Evaluator, Execution, Frame, Function, Interpreter, Program}
 
   @type result :: {:ok, term()} | {:error, term()} | {:suspended, term()}
+  @type frame_action :: {:deopt, term()} | {:skip, struct(), struct()} | {:error, term()}
 
   @doc "Returns a child specification for the singleton generated-module pool."
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -65,28 +66,88 @@ defmodule QuickBEAM.VM.Compiler do
 
   @doc "Starts compiled execution and returns a raw owner-local machine result."
   @spec start(Program.t(), keyword()) :: term()
-  def start(%Program{} = program, opts \\ []) when is_list(opts) do
+  def start(%Program{root: %Function{}} = program, opts \\ []) when is_list(opts) do
     {frame, execution} = Interpreter.initialize(program, opts)
     pool = Keyword.get(opts, :compiler_pool, ModulePool)
+    context = %Context{pool: pool, program: program}
+    execution = %{execution | compiler_context: context}
 
-    with :ok <- ensure_pool_available(pool),
-         {:ok, template} <- PureV1.lower(program.root),
-         {:ok, key} <- Contract.artifact_key(program, program.root, profile: :pure_v1),
-         {:ok, lease} <- ModulePool.checkout(pool, key, template) do
-      action =
-        try do
-          GeneratedModule.invoke(pool, lease, frame, execution)
-        after
-          safe_checkin(pool, lease)
+    frame
+    |> Map.put(:compiler_entered, true)
+    |> execute_frame(execution)
+    |> resume_action(execution)
+  end
+
+  @doc "Compiles and invokes one entry block for a canonical bytecode frame."
+  @spec execute_frame(struct(), struct()) :: frame_action()
+  def execute_frame(
+        %Frame{function: %Function{id: function_id} = function} = frame,
+        %Execution{compiler_context: %Context{pool: pool} = context} = execution
+      ) do
+    with :ok <- ensure_pool_available(pool) do
+      case Map.fetch(context.decisions, function_id) do
+        {:ok, :skip} ->
+          {:skip, frame, execution}
+
+        {:ok, {:compile, key, template}} ->
+          invoke_frame(pool, key, template, frame, execution)
+
+        :error ->
+          prepare_frame(function, frame, execution)
+      end
+    end
+  end
+
+  defp prepare_frame(
+         %Function{} = function,
+         frame,
+         %Execution{
+           compiler_context: %Context{
+             program: %Program{root: %Function{} = root} = program,
+             min_nested_instructions: nested_minimum
+           }
+         } = execution
+       ) do
+    minimum = if function.id == root.id, do: 0, else: nested_minimum
+
+    case PureV1.prepare(function, minimum) do
+      {:ok, template, _count} ->
+        with {:ok, key} <- Contract.artifact_key(program, function, profile: :pure_v1) do
+          execution = cache_decision(execution, function.id, {:compile, key, template})
+          invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
         end
 
-      resume_action(action, execution)
+      {:skip, _count} ->
+        {:skip, frame, cache_decision(execution, function.id, :skip)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp invoke_frame(pool, key, template, frame, execution) do
+    with {:ok, lease} <- ModulePool.checkout(pool, key, template) do
+      try do
+        GeneratedModule.invoke(pool, lease, frame, execution)
+      after
+        safe_checkin(pool, lease)
+      end
+    end
+  end
+
+  defp cache_decision(%Execution{compiler_context: context} = execution, function_id, decision) do
+    if map_size(context.decisions) < context.max_decisions do
+      context = %{context | decisions: Map.put(context.decisions, function_id, decision)}
+      %{execution | compiler_context: context}
     else
-      {:error, reason} -> {:error, {:compiler_error, reason}, execution}
+      execution
     end
   end
 
   defp resume_action({:deopt, deopt}, _execution), do: Interpreter.resume_deopt_raw(deopt)
+
+  defp resume_action({:skip, frame, execution}, _initial),
+    do: Interpreter.run_frame(frame, execution)
 
   defp resume_action({status, _value, %Execution{}} = result, _execution)
        when status in [:ok, :error], do: result

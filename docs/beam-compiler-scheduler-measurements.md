@@ -5,9 +5,9 @@ ticker share one scheduler. The baseline sleeps for the median render wall
 time, allowing the same ticker to run without compiler work.
 
 - Engine: compiler
-- Git base: `10bb81c8`
+- Git base: `a703c929`
 - Working tree at measurement: modified
-- Generated: 2026-07-15T20:07:45Z
+- Generated: 2026-07-15T21:28:21Z
 - Elixir: 1.20.2
 - OTP: 29
 - ERTS: 17.0.2
@@ -20,8 +20,8 @@ time, allowing the same ticker to run without compiler work.
 
 | workload | wall median | wall p95 | ticker gap median | ticker gap p95 | ticker gap max | ticks median |
 |---|---:|---:|---:|---:|---:|---:|
-| Vue SSR | 180.38 ms | 217.78 ms | 2.0 ms | 8.2 ms | 35.48 ms | 65 |
-| sleep baseline (180 ms target) | 180.95 ms | 180.98 ms | 2.0 ms | 2.01 ms | 6.2 ms | 90 |
+| Vue SSR | 169.57 ms | 196.97 ms | 2.0 ms | 8.24 ms | 33.0 ms | 63 |
+| sleep baseline (170 ms target) | 170.95 ms | 170.97 ms | 2.0 ms | 2.01 ms | 4.11 ms | 85 |
 
 Acceptance bound: Vue SSR ticker gap ≤ 75.0 ms.
 
@@ -31,6 +31,6 @@ An infinite JavaScript loop was evaluated with a 50 ms outer timeout.
 
 | timeout | wall median | wall p95 | wall max | median overshoot |
 |---:|---:|---:|---:|---:|
-| 50 ms | 50.98 ms | 51.0 ms | 51.0 ms | 975 µs |
+| 50 ms | 50.98 ms | 50.99 ms | 50.99 ms | 975 µs |
 
 Acceptance bound: timeout p95 ≤ 60.0 ms.

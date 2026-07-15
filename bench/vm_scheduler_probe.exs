@@ -276,7 +276,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
   defp maybe_start_compiler!(:interpreter), do: :ok
 
   defp maybe_start_compiler!(:compiler) do
-    case Compiler.start_link(capacity: 8) do
+    case Compiler.start_link(capacity: 32) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> raise "compiler start failed: #{inspect(reason)}"

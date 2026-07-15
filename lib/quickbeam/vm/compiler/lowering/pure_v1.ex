@@ -33,8 +33,29 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   @doc "Emits specialized generated-module forms for the bounded pure profile."
   @spec lower(Function.t()) :: {:ok, Template.t()} | {:error, term()}
   def lower(%Function{} = function) do
+    with {:ok, plan} <- plan(function), do: lower_plan(plan)
+  end
+
+  @doc "Selects functions with a useful entry prefix and emits their validated plan."
+  @spec prepare(Function.t(), non_neg_integer()) ::
+          {:ok, Template.t(), non_neg_integer()} | {:skip, non_neg_integer()} | {:error, term()}
+  def prepare(%Function{} = function, minimum) when is_integer(minimum) and minimum >= 0 do
     with {:ok, plan} <- plan(function) do
-      {:ok, template(plan)}
+      count = entry_operation_count(plan)
+
+      if count >= minimum,
+        do: {:ok, template(plan), count},
+        else: {:skip, count}
+    end
+  end
+
+  @spec lower_plan(Runtime.plan()) :: {:ok, Template.t()}
+  defp lower_plan(plan), do: {:ok, template(plan)}
+
+  defp entry_operation_count(plan) do
+    case Map.get(plan, 0) do
+      {operations, _reason} -> length(operations)
+      nil -> 0
     end
   end
 

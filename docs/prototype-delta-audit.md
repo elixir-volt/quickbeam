@@ -323,9 +323,11 @@ handler deoptimization, native pure-expression parity, timeout/memory/step
 containment, and concurrent cache reuse. Preact, Vue, and Svelte now have
 compiler/interpreter/native parity; compiler measurements cover sequential and
 concurrent SSR, cancellation, reclamation, and `+S 1:1`; and the selected
-Test262 compiler gate passes 65/65 supported cases. The compiler remains release
-quarantined because one-block specialization does not yet provide useful nested
-compiled coverage or a demonstrated production performance benefit. No
+Test262 compiler gate passes 65/65 supported cases. Selected nested bytecode
+frames now re-enter compiled execution through owner-local, bounded eligibility
+decisions while preserving stack limits and tail calls. The compiler remains
+release quarantined because published Preact/Vue/Svelte medians still regress
+against the interpreter despite improving Vue over root-only compilation. No
 prototype compiler runtime is approved for copying.
 
 ## Test extraction policy

@@ -10,8 +10,9 @@ JavaScript errors, pinned Preact, Vue, and Svelte SSR acceptance fixtures, and
 bounded deterministic decoder/verifier mutation fuzzing, the bounded optional
 compiler contract, its supervised fixed-slot lifecycle, the minimal generated
 code ABI, a generated-module backend with import policy and soft-purge code
-lifecycle, and specialized fixed-name forms for the first bounded `:pure_v1`
-lowering. Broader ECMAScript conformance, object-model hardening, garbage
+lifecycle, specialized fixed-name forms for the first bounded `:pure_v1`
+lowering, and selective owner-local nested-function re-entry. Broader
+ECMAScript conformance, object-model hardening, garbage
 collection, compiler coverage, and release hardening remain in progress.
 
 ## Summary

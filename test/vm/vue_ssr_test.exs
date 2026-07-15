@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.VueSSRTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Compiler.ModulePool
 
   @fixture "test/fixtures/vm/vue_ssr.js"
   @bundle_opts [
@@ -53,6 +54,7 @@ defmodule QuickBEAM.VM.VueSSRTest do
 
       assert beam_html == native_html
       assert compiler_html == native_html
+      assert ModulePool.stats(ModulePool).counts.ready >= 2
     after
       QuickBEAM.stop(runtime)
     end

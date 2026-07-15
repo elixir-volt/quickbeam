@@ -12,10 +12,10 @@ defmodule QuickBEAM.VM.Interpreter do
     Async,
     AsyncBoundary,
     Builtins,
+    Compiler.Deopt,
     Continuation,
     ConstructorBoundary,
     Coroutine,
-    Compiler.Deopt,
     Execution,
     Exceptions,
     Export,
@@ -42,6 +42,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Value
   }
 
+  alias QuickBEAM.VM.Compiler, as: VMCompiler
   alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Opcodes.Invocation, as: InvocationOpcodes
   alias QuickBEAM.VM.Opcodes.Locals, as: LocalOpcodes
@@ -95,6 +96,10 @@ defmodule QuickBEAM.VM.Interpreter do
     {frame, execution} = initialize(program, opts)
     run(frame, execution)
   end
+
+  @doc "Runs one canonical frame and execution state through the machine loop."
+  @spec run_frame(Frame.t(), Execution.t()) :: term()
+  def run_frame(%Frame{} = frame, %Execution{} = execution), do: run(frame, execution)
 
   @spec resume(Continuation.t(), {:ok, term()} | {:error, term()}) :: result()
   def resume(%Continuation{} = continuation, result),
@@ -254,6 +259,21 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run(%Frame{pc: pc, function: function}, execution)
        when pc >= tuple_size(function.instructions),
        do: {:error, {:invalid_program_counter, pc}, execution}
+
+  defp run(
+         %Frame{compiler_entered: false} = frame,
+         %Execution{compiler_context: compiler_context} = execution
+       )
+       when not is_nil(compiler_context) do
+    frame = %{frame | compiler_entered: true}
+
+    case VMCompiler.execute_frame(frame, execution) do
+      {:deopt, %Deopt{} = deopt} -> resume_deopt_raw(deopt)
+      {:skip, frame, execution} -> run(frame, execution)
+      {:error, reason} -> {:error, {:compiler_error, reason}, execution}
+      action -> {:error, {:compiler_error, {:invalid_generated_action, action}}, execution}
+    end
+  end
 
   defp run(%Frame{} = frame, %Execution{} = execution) do
     {opcode, operands} = elem(frame.function.instructions, frame.pc)
