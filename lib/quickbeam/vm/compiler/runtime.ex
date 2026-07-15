@@ -16,7 +16,18 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   alias QuickBEAM.VM.Value
 
   @stack_operations Stack.opcodes()
-  @local_operations [:get_arg, :put_arg, :set_arg, :get_loc, :get_loc0_loc1, :put_loc, :set_loc]
+  @local_operations [
+    :get_arg,
+    :put_arg,
+    :set_arg,
+    :get_loc,
+    :get_loc0_loc1,
+    :put_loc,
+    :set_loc,
+    :set_loc_uninitialized,
+    :put_loc_check_init,
+    :put_loc_check
+  ]
   @value_operations [
     :add,
     :sub,
@@ -63,6 +74,10 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @doc "Returns the generated-code runtime ABI version."
   @spec version() :: pos_integer()
   def version, do: Contract.runtime_abi_version()
+
+  @doc "Returns the current verified instruction index from a canonical frame."
+  @spec frame_pc(Frame.t()) :: non_neg_integer()
+  def frame_pc(%Frame{pc: pc}), do: pc
 
   @doc "Returns the pure compiler family for a supported canonical opcode."
   @spec operation_family(atom()) :: {:ok, :stack | :local | :value | :branch} | :error

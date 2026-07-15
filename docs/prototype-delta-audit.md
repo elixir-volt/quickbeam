@@ -314,12 +314,12 @@ supervisor-compatible fixed-slot pool now proves leases, owner monitoring,
 single-flight compilation, LRU reuse, bounded shutdown, and quarantine through a
 fake backend. A minimal canonical runtime ABI, bounded generated-module emitter,
 import policy, and soft-purge code lifecycle now pass their acceptance tests.
-Bounded v26 CFG analysis and the first unspecialized `:pure_v1` block-plan
-lowering now execute canonical pure operations and resume explicit interpreter
-deoptimization with synthetic differential and exact-step tests. The compiler
-remains quarantined until decoded JavaScript fixtures and specialized form
-emission pass broader differential and scheduler gates; no prototype compiler
-runtime is approved for copying.
+Bounded v26 CFG analysis now produces deterministic `:pure_v1` plans and
+specialized fixed-name block/step forms. Canonical pure operations resume
+explicit interpreter deoptimization with synthetic, decoded-expression,
+argument/local, and exact-step differential tests. The compiler remains
+quarantined until broader decoded/native fixtures and scheduler gates pass; no
+prototype compiler runtime is approved for copying.
 
 ## Test extraction policy
 

@@ -14,9 +14,10 @@ one evaluation process.
 
 The first extraction slice is intentionally narrow: verified basic blocks
 containing literals, stack movement, local reads/writes, primitive value
-operations, and terminal branches. The initial unspecialized lowering emits a
-bounded immutable block plan and delegates those operations to the canonical
-runtime ABI. Calls, accessors, constructors, iterators, exceptions, Promise
+operations, and terminal branches. Lowering first builds a bounded immutable
+block plan, then emits specialized fixed-name `run/3`, `block/4`, and `step/4`
+clauses whose operations call the canonical runtime ABI. Calls, accessors,
+constructors, iterators, exceptions, Promise
 operations, host calls, and `await` deopt before their instruction until their
 resumable compiler ABI exists.
 
@@ -172,9 +173,12 @@ charges. The compiled path runs in the same monitored evaluation process, so
 process heap limits, outer timeout, handler ownership, and cancellation remain
 unchanged.
 
-Generated basic blocks are capped at 256 QuickJS instructions and call another
-module function at control-flow edges. The existing `+S 1:1` ticker-gap and
-timeout report remains a regression gate for compiled execution.
+Generated basic blocks are capped at 256 QuickJS instructions and one function
+artifact at 4,096 blocks and 4,096 lowered instructions. The initial profile
+deoptimizes at a
+control-flow edge rather than recursively running another JavaScript block. The
+existing `+S 1:1` ticker-gap and timeout report remains a regression gate for
+compiled execution.
 
 ## Deoptimization state
 
@@ -252,16 +256,17 @@ not prototype runtime modules or fallback behavior.
    and quarantine.
 3. **Complete:** add the minimal runtime ABI, generated-module emitter and import
    policy, and production soft-purge code lifecycle.
-4. **Complete:** adapt bounded v26 CFG/basic-block analysis and unspecialized
-   `:pure_v1` block-plan emission.
+4. **Complete:** adapt bounded v26 CFG/basic-block analysis and deterministic
+   `:pure_v1` block plans.
 5. **Complete:** execute literals, stack/local operations, primitive values, and
    terminal branches through the canonical ABI.
 6. **Complete:** resume validated before-instruction deoptimization in the
    interpreter.
-7. Expand differential tests from synthetic verified functions to decoded
-   JavaScript fixtures, then specialize generated forms without changing the ABI.
-8. Run interpreter/compiler/native differential tests plus exact limit and
-   scheduler gates.
+7. **Complete for the initial pure subset:** emit specialized fixed-name block
+   and step clauses without dynamic atoms, and cover decoded expressions plus
+   function arguments/locals differentially against the interpreter.
+8. Expand decoded JavaScript and native differential coverage, then run exact
+   limit and scheduler gates.
 9. Expand one resumable semantic family at a time.
 
 ## Acceptance gates

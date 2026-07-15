@@ -2,9 +2,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   @moduledoc """
   Lowers verified v26 basic blocks to the first bounded compiler profile.
 
-  The initial profile emits one generated entry function that delegates a
-  bounded pure block plan to the canonical compiler runtime ABI. Unsupported or
-  resumable instructions remain explicit before-instruction deopt boundaries.
+  Generated modules contain specialized block and instruction clauses but route
+  every operation through the canonical runtime ABI. Unsupported or resumable
+  instructions remain explicit before-instruction deopt boundaries.
   """
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
@@ -14,6 +14,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   alias QuickBEAM.VM.Opcodes.Invocation
 
   @max_block_instruction_count 256
+  @max_block_count 4_096
+  @max_lowered_instruction_count 4_096
   @suspension_operations [:await] ++ Invocation.opcodes()
   @line 1
 
@@ -21,12 +23,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   @spec plan(Function.t()) :: {:ok, Runtime.plan()} | {:error, term()}
   def plan(%Function{} = function) do
     with :ok <- StackVerifier.verify(function),
-         {:ok, blocks} <- CFG.analyze(function) do
-      {:ok, Map.new(blocks, &plan_block/1)}
+         {:ok, blocks} <- CFG.analyze(function),
+         plan = Map.new(blocks, &plan_block/1),
+         :ok <- validate_plan_size(plan) do
+      {:ok, plan}
     end
   end
 
-  @doc "Emits a generated-module template for the bounded pure profile."
+  @doc "Emits specialized generated-module forms for the bounded pure profile."
   @spec lower(Function.t()) :: {:ok, Template.t()} | {:error, term()}
   def lower(%Function{} = function) do
     with {:ok, plan} <- plan(function) do
@@ -67,22 +71,183 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   defp deopt_reason(name) when name in @suspension_operations, do: :suspension_boundary
   defp deopt_reason(_name), do: :unsupported_opcode
 
-  defp template(plan) do
-    lease = {:var, @line, :Lease}
-    frame = {:var, @line, :Frame}
-    execution = {:var, @line, :Execution}
+  defp validate_plan_size(plan) when map_size(plan) > @max_block_count,
+    do: {:error, {:compiler_resource_limit, :blocks, map_size(plan), @max_block_count}}
 
-    call =
-      {:call, @line, {:remote, @line, {:atom, @line, Runtime}, {:atom, @line, :execute_plan}},
-       [lease, frame, execution, :erl_parse.abstract(plan)]}
+  defp validate_plan_size(plan) do
+    count =
+      Enum.reduce(plan, 0, fn {_pc, {operations, _reason}}, count ->
+        count + length(operations)
+      end)
+
+    if count <= @max_lowered_instruction_count,
+      do: :ok,
+      else:
+        {:error,
+         {:compiler_resource_limit, :lowered_instructions, count, @max_lowered_instruction_count}}
+  end
+
+  defp template(plan) do
+    step_forms = if has_operations?(plan), do: [step_form(plan)], else: []
 
     %Template{
-      forms: [
-        {:attribute, @line, :module, Template.placeholder_module()},
-        {:attribute, @line, :export, [run: 3]},
-        {:function, @line, :run, 3, [{:clause, @line, [lease, frame, execution], [], [call]}]},
-        {:eof, @line}
-      ]
+      forms:
+        [
+          {:attribute, @line, :module, Template.placeholder_module()},
+          {:attribute, @line, :export, [run: 3]},
+          run_form(),
+          block_form(plan)
+        ] ++
+          step_forms ++ [{:eof, @line}]
     }
   end
+
+  defp has_operations?(plan),
+    do: Enum.any?(plan, fn {_pc, {operations, _reason}} -> operations != [] end)
+
+  defp run_form do
+    lease = variable(:Lease)
+    frame = variable(:Frame)
+    execution = variable(:Execution)
+    pc = remote_call(Runtime, :frame_pc, [frame])
+    body = local_call(:block, [pc, lease, frame, execution])
+    function(:run, 3, [clause([lease, frame, execution], [body])])
+  end
+
+  defp block_form(plan) do
+    clauses =
+      plan
+      |> Enum.sort_by(fn {pc, _block} -> pc end)
+      |> Enum.map(fn {pc, block} -> block_clause(pc, block) end)
+
+    fallback =
+      clause(
+        [variable(:_PC), variable(:Lease), variable(:Frame), variable(:Execution)],
+        [deopt_call(:unsupported_semantics)]
+      )
+
+    function(:block, 4, clauses ++ [fallback])
+  end
+
+  defp block_clause(pc, {[], reason}) do
+    clause(
+      [integer(pc), variable(:Lease), variable(:Frame), variable(:Execution)],
+      [deopt_call(reason)]
+    )
+  end
+
+  defp block_clause(pc, {operations, _reason}) do
+    lease = variable(:Lease)
+    frame = variable(:Frame)
+    execution = variable(:Execution)
+    next_frame = variable(:NextFrame)
+    next_execution = variable(:NextExecution)
+    action = variable(:Action)
+
+    charge =
+      remote_call(Runtime, :charge_block, [lease, frame, execution, integer(length(operations))])
+
+    body =
+      case_expression(charge, [
+        clause(
+          [tuple([atom(:ok), next_frame, next_execution])],
+          [local_call(:step, [step_id(pc, 0), lease, next_frame, next_execution])]
+        ),
+        clause([action], [action])
+      ])
+
+    clause([integer(pc), lease, frame, execution], [body])
+  end
+
+  defp step_form(plan) do
+    clauses =
+      plan
+      |> Enum.sort_by(fn {pc, _block} -> pc end)
+      |> Enum.flat_map(fn {pc, {operations, reason}} -> step_clauses(pc, operations, reason) end)
+
+    fallback =
+      clause(
+        [variable(:_Step), variable(:_Lease), variable(:_Frame), variable(:_Execution)],
+        [tuple([atom(:error), atom(:invalid_compiler_step)])]
+      )
+
+    function(:step, 4, clauses ++ [fallback])
+  end
+
+  defp step_clauses(pc, operations, reason) do
+    operation_clauses =
+      operations
+      |> Enum.with_index()
+      |> Enum.map(fn {operation, index} -> operation_clause(pc, index, operation) end)
+
+    final =
+      clause(
+        [
+          step_id(pc, length(operations)),
+          variable(:Lease),
+          variable(:Frame),
+          variable(:Execution)
+        ],
+        [deopt_call(reason)]
+      )
+
+    operation_clauses ++ [final]
+  end
+
+  defp operation_clause(pc, index, {family, name, operands}) do
+    lease = variable(:Lease)
+    frame = variable(:Frame)
+    execution = variable(:Execution)
+    next_frame = variable(:NextFrame)
+    next_execution = variable(:NextExecution)
+    action = variable(:Action)
+
+    execute =
+      remote_call(Runtime, family_function(family), [
+        atom(name),
+        :erl_parse.abstract(operands),
+        frame,
+        execution
+      ])
+
+    body =
+      case_expression(execute, [
+        clause(
+          [tuple([atom(:ok), next_frame, next_execution])],
+          [local_call(:step, [step_id(pc, index + 1), lease, next_frame, next_execution])]
+        ),
+        clause([action], [action])
+      ])
+
+    clause([step_id(pc, index), lease, frame, execution], [body])
+  end
+
+  defp family_function(:stack), do: :execute_stack
+  defp family_function(:local), do: :execute_local
+  defp family_function(:value), do: :execute_value
+  defp family_function(:branch), do: :execute_branch
+
+  defp deopt_call(reason) do
+    remote_call(Runtime, :deopt, [
+      atom(reason),
+      variable(:Lease),
+      variable(:Frame),
+      variable(:Execution)
+    ])
+  end
+
+  defp step_id(pc, index), do: tuple([integer(pc), integer(index)])
+  defp function(name, arity, clauses), do: {:function, @line, name, arity, clauses}
+  defp clause(patterns, body), do: {:clause, @line, patterns, [], body}
+  defp case_expression(expression, clauses), do: {:case, @line, expression, clauses}
+  defp local_call(name, arguments), do: {:call, @line, atom(name), arguments}
+
+  defp remote_call(module, name, arguments) do
+    {:call, @line, {:remote, @line, atom(module), atom(name)}, arguments}
+  end
+
+  defp variable(name), do: {:var, @line, name}
+  defp tuple(elements), do: {:tuple, @line, elements}
+  defp integer(value), do: {:integer, @line, value}
+  defp atom(value), do: {:atom, @line, value}
 end

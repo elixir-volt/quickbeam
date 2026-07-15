@@ -57,16 +57,28 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
             }} = PureV1.plan(function)
 
     assert {:ok, template} = PureV1.lower(function)
+
+    assert [:run, :block, :step] ==
+             for({:function, _line, name, _arity, _clauses} <- template.forms, do: name)
+
     module = hd(Contract.pool_modules())
     assert {:ok, artifact} = Emitter.emit(key(1), module, template)
 
     assert {:ok, imports} = ImportPolicy.imports(artifact.binary)
-    assert {Runtime, :execute_plan, 4} in imports
+    assert {Runtime, :charge_block, 4} in imports
+    assert {Runtime, :execute_stack, 4} in imports
+    assert {Runtime, :execute_value, 4} in imports
+    refute {Runtime, :execute_plan, 4} in imports
   end
 
   test "lowering unbounded function values does not allocate per-program atoms" do
     function = arithmetic_function()
-    assert {:ok, _template} = PureV1.lower(function)
+
+    for value <- 1..100 do
+      instructions = put_elem(function.instructions, 0, instruction(:push_i32, [value]))
+      assert {:ok, _template} = PureV1.lower(%{function | id: value, instructions: instructions})
+    end
+
     atom_count = :erlang.system_info(:atom_count)
 
     for value <- 1..10_000 do
@@ -74,6 +86,25 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
       assert {:ok, _template} = PureV1.lower(%{function | id: value, instructions: instructions})
     end
 
+    assert :erlang.system_info(:atom_count) == atom_count
+  end
+
+  test "repeated specialized module emission reuses fixed module and form atoms" do
+    pool = start_pool()
+    function = arithmetic_function()
+
+    emit = fn value ->
+      instructions = put_elem(function.instructions, 0, instruction(:push_i32, [value]))
+      function = %{function | id: value, instructions: instructions}
+      assert {:ok, template} = PureV1.lower(function)
+      assert {:ok, artifact_key} = Contract.artifact_key(program(function), function)
+      assert {:ok, lease} = ModulePool.checkout(pool, artifact_key, template)
+      assert :ok = ModulePool.checkin(pool, lease)
+    end
+
+    Enum.each(1..5, emit)
+    atom_count = :erlang.system_info(:atom_count)
+    Enum.each(6..105, emit)
     assert :erlang.system_info(:atom_count) == atom_count
   end
 
@@ -105,6 +136,32 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert length(operations) == 256
   end
 
+  test "rejects functions exceeding specialized block and instruction caps" do
+    too_many_blocks =
+      for(pc <- 0..4_096, do: instruction(:goto, [pc + 1])) ++ [instruction(:return_undef)]
+
+    function = %Function{
+      id: 0,
+      atoms: {},
+      instructions: List.to_tuple(too_many_blocks),
+      stack_size: 0
+    }
+
+    assert {:error, {:compiler_resource_limit, :blocks, 4_098, 4_096}} =
+             PureV1.lower(function)
+
+    too_many_operations =
+      Enum.flat_map(0..16, fn block ->
+        next_block = (block + 1) * 257
+        List.duplicate(instruction(:undefined), 256) ++ [instruction(:goto, [next_block])]
+      end) ++ [instruction(:return_undef)]
+
+    function = %{function | instructions: List.to_tuple(too_many_operations), stack_size: 4_352}
+
+    assert {:error, {:compiler_resource_limit, :lowered_instructions, 4_352, 4_096}} =
+             PureV1.lower(function)
+  end
+
   test "runs a lowered pure prefix and resumes the interpreter before return" do
     function = arithmetic_function()
     program = program(function)
@@ -116,10 +173,16 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
 
     frame = frame(function)
     execution = execution(4)
+    assert {:ok, plan} = PureV1.plan(function)
+
+    assert {:deopt, %Deopt{} = unspecialized} =
+             Runtime.execute_plan(lease, frame, execution, plan)
 
     assert {:deopt, %Deopt{} = deopt} =
              GeneratedModule.invoke(pool, lease, frame, execution)
 
+    assert deopt.frame == unspecialized.frame
+    assert deopt.execution == unspecialized.execution
     assert deopt.reason == :unsupported_opcode
     assert deopt.frame.pc == 3
     assert deopt.frame.stack == [42]
@@ -150,15 +213,38 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert Interpreter.eval(program, max_steps: 3) == expected
   end
 
-  test "lowers decoded v26 arithmetic before resuming its unsupported return" do
-    assert {:ok, %Program{root: function} = program} = QuickBEAM.VM.compile("40 + 2")
+  test "matches the interpreter across decoded v26 pure expressions" do
+    pool = start_pool()
+
+    for source <- ["40 + 2", "6 * 7", "10 > 3", "true ? 11 : 22", "(5 << 2) | 1"] do
+      assert {:ok, %Program{root: function} = program} = QuickBEAM.VM.compile(source)
+      assert {:ok, template} = PureV1.lower(function)
+      assert {:ok, artifact_key} = Contract.artifact_key(program, function)
+      assert {:ok, lease} = ModulePool.checkout(pool, artifact_key, template)
+
+      frame = Invocation.new_frame(function, function, [], :undefined, {})
+      execution = %{execution(100) | atoms: program.atoms}
+
+      assert {:deopt, %Deopt{} = deopt} =
+               GeneratedModule.invoke(pool, lease, frame, execution)
+
+      assert deopt.frame.pc > 0
+      assert :ok = ModulePool.checkin(pool, lease)
+      assert Interpreter.resume_deopt(deopt) == QuickBEAM.VM.eval(program, max_steps: 100)
+    end
+  end
+
+  test "lowers decoded function arguments and locals through canonical frames" do
+    source = "function calc(a, b) { let value = a + b; return value * 2 } calc"
+    assert {:ok, %Program{} = program} = QuickBEAM.VM.compile(source)
+    assert %Function{} = function = Enum.find(program.root.constants, &is_struct(&1, Function))
     pool = start_pool()
 
     assert {:ok, template} = PureV1.lower(function)
     assert {:ok, artifact_key} = Contract.artifact_key(program, function)
     assert {:ok, lease} = ModulePool.checkout(pool, artifact_key, template)
 
-    frame = Invocation.new_frame(function, function, [], :undefined, {})
+    frame = Invocation.new_frame(function, function, [20, 1], :undefined, {})
     execution = %{execution(100) | atoms: program.atoms}
 
     assert {:deopt, %Deopt{} = deopt} =
@@ -166,7 +252,7 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
 
     assert deopt.frame.pc > 0
     assert :ok = ModulePool.checkin(pool, lease)
-    assert Interpreter.resume_deopt(deopt) == QuickBEAM.VM.eval(program, max_steps: 100)
+    assert Interpreter.resume_deopt(deopt) == {:ok, 42}
   end
 
   test "executes a compiled branch before deoptimizing at its selected successor" do

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Define the optional BEAM compiler contract with binary artifact identities, a fixed 32-module atom pool, lease/purge/cache lifecycle, versioned runtime ABI boundaries, and validated owner-local before-instruction deoptimization states. Add its supervised module pool, minimal canonical runtime ABI, structured generated-module backend, bounded v26 CFG analysis, and the first unspecialized `:pure_v1` lowering with explicit interpreter deoptimization.
+- Define the optional BEAM compiler contract with binary artifact identities, a fixed 32-module atom pool, lease/purge/cache lifecycle, versioned runtime ABI boundaries, and validated owner-local before-instruction deoptimization states. Add its supervised module pool, minimal canonical runtime ABI, structured generated-module backend, bounded v26 CFG analysis, and specialized fixed-name `:pure_v1` forms with explicit interpreter deoptimization.
 - Add `QuickBEAM.VM.measure/2` with deterministic step/logical-memory counters and endpoint process observations, plus reproducible pinned SSR concurrency, timeout, cancellation, reclamation, and single-scheduler reports.
 - Serialize native addon initialization, reuse cached exports for aliases in one runtime, and reject implicit cross-runtime or post-reset reinitialization with a typed error. Add `allow_reinitialization: true` as an explicit compatibility escape hatch for addons that support multiple environments.
 

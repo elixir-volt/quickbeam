@@ -20,6 +20,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.ImportPolicy do
     {Runtime, :execute_local, 4},
     {Runtime, :execute_value, 4},
     {Runtime, :execute_branch, 4},
+    {Runtime, :frame_pc, 1},
     {Runtime, :truthy?, 1},
     {Runtime, :unary, 2},
     {Runtime, :binary, 3}
