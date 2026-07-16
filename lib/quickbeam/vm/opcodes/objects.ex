@@ -256,17 +256,7 @@ defmodule QuickBEAM.VM.Opcodes.Objects do
 
   def execute(:array_from, [count], frame, execution) do
     {elements, stack} = Enum.split(frame.stack, count)
-    {reference, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      elements
-      |> Enum.reverse()
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Properties.define(reference, index, value, execution)
-        execution
-      end)
-
+    {reference, execution} = Heap.allocate_array(execution, Enum.reverse(elements))
     push(%{frame | stack: stack}, execution, reference)
   end
 

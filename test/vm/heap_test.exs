@@ -13,6 +13,29 @@ defmodule QuickBEAM.VM.HeapTest do
     assert {:ok, :undefined} = Heap.get(execution, object, "missing")
   end
 
+  test "bulk dense arrays preserve sequential allocation and exact accounting" do
+    values = ["first", :undefined, 42]
+    {bulk, bulk_execution} = Heap.allocate_array(execution(), values)
+
+    {sequential, sequential_execution} = Heap.allocate(execution(), :array)
+
+    sequential_execution =
+      values
+      |> Enum.with_index()
+      |> Enum.reduce(sequential_execution, fn {value, index}, execution ->
+        {:ok, execution} = Heap.define(execution, sequential, index, value)
+        execution
+      end)
+
+    assert bulk_execution.memory_used == sequential_execution.memory_used
+
+    assert Heap.fetch_object(bulk_execution, bulk) ==
+             Heap.fetch_object(sequential_execution, sequential)
+
+    assert {:ok, values} == Export.value(bulk, bulk_execution)
+    assert {:ok, %{property_order: []}} = Heap.fetch_object(bulk_execution, bulk)
+  end
+
   test "tracks array length while preserving sparse entries" do
     execution = execution()
     {array, execution} = Heap.allocate(execution, :array)
@@ -57,6 +80,7 @@ defmodule QuickBEAM.VM.HeapTest do
     {:ok, execution} = Heap.put(execution, object, 1, 1)
 
     assert {:ok, [1, 4, "second", "first"]} = Heap.own_keys(execution, object)
+    assert {:ok, %{property_order: ["second", "first"]}} = Heap.fetch_object(execution, object)
   end
 
   test "honors writable and configurable descriptor flags" do

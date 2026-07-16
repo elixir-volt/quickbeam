@@ -36,10 +36,38 @@ defmodule QuickBEAM.VM.Heap do
     store_new_object(execution, object)
   end
 
+  @doc "Allocates a dense array in one heap update with canonical default descriptors."
+  @spec allocate_array(Execution.t(), [term()]) :: {Reference.t(), Execution.t()}
+  def allocate_array(%Execution{} = execution, values) when is_list(values) do
+    object = %Object{
+      kind: :array,
+      prototype: Map.get(execution.default_prototypes, :array),
+      length: length(values),
+      properties:
+        values
+        |> Enum.with_index()
+        |> Map.new(fn {value, index} -> {index, %Property{value: value}} end)
+    }
+
+    empty_object = %{object | length: 0, properties: %{}}
+
+    execution =
+      Enum.reduce(Enum.with_index(values), Memory.charge_object(execution, empty_object), fn
+        {value, index}, execution -> Memory.charge_property(execution, index, value)
+      end)
+
+    store_precharged_object(execution, object)
+  end
+
   defp store_new_object(execution, object) do
+    execution
+    |> Memory.charge_object(object)
+    |> store_precharged_object(object)
+  end
+
+  defp store_precharged_object(execution, object) do
     id = execution.next_object_id
     reference = %Reference{id: id}
-    execution = Memory.charge_object(execution, object)
     execution = %{execution | heap: Map.put(execution.heap, id, object), next_object_id: id + 1}
     {reference, execution}
   end
@@ -521,6 +549,8 @@ defmodule QuickBEAM.VM.Heap do
     object = remember_property(object, key)
     %{object | properties: Map.put(object.properties, key, property)}
   end
+
+  defp remember_property(object, key) when is_integer(key), do: object
 
   defp remember_property(object, key) do
     if Map.has_key?(object.properties, key),
