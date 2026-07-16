@@ -40,6 +40,10 @@ COMPILER_EPROF_PHASE=initialization COMPILER_EPROF_ENGINE=interpreter \
   COMPILER_EPROF_WORKLOAD=object_property_loop MIX_ENV=bench \
   mix run bench/vm_compiler_eprof.exs
 
+# Attribute interpreter calls in one warm pinned Vue render
+VM_INTERPRETER_FPROF_OUTPUT=/tmp/vue.fprof \
+  MIX_ENV=bench mix run bench/vm_interpreter_fprof.exs
+
 # Attribute CPU in the pinned Vue fixture
 COMPILER_SSR_EPROF_PROFILE=scalar_v1 COMPILER_SSR_EPROF_ITERATIONS=3 \
   MIX_ENV=bench mix run bench/vm_compiler_ssr_eprof.exs
@@ -94,6 +98,7 @@ fixtures. Published results are in
 [`docs/beam-object-memory-measurements.md`](../docs/beam-object-memory-measurements.md),
 [`docs/beam-object-shape-investigation.md`](../docs/beam-object-shape-investigation.md),
 [`docs/beam-object-literal-investigation.md`](../docs/beam-object-literal-investigation.md),
+[`docs/beam-interpreter-hotspot-investigation.md`](../docs/beam-interpreter-hotspot-investigation.md),
 [`docs/beam-compiler-performance-measurements.md`](../docs/beam-compiler-performance-measurements.md),
 [`docs/beam-compiler-ssr-measurements.md`](../docs/beam-compiler-ssr-measurements.md),
 [`docs/beam-compiler-scalar-ssr-measurements.md`](../docs/beam-compiler-scalar-ssr-measurements.md),

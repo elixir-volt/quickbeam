@@ -470,7 +470,10 @@ entry. Default data descriptors are encoded compactly as one-tuples in the exist
 property map; accessors and non-default descriptors retain full `Property` structs.
 Integer indices never enter the separate insertion-order list. This preserves
 one OTP map lookup path and avoids descriptor and quadratic ordering allocation;
-see the [object-memory investigation](beam-object-memory-investigation.md).
+see the [object-memory investigation](beam-object-memory-investigation.md). Exact
+Vue caller attribution confirms that the remaining persistent-map population is
+mostly the outer object heap; rejected alternatives and profiler caveats are in
+the [interpreter hotspot investigation](beam-interpreter-hotspot-investigation.md).
 Getter, setter, and `Object.assign` calls use resumable
 boundaries so arbitrary JavaScript and exceptions do not escape the explicit
 machine state. Promise resolution reads accessor-backed `then` properties
