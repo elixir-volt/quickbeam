@@ -16,6 +16,7 @@ defmodule QuickBEAM.Bench.VMSSR do
           engine: :string,
           compiler_profile: :string,
           compiler_regions: :boolean,
+          shared_programs: :boolean,
           samples: :integer,
           warmup: :integer,
           concurrency: :string,
@@ -29,6 +30,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
     compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
     compiler_regions = Keyword.get(opts, :compiler_regions, false)
+    shared_programs = Keyword.get(opts, :shared_programs, false)
     maybe_start_compiler!(engine)
     samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
     warmup = non_negative!(Keyword.get(opts, :warmup, @default_warmup), :warmup)
@@ -37,7 +39,10 @@ defmodule QuickBEAM.Bench.VMSSR do
       concurrency!(Keyword.get(opts, :concurrency, Enum.join(@default_concurrency, ",")))
 
     fixtures =
-      Enum.map(fixture_specs(), &compile_fixture!(&1, engine, compiler_profile, compiler_regions))
+      Enum.map(
+        fixture_specs(),
+        &compile_fixture!(&1, engine, compiler_profile, compiler_regions, shared_programs)
+      )
 
     results =
       Enum.map(fixtures, fn fixture ->
@@ -58,6 +63,7 @@ defmodule QuickBEAM.Bench.VMSSR do
         engine,
         compiler_profile,
         compiler_regions,
+        shared_programs,
         results,
         isolation,
         samples,
@@ -120,9 +126,17 @@ defmodule QuickBEAM.Bench.VMSSR do
     ]
   end
 
-  defp compile_fixture!(spec, engine, compiler_profile, compiler_regions) do
+  defp compile_fixture!(spec, engine, compiler_profile, compiler_regions, shared_programs) do
     {:ok, source} = QuickBEAM.JS.bundle_file(spec.fixture, spec.bundle_opts)
-    {:ok, program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
+    {:ok, decoded_program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
+
+    program =
+      if shared_programs do
+        {:ok, shared_program} = QuickBEAM.VM.share_program(decoded_program)
+        shared_program
+      else
+        decoded_program
+      end
 
     eval_opts =
       spec.eval_opts
@@ -382,6 +396,7 @@ defmodule QuickBEAM.Bench.VMSSR do
          engine,
          compiler_profile,
          compiler_regions,
+         shared_programs,
          results,
          isolation,
          samples,
@@ -426,6 +441,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     - Engine: #{engine}
     - Compiler profile: #{compiler_profile}
     - Compiler regions: #{compiler_regions}
+    - Shared program handles: #{shared_programs}
     - Git base: `#{metadata.git}`
     - Working tree at measurement: #{metadata.tree_state}
     - Generated: #{metadata.generated}

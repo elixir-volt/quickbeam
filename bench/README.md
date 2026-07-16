@@ -20,9 +20,11 @@ MIX_ENV=bench mix run bench/beam_call.exs
 MIX_ENV=bench mix run bench/startup.exs
 MIX_ENV=bench mix run bench/concurrent.exs
 
-# Reproduce the pinned BEAM VM SSR report
+# Reproduce the pinned BEAM VM SSR reports
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --output docs/beam-ssr-measurements.md
+MIX_ENV=bench mix run bench/vm_ssr.exs --shared-programs \
+  --output docs/beam-shared-program-measurements.md
 
 # Reproduce the retained array/object-memory measurement
 MIX_ENV=bench mix run bench/vm_object_memory.exs \
@@ -43,6 +45,10 @@ COMPILER_EPROF_PHASE=initialization COMPILER_EPROF_ENGINE=interpreter \
 # Attribute interpreter calls in one warm pinned Vue render
 VM_INTERPRETER_FPROF_OUTPUT=/tmp/vue.fprof \
   MIX_ENV=bench mix run bench/vm_interpreter_fprof.exs
+
+# Drive non-instrumented BeamAsm/perf sampling
+ERL_FLAGS='+S 1:1 +JPperf true' perf record -F 997 -e cycles:u -- \
+  env MIX_ENV=bench mix run bench/vm_interpreter_perf.exs --mode shared
 
 # Attribute CPU in the pinned Vue fixture
 COMPILER_SSR_EPROF_PROFILE=scalar_v1 COMPILER_SSR_EPROF_ITERATIONS=3 \
@@ -67,9 +73,11 @@ MIX_ENV=bench mix run bench/vm_ssr.exs \
   --engine compiler --compiler-profile scalar_v1 --compiler-regions \
   --output docs/beam-compiler-region-ssr-measurements.md
 
-# Reproduce the interpreter single-scheduler fairness/timeout probe
+# Reproduce the interpreter single-scheduler fairness/timeout probes
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
   --output docs/beam-scheduler-measurements.md
+ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
+  --shared-programs --output docs/beam-shared-program-scheduler-measurements.md
 
 # Reproduce the release-quarantined compiler-tier probe
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
@@ -86,7 +94,8 @@ profiles exactly one first evaluation in a fresh Mix VM, while execution warms
 the profile template and generated artifact before collecting samples.
 
 The SSR and scheduler runners accept `--compiler-profile pure_v1|scalar_v1`.
-The SSR runner also accepts `--engine interpreter|compiler`, the quarantined
+The SSR and scheduler runners also accept explicit `--shared-programs` handles.
+The SSR runner accepts `--engine interpreter|compiler`, the quarantined
 `--compiler-regions` experiment, `--samples`, `--warmup`, and a comma-separated
 `--concurrency` list. It reports deterministic
 VM steps and logical allocation, fixed compiler coverage counters,
@@ -94,6 +103,9 @@ endpoint BEAM process observations, sequential latency, concurrent throughput,
 and timeout/cancellation behavior for the pinned Preact, Vue, and Svelte
 fixtures. Published results are in
 [`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md),
+[`docs/beam-shared-program-investigation.md`](../docs/beam-shared-program-investigation.md),
+[`docs/beam-shared-program-measurements.md`](../docs/beam-shared-program-measurements.md),
+[`docs/beam-shared-program-scheduler-measurements.md`](../docs/beam-shared-program-scheduler-measurements.md),
 [`docs/beam-object-memory-investigation.md`](../docs/beam-object-memory-investigation.md),
 [`docs/beam-object-memory-measurements.md`](../docs/beam-object-memory-measurements.md),
 [`docs/beam-object-shape-investigation.md`](../docs/beam-object-shape-investigation.md),

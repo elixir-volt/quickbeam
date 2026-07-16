@@ -108,6 +108,10 @@ defmodule QuickBEAM.MixProject do
         "docs/javascript-api.md",
         "docs/architecture.md",
         "docs/beam-interpreter-architecture.md",
+        "docs/beam-interpreter-hotspot-investigation.md",
+        "docs/beam-shared-program-investigation.md",
+        "docs/beam-shared-program-measurements.md",
+        "docs/beam-shared-program-scheduler-measurements.md",
         "docs/beam-compiler-contract.md",
         "docs/beam-compiler-performance-measurements.md",
         "docs/beam-compiler-scheduler-measurements.md",
@@ -125,6 +129,10 @@ defmodule QuickBEAM.MixProject do
           "docs/javascript-api.md",
           "docs/architecture.md",
           "docs/beam-interpreter-architecture.md",
+          "docs/beam-interpreter-hotspot-investigation.md",
+          "docs/beam-shared-program-investigation.md",
+          "docs/beam-shared-program-measurements.md",
+          "docs/beam-shared-program-scheduler-measurements.md",
           "docs/beam-object-memory-investigation.md",
           "docs/beam-object-memory-measurements.md",
           "docs/beam-object-shape-investigation.md",
@@ -164,6 +172,7 @@ defmodule QuickBEAM.MixProject do
       "QuickBEAM.VM.Invocation",
       "QuickBEAM.VM.Iterator",
       "QuickBEAM.VM.Opcodes",
+      "QuickBEAM.VM.ProgramStore",
       "QuickBEAM.VM.Properties",
       "QuickBEAM.VM.Value"
     ]
@@ -181,6 +190,7 @@ defmodule QuickBEAM.MixProject do
       QuickBEAM.VM.Function,
       QuickBEAM.VM.Measurement,
       QuickBEAM.VM.Program,
+      QuickBEAM.VM.SharedProgram,
       QuickBEAM.VM.SourcePosition,
       QuickBEAM.VM.Variable
     ]

@@ -27,7 +27,13 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
   def run(args) do
     {opts, positional, invalid} =
       OptionParser.parse(args,
-        strict: [engine: :string, compiler_profile: :string, samples: :integer, output: :string]
+        strict: [
+          engine: :string,
+          compiler_profile: :string,
+          shared_programs: :boolean,
+          samples: :integer,
+          output: :string
+        ]
       )
 
     if positional != [] or invalid != [],
@@ -40,8 +46,9 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     samples = positive!(Keyword.get(opts, :samples, 10), :samples)
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
     compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
+    shared_programs = Keyword.get(opts, :shared_programs, false)
     maybe_start_compiler!(engine)
-    fixture = compile_fixture!()
+    fixture = compile_fixture!(shared_programs)
 
     Enum.each(1..2, fn _iteration -> render!(fixture, engine, compiler_profile) end)
 
@@ -85,6 +92,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
       report(
         engine,
         compiler_profile,
+        shared_programs,
         samples,
         baseline_ms,
         render_summary,
@@ -100,9 +108,17 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     end
   end
 
-  defp compile_fixture! do
+  defp compile_fixture!(shared_programs) do
     {:ok, source} = QuickBEAM.JS.bundle_file(@fixture, @bundle_opts)
-    {:ok, program} = QuickBEAM.VM.compile(source, filename: @fixture)
+    {:ok, decoded_program} = QuickBEAM.VM.compile(source, filename: @fixture)
+
+    program =
+      if shared_programs do
+        {:ok, shared_program} = QuickBEAM.VM.share_program(decoded_program)
+        shared_program
+      else
+        decoded_program
+      end
 
     %{program: program, props: props()}
   end
@@ -200,7 +216,16 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
       do: raise("timeout p95 #{timeout.p95} µs exceeded #{@max_timeout_wall_us} µs")
   end
 
-  defp report(engine, compiler_profile, samples, baseline_ms, render, baseline, timeout) do
+  defp report(
+         engine,
+         compiler_profile,
+         shared_programs,
+         samples,
+         baseline_ms,
+         render,
+         baseline,
+         timeout
+       ) do
     title =
       if engine == :compiler and compiler_profile == :scalar_v1,
         do: "BEAM scalar compiler single-scheduler probe",
@@ -215,6 +240,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
 
     - Engine: #{engine}
     - Compiler profile: #{compiler_profile}
+    - Shared program handles: #{shared_programs}
     - Git base: `#{command("git", ["rev-parse", "--short", "HEAD"])}`
     - Working tree at measurement: #{tree_state()}
     - Generated: #{DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()}

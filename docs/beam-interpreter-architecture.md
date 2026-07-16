@@ -27,18 +27,23 @@ feature of the stateful native QuickJS runtime.
 
 ```elixir
 {:ok, program} = QuickBEAM.VM.compile(bundle, filename: "server.js")
+{:ok, shared_program} = QuickBEAM.VM.share_program(program)
 
 Task.async_stream(requests, fn props ->
-  QuickBEAM.VM.eval(program,
+  QuickBEAM.VM.eval(shared_program,
     vars: %{"props" => props},
     timeout: 250,
     max_steps: 5_000_000,
     memory_limit: 64 * 1024 * 1024
   )
 end)
+
+QuickBEAM.VM.release_program(shared_program)
 ```
 
-The immutable program is safe to share. Every evaluation owns its JavaScript
+The immutable program is safe to share. The lightweight shared handle avoids
+copying the decoded function graph through each request and worker process.
+Every evaluation owns its JavaScript
 heap, globals, jobs, and limits. A failed or timed-out render only terminates its
 evaluation process.
 
@@ -82,6 +87,8 @@ The existing `QuickBEAM` runtime remains the stateful engine:
 `QuickBEAM.VM` is an isolated execution engine:
 
 - a `%QuickBEAM.VM.Program{}` is immutable and reusable;
+- an explicit `%QuickBEAM.VM.SharedProgram{}` uses a bounded fixed-slot store to
+  avoid copying the decoded graph between request and evaluation processes;
 - each evaluation executes in a dedicated BEAM process by default;
 - the JavaScript heap is local to that process;
 - there is no implicit mutable persistent state between evaluations;
@@ -106,8 +113,13 @@ would still be scheduled independently.
 @spec QuickBEAM.VM.decode(binary(), keyword()) ::
         {:ok, QuickBEAM.VM.Program.t()} | {:error, term()}
 
-@spec QuickBEAM.VM.measure(QuickBEAM.VM.Program.t(), keyword()) ::
-        {:ok, QuickBEAM.VM.Measurement.t()} | {:error, term()}
+@spec QuickBEAM.VM.share_program(QuickBEAM.VM.Program.t()) ::
+        {:ok, QuickBEAM.VM.SharedProgram.t()} | {:error, term()}
+
+@spec QuickBEAM.VM.measure(
+        QuickBEAM.VM.Program.t() | QuickBEAM.VM.SharedProgram.t(),
+        keyword()
+      ) :: {:ok, QuickBEAM.VM.Measurement.t()} | {:error, term()}
 ```
 
 Suggested compile options:
@@ -121,6 +133,9 @@ Suggested compile options:
 `compile/2` asks the vendored QuickJS compiler for serialized bytecode, decodes
 it, verifies it, and returns an immutable program. Compilation may use a native
 compiler pool, but evaluation must not require a QuickJS execution context.
+`share_program/1` is an explicit bounded optimization for programs reused across
+processes; ordinary `%Program{}` evaluation retains process-copy semantics. See
+the [shared-program investigation](beam-shared-program-investigation.md).
 
 `decode/2` is an advanced API. It accepts only bytecode matching the running
 QuickBEAM build fingerprint. `measure/2` runs the same isolated evaluation as

@@ -26,7 +26,9 @@ defmodule QuickBEAM.VM.VueSSRTest do
     start_supervised!({Compiler, capacity: 8})
     assert {:ok, source} = QuickBEAM.JS.bundle_file(@fixture, @bundle_opts)
     assert {:ok, program} = QuickBEAM.VM.compile(source, filename: @fixture)
-    {:ok, source: source, program: program}
+    assert {:ok, shared_program} = QuickBEAM.VM.share_program(program)
+    on_exit(fn -> QuickBEAM.VM.release_program(shared_program) end)
+    {:ok, source: source, program: program, shared_program: shared_program}
   end
 
   test "renders pinned Vue HTML after an asynchronous Beam.call", %{program: program} do
@@ -36,7 +38,11 @@ defmodule QuickBEAM.VM.VueSSRTest do
              ~s(<main class="catalog"><h1>Featured</h1><ul><li class="available" data-id="1">Product 1: $12.99</li></ul></main>)
   end
 
-  test "matches the vendored native QuickJS renderer", %{program: program, source: source} do
+  test "matches the vendored native QuickJS renderer", %{
+    program: program,
+    shared_program: shared_program,
+    source: source
+  } do
     props = props("Native parity", 2)
     handlers = %{"load_props" => fn [] -> props end}
     assert {:ok, runtime} = QuickBEAM.start(handlers: handlers)
@@ -59,9 +65,16 @@ defmodule QuickBEAM.VM.VueSSRTest do
                    @eval_opts
                )
 
+      assert {:ok, shared_compiler_html} =
+               QuickBEAM.VM.eval(
+                 shared_program,
+                 [engine: :compiler, handlers: handlers] ++ @eval_opts
+               )
+
       assert beam_html == native_html
       assert compiler_html == native_html
       assert scalar_html == native_html
+      assert shared_compiler_html == native_html
       stats = ModulePool.stats(ModulePool)
       assert stats.counts.ready >= 1
       assert stats.skips >= 1
@@ -70,7 +83,9 @@ defmodule QuickBEAM.VM.VueSSRTest do
     end
   end
 
-  test "shares one program across isolated concurrent Vue renders", %{program: program} do
+  test "shares one lightweight program handle across isolated concurrent Vue renders", %{
+    shared_program: program
+  } do
     tasks =
       for id <- 1..8 do
         Task.async(fn -> eval(program, props("Catalog #{id}", id)) end)
