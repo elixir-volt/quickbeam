@@ -156,29 +156,26 @@ literal/subterm sharing, move memory outside the evaluation process's
 `max_heap_size`, and require separate accounting and cleanup. It remains a
 candidate only if a future measured overlay beats the persistent one-map design.
 
-## Next deep optimization: shapes
+## Bounded shapes were tested
 
 Ordinary objects no longer retain a descriptor struct for default fields, but
 each new field still performs a property-map update, an object-struct update,
-and an outer heap-map update. Non-default definitions also construct descriptor
-maps. The next high-leverage design is a bounded owner-local hidden-class fast
-path:
+and an outer heap-map update. A bounded owner-local hidden-class prototype tested
+shared immutable shapes, compact values tuples, a 256-transition cap, a 32-field
+cap, and canonical dictionary fallback.
 
-- integer shape IDs, never dynamic atoms;
-- one shape record containing ordered keys, default descriptors, and key-to-slot
-  indices;
-- one compact values tuple per object;
-- cached `{shape, key, flags}` transitions;
-- dictionary fallback for deletes, accessors, non-default descriptors, and
-  pathological dynamic keys;
-- bulk object-literal construction into its final shape;
-- optional owner-local string-key interning to immediate integer IDs, keeping
-  non-negative integers reserved for ECMAScript array indices.
+The ideal 5,000-object fixture reduced retained VM heap by 13.4%, but increased
+reductions by 8.1%. Vue had only 82 wholly eligible objects among 1,130 total;
+its 50-sample median regressed from 47.07 ms to 50.30 ms with no endpoint memory
+change. The runtime shape representation was rejected. See the
+[bounded object-shape investigation](beam-object-shape-investigation.md).
 
-This design should be prototyped against exact result/step/memory differentials
-before changing the canonical heap. Fixed metadata helpers may be authored as
-Erlang records to expose OTP's `update_record` optimization, but native records
-remain too experimental for the runtime contract.
+If shapes are revisited, they should be selected from decode-time object-literal
+semantics or repeated complete key sequences rather than speculative first-use
+transitions. Bulk construction must prove that the object cannot escape while it
+is incomplete. Fixed metadata helpers may use Erlang records where OTP's
+`update_record` optimization is measurable, but OTP 29 native records remain too
+experimental for the runtime contract.
 
 ## Process heap sizing
 

@@ -127,6 +127,7 @@ defmodule QuickBEAM.MixProject do
           "docs/beam-interpreter-architecture.md",
           "docs/beam-object-memory-investigation.md",
           "docs/beam-object-memory-measurements.md",
+          "docs/beam-object-shape-investigation.md",
           "docs/beam-compiler-contract.md",
           "docs/beam-compiler-performance-measurements.md",
           "docs/beam-compiler-region-investigation.md",
