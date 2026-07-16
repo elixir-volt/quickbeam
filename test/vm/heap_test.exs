@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.HeapTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.{Execution, Export, Heap}
+  alias QuickBEAM.VM.{Execution, Export, Heap, Property}
 
   test "resolves inherited properties through the prototype chain" do
     execution = execution()
@@ -36,18 +36,22 @@ defmodule QuickBEAM.VM.HeapTest do
     assert {:ok, %{property_order: []}} = Heap.fetch_object(bulk_execution, bulk)
   end
 
-  test "stores default array descriptors compactly and retains exceptional descriptors" do
-    {array, execution} = Heap.allocate(execution(), :array)
+  test "stores default descriptors compactly and retains exceptional descriptors" do
+    {ordinary, execution} = Heap.allocate(execution())
+    {:ok, execution} = Heap.define(execution, ordinary, "answer", 42)
+    {array, execution} = Heap.allocate(execution, :array)
     {:ok, execution} = Heap.define(execution, array, 0, :undefined)
     {:ok, execution} = Heap.define(execution, array, 1, "fixed", writable: false)
 
-    assert {:ok, object} = Heap.fetch_object(execution, array)
-    assert object.properties[0] == {:undefined}
-    assert %QuickBEAM.VM.Property{value: "fixed", writable: false} = object.properties[1]
+    assert {:ok, ordinary_object} = Heap.fetch_object(execution, ordinary)
+    assert ordinary_object.properties["answer"] == {42}
+    assert {:ok, %Property{value: 42}} = Heap.own_property(execution, ordinary, "answer")
+    assert {:ok, %{"answer" => 42}} = Export.value(ordinary, execution)
 
-    assert {:ok, %QuickBEAM.VM.Property{value: :undefined}} =
-             Heap.own_property(execution, array, 0)
-
+    assert {:ok, array_object} = Heap.fetch_object(execution, array)
+    assert array_object.properties[0] == {:undefined}
+    assert %Property{value: "fixed", writable: false} = array_object.properties[1]
+    assert {:ok, %Property{value: :undefined}} = Heap.own_property(execution, array, 0)
     assert {:ok, :undefined} = Heap.get(execution, array, 0)
     assert {:error, {:property_not_writable, 1}} = Heap.put(execution, array, 1, "changed")
   end

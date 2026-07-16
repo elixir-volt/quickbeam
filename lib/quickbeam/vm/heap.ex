@@ -87,7 +87,7 @@ defmodule QuickBEAM.VM.Heap do
 
         other_keys =
           Enum.filter(object.property_order, fn key ->
-            not is_integer(key) and match?(%Property{enumerable: true}, object.properties[key])
+            not is_integer(key) and property_enumerable?(object.properties[key])
           end)
 
         {:ok, integer_keys ++ other_keys}
@@ -209,7 +209,7 @@ defmodule QuickBEAM.VM.Heap do
          }}
 
       {:ok, object} ->
-        {:ok, own_property_value(object, key)}
+        {:ok, object |> own_property_value(key) |> Object.property_descriptor()}
 
       :error ->
         {:error, {:invalid_reference, id}}
@@ -369,7 +369,7 @@ defmodule QuickBEAM.VM.Heap do
 
         string_keys =
           Enum.filter(object.property_order, fn key ->
-            is_binary(key) and match?(%Property{enumerable: true}, object.properties[key])
+            is_binary(key) and property_enumerable?(object.properties[key])
           end)
 
         {:ok, integer_keys ++ string_keys}
@@ -457,9 +457,8 @@ defmodule QuickBEAM.VM.Heap do
 
   defp define_object(execution, id, object, key, value, opts) do
     case define_property(object, key, value, opts) do
-      {:ok, object} ->
+      {:ok, object, property} ->
         execution = maybe_charge_property(execution, object, key, value)
-        property = property(value, opts)
         object = put_property_struct(object, key, property)
         {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
 
@@ -583,8 +582,14 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  defp define_property(object, key, value, opts),
-    do: validate_definition(object, key, property(value, opts))
+  defp define_property(object, key, value, opts) do
+    property = property(value, opts)
+
+    case validate_definition(object, key, property) do
+      {:ok, object} -> {:ok, object, property}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp validate_definition(object, key, candidate) do
     case own_property_value(object, key) do
@@ -645,30 +650,29 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   defp put_property(object, key, value) do
-    property =
-      case Map.get(object.properties, key) do
-        {_old_value} -> %Property{value: value}
-        %Property{} = property -> %{property | value: value}
-        nil -> %Property{value: value}
-      end
-
-    put_property_struct(object, key, property)
+    case Map.get(object.properties, key) do
+      {_old_value} -> put_default_property(object, key, value)
+      %Property{} = property -> put_property_struct(object, key, %{property | value: value})
+      nil -> put_default_property(object, key, value)
+    end
   end
 
-  defp put_property_struct(%Object{kind: :array} = object, key, property)
-       when is_integer(key) and key >= 0 do
-    stored = if default_data_property?(property), do: {property.value}, else: property
-
-    %{
-      object
-      | properties: Map.put(object.properties, key, stored),
-        length: max(object.length, key + 1)
-    }
+  defp put_property_struct(%Object{} = object, key, property) do
+    if default_data_property?(property) do
+      put_default_property(object, key, property.value)
+    else
+      object = remember_property(object, key)
+      %{object | properties: Map.put(object.properties, key, property)}
+    end
   end
 
-  defp put_property_struct(object, key, property) do
+  defp put_default_property(object, key, value) do
     object = remember_property(object, key)
-    %{object | properties: Map.put(object.properties, key, property)}
+    object = %{object | properties: Map.put(object.properties, key, {value})}
+
+    if object.kind == :array and is_integer(key) and key >= 0,
+      do: %{object | length: max(object.length, key + 1)},
+      else: object
   end
 
   defp remember_property(object, key) when is_integer(key), do: object
@@ -708,22 +712,17 @@ defmodule QuickBEAM.VM.Heap do
 
   defp default_data_property?(_property), do: false
 
-  defp own_property_value(%Object{kind: :array} = object, key) when is_integer(key) do
-    case Map.get(object.properties, key) do
-      {value} -> %Property{value: value}
-      property -> property
-    end
-  end
-
   defp own_property_value(object, key), do: Map.get(object.properties, key)
 
   defp property_enumerable?({_value}), do: true
   defp property_enumerable?(%Property{enumerable: enumerable}), do: enumerable
 
   defp current_accessor(%Property{} = property, field), do: Map.fetch!(property, field)
+  defp current_accessor({_value}, _field), do: nil
   defp current_accessor(nil, _field), do: nil
 
   defp current_flag(%Property{} = property, field, _default), do: Map.fetch!(property, field)
+  defp current_flag({_value}, _field, _default), do: true
   defp current_flag(nil, _field, default), do: default
 
   defp array_length_writable(%Object{length_writable: true}), do: :ok
