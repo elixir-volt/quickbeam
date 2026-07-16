@@ -52,8 +52,16 @@ defmodule QuickBEAM.VM.VueSSRTest do
       assert {:ok, compiler_html} =
                QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
 
+      assert {:ok, scalar_html} =
+               QuickBEAM.VM.eval(
+                 program,
+                 [engine: :compiler, compiler_profile: :scalar_v1, handlers: handlers] ++
+                   @eval_opts
+               )
+
       assert beam_html == native_html
       assert compiler_html == native_html
+      assert scalar_html == native_html
       stats = ModulePool.stats(ModulePool)
       assert stats.counts.ready >= 1
       assert stats.skips >= 1

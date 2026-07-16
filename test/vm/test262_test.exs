@@ -92,7 +92,22 @@ defmodule QuickBEAM.VM.Test262Test do
     @tag timeout: 180_000
     test "compiler tier meets the selected differential conformance threshold" do
       start_supervised!({QuickBEAM.VM.Compiler, capacity: 8})
-      results = QuickBEAM.Test262.run_manifest(@root, @manifest, engine: :compiler)
+      assert_compiler_manifest(:pure_v1)
+    end
+
+    @tag timeout: 180_000
+    test "scalar compiler profile meets the selected differential conformance threshold" do
+      start_supervised!({QuickBEAM.VM.Compiler, capacity: 8})
+      assert_compiler_manifest(:scalar_v1)
+    end
+
+    defp assert_compiler_manifest(profile) do
+      results =
+        QuickBEAM.Test262.run_manifest(@root, @manifest,
+          engine: :compiler,
+          compiler_profile: profile
+        )
+
       summary = QuickBEAM.Test262.summarize(results)
 
       failures =
@@ -132,6 +147,10 @@ defmodule QuickBEAM.VM.Test262Test do
 
     @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
     test "compiler tier meets the selected differential conformance threshold" do
+    end
+
+    @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
+    test "scalar compiler profile meets the selected differential conformance threshold" do
     end
   end
 end

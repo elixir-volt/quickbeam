@@ -43,8 +43,9 @@ external corpus gate is reported as skipped.
 
 ## Classification
 
-Each selected path is run in a fresh native QuickJS runtime and isolated BEAM
-interpreter and release-quarantined compiler-tier evaluations. Results are
+Each selected path is run in a fresh native QuickJS runtime, the isolated BEAM
+interpreter, and release-quarantined `:pure_v1` and `:scalar_v1` compiler-tier
+evaluations. Results are
 classified as:
 
 - `pass` — native QuickJS and the selected BEAM tier satisfy the expectation;

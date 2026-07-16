@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
   @line 1
   @max_stack_depth 64
   @max_scalar_operations 64
+  @max_scalar_blocks 16
   @stack_variables List.to_tuple(
                      for index <- 0..(@max_stack_depth - 1), do: :"_CompilerStack#{index}"
                    )
@@ -21,6 +22,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
   @right_variables List.to_tuple(for index <- 0..255, do: :"_CompilerRight#{index}")
   @value_variables List.to_tuple(for index <- 0..255, do: :"_CompilerValue#{index}")
   @property_variables List.to_tuple(for index <- 0..255, do: :"_CompilerProperty#{index}")
+  @global_variables List.to_tuple(for index <- 0..255, do: :"_CompilerGlobal#{index}")
+  @execution_variables List.to_tuple(for index <- 0..255, do: :"_CompilerExecution#{index}")
 
   @type plan :: Runtime.plan()
 
@@ -50,14 +53,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
 
   defp bounded_shape?(function, plan, levels) do
     function.stack_size <= @max_stack_depth and function.arg_count <= 8 and
-      function.var_count <= 8 and map_size(plan) <= 8 and
+      function.var_count <= 8 and map_size(plan) <= @max_scalar_blocks and
       scalar_operation_count(plan) <= @max_scalar_operations and
       Enum.all?(plan, fn {_pc, {operations, _reason}} -> length(operations) <= 32 end) and
       Enum.all?(levels, fn {_pc, {depth, _catch}} -> depth <= @max_stack_depth end)
   end
 
-  defp eligible_constants?(constants),
-    do: not nested_function_constants?(constants) and not captured_frame_slots?(constants)
+  defp eligible_constants?(constants), do: not captured_frame_slots?(constants)
 
   defp checked_locals_initialized?(function, plan) do
     count = max(function.arg_count + function.var_count, 1)
@@ -150,8 +152,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
         count + length(operations)
       end)
 
-  defp nested_function_constants?(constants), do: Enum.any?(constants, &is_struct(&1, Function))
-
   defp captured_frame_slots?(constants) do
     Enum.any?(constants, fn
       %Function{closure_vars: closure_vars} ->
@@ -216,6 +216,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     )
   end
 
+  defp block_clause(pc, {[{family, name, _operands}] = operations, reason}, levels)
+       when family == :object or (family == :global and name == :get_var) do
+    depth = stack_depth!(levels, pc)
+
+    state = %{
+      pc: pc,
+      lease: variable(:Lease),
+      frame: variable(:Frame),
+      args: variable(:Args),
+      locals: variable(:Locals),
+      stack: stack_values(depth),
+      execution: variable(:Execution)
+    }
+
+    clause(block_arguments(pc, depth), [lower_operations(operations, reason, state)])
+  end
+
   defp block_clause(pc, {operations, reason}, levels) do
     depth = stack_depth!(levels, pc)
     lease = variable(:Lease)
@@ -266,6 +283,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
 
   defp lower_operations([], reason, state), do: boundary_expression(reason, state)
 
+  defp lower_operations([{:global, name, operands} | operations], reason, state) do
+    lower_global(name, operands, operations, reason, state)
+  end
+
   defp lower_operations([{:object, name, operands} | operations], reason, state) do
     lower_property(name, operands, operations, reason, state)
   end
@@ -278,6 +299,48 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
       {:next, state} -> lower_operations(operations, reason, state)
       {:terminal, expression} -> expression
     end
+  end
+
+  defp lower_global(name, _operands, operations, reason, state)
+       when name in [:check_define_var, :define_var] do
+    lower_operations(operations, reason, %{state | pc: state.pc + 1})
+  end
+
+  defp lower_global(:push_atom_value, [atom_operand], operations, reason, state) do
+    value = remote_call(Runtime, :resolve_atom, [literal(atom_operand), state.execution])
+    next_state = %{state | pc: state.pc + 1, stack: [value | state.stack]}
+    lower_operations(operations, reason, next_state)
+  end
+
+  defp lower_global(name, [atom_operand], operations, reason, state)
+       when name in [:get_var, :get_var_undef] do
+    value = variable(elem(@global_variables, rem(state.pc, 256)))
+    get = remote_call(Runtime, :global_get, [atom(name), literal(atom_operand), state.execution])
+    next_state = %{state | pc: state.pc + 1, stack: [value | state.stack]}
+
+    success =
+      if name == :get_var do
+        charge_preflight(state, fn execution ->
+          lower_operations(operations, reason, %{next_state | execution: execution})
+        end)
+      else
+        lower_operations(operations, reason, next_state)
+      end
+
+    case_expression(get, [
+      clause([tuple([atom(:ok), value])], [success]),
+      clause([atom(:deopt)], [deopt_call(:unsupported_semantics, integer(state.pc), state)])
+    ])
+  end
+
+  defp lower_global(name, [atom_operand | _flags], operations, reason, state)
+       when name in [:put_var, :put_var_init, :define_func] do
+    [value | stack] = state.stack
+    execution = variable(elem(@execution_variables, rem(state.pc, 256)))
+    put = remote_call(Runtime, :global_put, [literal(atom_operand), value, state.execution])
+    next_state = %{state | pc: state.pc + 1, stack: stack, execution: execution}
+
+    case_expression(put, [clause([execution], [lower_operations(operations, reason, next_state)])])
   end
 
   defp lower_invocation(:call, [argument_count], state) do
@@ -312,11 +375,28 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     get = remote_call(Runtime, :property_get, [object, key, state.execution])
     next_state = %{state | pc: state.pc + 1, stack: [property_value | result_stack]}
 
+    success =
+      charge_preflight(state, fn execution ->
+        lower_operations(operations, reason, %{next_state | execution: execution})
+      end)
+
     case_expression(get, [
-      clause([tuple([atom(:ok), property_value])], [
-        lower_operations(operations, reason, next_state)
-      ]),
+      clause([tuple([atom(:ok), property_value])], [success]),
       clause([atom(:deopt)], [deopt_call(:unsupported_semantics, integer(state.pc), state)])
+    ])
+  end
+
+  defp charge_preflight(state, continuation) do
+    execution = variable(elem(@execution_variables, rem(state.pc, 256)))
+    action = variable(:Action)
+    compact = tuple([state.frame, integer(state.pc), state.args, state.locals, list(state.stack)])
+
+    charge =
+      remote_call(Runtime, :charge_state, [state.lease, compact, state.execution, integer(1)])
+
+    case_expression(charge, [
+      clause([tuple([atom(:ok), execution])], [continuation.(execution)]),
+      clause([action], [action])
     ])
   end
 

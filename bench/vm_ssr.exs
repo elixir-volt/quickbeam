@@ -14,6 +14,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       OptionParser.parse(args,
         strict: [
           engine: :string,
+          compiler_profile: :string,
           samples: :integer,
           warmup: :integer,
           concurrency: :string,
@@ -25,6 +26,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       do: raise(ArgumentError, "invalid arguments: #{inspect(positional ++ invalid)}")
 
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
+    compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
     maybe_start_compiler!(engine)
     samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
     warmup = non_negative!(Keyword.get(opts, :warmup, @default_warmup), :warmup)
@@ -32,7 +34,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     concurrency =
       concurrency!(Keyword.get(opts, :concurrency, Enum.join(@default_concurrency, ",")))
 
-    fixtures = Enum.map(fixture_specs(), &compile_fixture!(&1, engine))
+    fixtures = Enum.map(fixture_specs(), &compile_fixture!(&1, engine, compiler_profile))
 
     results =
       Enum.map(fixtures, fn fixture ->
@@ -47,7 +49,10 @@ defmodule QuickBEAM.Bench.VMSSR do
       end)
 
     isolation = isolation_probe(hd(fixtures))
-    report = markdown_report(engine, results, isolation, samples, warmup, concurrency)
+
+    report =
+      markdown_report(engine, compiler_profile, results, isolation, samples, warmup, concurrency)
+
     IO.write(report)
 
     if output = opts[:output] do
@@ -103,13 +108,18 @@ defmodule QuickBEAM.Bench.VMSSR do
     ]
   end
 
-  defp compile_fixture!(spec, engine) do
+  defp compile_fixture!(spec, engine, compiler_profile) do
     {:ok, source} = QuickBEAM.JS.bundle_file(spec.fixture, spec.bundle_opts)
     {:ok, program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
 
+    eval_opts =
+      spec.eval_opts
+      |> Keyword.put(:engine, engine)
+      |> Keyword.put(:compiler_profile, compiler_profile)
+
     spec
     |> Map.put(:program, program)
-    |> update_in([:eval_opts], &Keyword.put(&1, :engine, engine))
+    |> Map.put(:eval_opts, eval_opts)
   end
 
   defp warm(_fixture, 0), do: :ok
@@ -134,7 +144,8 @@ defmodule QuickBEAM.Bench.VMSSR do
       process_memory: summarize(measurements, & &1.process_memory_bytes),
       reductions: summarize(measurements, & &1.reductions),
       steps: stable_value!(measurements, & &1.steps, :steps),
-      logical_memory: stable_value!(measurements, & &1.logical_memory_bytes, :logical_memory)
+      logical_memory: stable_value!(measurements, & &1.logical_memory_bytes, :logical_memory),
+      compiler_counters: summarize_counters(measurements)
     }
   end
 
@@ -303,6 +314,37 @@ defmodule QuickBEAM.Bench.VMSSR do
     end
   end
 
+  defp summarize_counters(measurements) do
+    counters = measurements |> Enum.map(& &1.compiler_counters) |> Enum.reject(&is_nil/1)
+
+    case counters do
+      [] ->
+        nil
+
+      counters ->
+        counters
+        |> hd()
+        |> Map.keys()
+        |> Enum.reject(&(&1 in [:deopt_opcodes, :interpreted_opcodes, :profile]))
+        |> Map.new(fn key ->
+          values = counters |> Enum.map(&Map.fetch!(&1, key)) |> Enum.sort()
+          {key, percentile(values, 0.50)}
+        end)
+        |> Map.put(:deopt_opcodes, summarize_opcode_counts(counters, :deopt_opcodes))
+        |> Map.put(:interpreted_opcodes, summarize_opcode_counts(counters, :interpreted_opcodes))
+        |> Map.put(:profile, stable_value!(counters, & &1.profile, :compiler_profile))
+    end
+  end
+
+  defp summarize_opcode_counts(counters, field) do
+    names = counters |> Enum.flat_map(&Map.keys(&1[field])) |> Enum.uniq()
+
+    Map.new(names, fn name ->
+      values = counters |> Enum.map(&Map.get(&1[field], name, 0)) |> Enum.sort()
+      {name, percentile(values, 0.50)}
+    end)
+  end
+
   defp summarize(measurements, getter) do
     values = measurements |> Enum.map(getter) |> Enum.reject(&is_nil/1) |> Enum.sort()
 
@@ -323,18 +365,30 @@ defmodule QuickBEAM.Bench.VMSSR do
   defp result_label({:error, reason}), do: "error:#{inspect(reason)}"
   defp result_label({:ok, _value}), do: "ok"
 
-  defp markdown_report(engine, results, isolation, samples, warmup, concurrency) do
+  defp markdown_report(
+         engine,
+         compiler_profile,
+         results,
+         isolation,
+         samples,
+         warmup,
+         concurrency
+       ) do
     metadata = metadata()
 
     scheduler_report =
-      if engine == :compiler,
-        do: "beam-compiler-scheduler-measurements.md",
-        else: "beam-scheduler-measurements.md"
+      case {engine, compiler_profile} do
+        {:compiler, :scalar_v1} -> "beam-compiler-scalar-scheduler-measurements.md"
+        {:compiler, _profile} -> "beam-compiler-scheduler-measurements.md"
+        {:interpreter, _profile} -> "beam-scheduler-measurements.md"
+      end
 
     title =
-      if engine == :compiler,
-        do: "BEAM compiler SSR measurements",
-        else: "BEAM VM SSR measurements"
+      case {engine, compiler_profile} do
+        {:compiler, :scalar_v1} -> "BEAM scalar compiler SSR measurements"
+        {:compiler, _profile} -> "BEAM compiler SSR measurements"
+        {:interpreter, _profile} -> "BEAM VM SSR measurements"
+      end
 
     """
     # #{title}
@@ -348,6 +402,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     ## Environment
 
     - Engine: #{engine}
+    - Compiler profile: #{compiler_profile}
     - Git base: `#{metadata.git}`
     - Working tree at measurement: #{metadata.tree_state}
     - Generated: #{metadata.generated}
@@ -373,6 +428,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     sampled peaks. Wall time includes process startup, the 5 ms host wait,
     rendering, conversion, and reply delivery.
 
+    #{compiler_counter_report(engine, results)}
     ## Concurrent isolated renders
 
     | Fixture | concurrency | renders | throughput | per-render wall median | per-render wall p95 |
@@ -403,6 +459,49 @@ defmodule QuickBEAM.Bench.VMSSR do
     process terminates. Cancellation time is measured from `measure/2` returning
     to observation of the handler's `:DOWN` message.
     """
+  end
+
+  defp compiler_counter_report(:interpreter, _results), do: ""
+
+  defp compiler_counter_report(:compiler, results) do
+    """
+    ## Compiler execution counters
+
+    These fixed-key counters are captured from the evaluation owner. Generated
+    steps, entries, deoptimizations, invocation actions, and re-entries describe
+    execution; compile/cache/skip fields remain module-pool lifecycle observations.
+
+    | Fixture | frame attempts | skipped frames | decisions C/H/S | generated steps | step coverage | entries | deopts | invocation actions | re-entries | leading deopt opcodes | hot interpreted opcodes |
+    |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+    #{Enum.map_join(results, "\n", &compiler_counter_row/1)}
+
+    """
+  end
+
+  defp compiler_counter_row(result) do
+    counters = result.sequential.compiler_counters
+    coverage = 100 * counters.generated_steps / max(result.sequential.steps, 1)
+
+    deopt_opcodes = format_opcode_counts(counters.deopt_opcodes)
+    interpreted_opcodes = format_opcode_counts(counters.interpreted_opcodes)
+
+    decisions =
+      "#{counters.compiled_functions}/#{counters.cached_functions}/#{counters.skipped_functions}"
+
+    "| #{result.name} | #{integer(counters.frame_attempts)} | " <>
+      "#{integer(counters.skipped_frames)} | #{decisions} | " <>
+      "#{integer(counters.generated_steps)} | " <>
+      "#{Float.round(coverage, 1)}% | #{integer(counters.generated_entries)} | " <>
+      "#{integer(counters.deoptimizations)} | " <>
+      "#{integer(counters.invocation_actions)} | #{integer(counters.reentries)} | " <>
+      "#{deopt_opcodes} | #{interpreted_opcodes} |"
+  end
+
+  defp format_opcode_counts(counts) do
+    counts
+    |> Enum.sort_by(fn {name, count} -> {-count, name} end)
+    |> Enum.take(8)
+    |> Enum.map_join(", ", fn {name, count} -> "`#{name}`=#{count}" end)
   end
 
   defp sequential_row(result) do
@@ -510,6 +609,14 @@ defmodule QuickBEAM.Bench.VMSSR do
 
   defp engine!(engine),
     do: raise(ArgumentError, "engine must be interpreter or compiler, got: #{inspect(engine)}")
+
+  defp compiler_profile!("pure_v1"), do: :pure_v1
+  defp compiler_profile!("scalar_v1"), do: :scalar_v1
+
+  defp compiler_profile!(profile) do
+    raise ArgumentError,
+          "compiler profile must be pure_v1 or scalar_v1, got: #{inspect(profile)}"
+  end
 
   defp maybe_start_compiler!(:interpreter), do: :ok
 

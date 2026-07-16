@@ -36,9 +36,16 @@ COMPILER_EPROF_PHASE=initialization COMPILER_EPROF_ENGINE=interpreter \
   COMPILER_EPROF_WORKLOAD=object_property_loop MIX_ENV=bench \
   mix run bench/vm_compiler_eprof.exs
 
-# Reproduce the release-quarantined compiler SSR report
+# Attribute CPU in the pinned Vue fixture
+COMPILER_SSR_EPROF_PROFILE=scalar_v1 COMPILER_SSR_EPROF_ITERATIONS=3 \
+  MIX_ENV=bench mix run bench/vm_compiler_ssr_eprof.exs
+
+# Reproduce the release-quarantined compiler SSR reports
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --engine compiler --output docs/beam-compiler-ssr-measurements.md
+MIX_ENV=bench mix run bench/vm_ssr.exs \
+  --engine compiler --compiler-profile scalar_v1 \
+  --output docs/beam-compiler-scalar-ssr-measurements.md
 
 # Reproduce the interpreter single-scheduler fairness/timeout probe
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
@@ -47,6 +54,9 @@ ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
 # Reproduce the release-quarantined compiler-tier probe
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
   --engine compiler --output docs/beam-compiler-scheduler-measurements.md
+ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
+  --engine compiler --compiler-profile scalar_v1 \
+  --output docs/beam-compiler-scalar-scheduler-measurements.md
 ```
 
 The compiler performance runner reports one-time core-profile initialization
@@ -55,17 +65,21 @@ runner accepts `COMPILER_EPROF_PHASE=execution|initialization`; initialization
 profiles exactly one first evaluation in a fresh Mix VM, while execution warms
 the profile template and generated artifact before collecting samples.
 
-The SSR runner accepts `--engine interpreter|compiler`, `--samples`, `--warmup`,
-and a comma-separated `--concurrency` list. It reports deterministic VM steps and logical allocation,
+The SSR and scheduler runners accept `--compiler-profile pure_v1|scalar_v1`.
+The SSR runner also accepts `--engine interpreter|compiler`, `--samples`,
+`--warmup`, and a comma-separated `--concurrency` list. It reports deterministic
+VM steps and logical allocation, fixed compiler coverage counters,
 endpoint BEAM process observations, sequential latency, concurrent throughput,
 and timeout/cancellation behavior for the pinned Preact, Vue, and Svelte
 fixtures. Published results are in
 [`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md),
 [`docs/beam-compiler-performance-measurements.md`](../docs/beam-compiler-performance-measurements.md),
 [`docs/beam-compiler-ssr-measurements.md`](../docs/beam-compiler-ssr-measurements.md),
+[`docs/beam-compiler-scalar-ssr-measurements.md`](../docs/beam-compiler-scalar-ssr-measurements.md),
 [`docs/beam-scheduler-measurements.md`](../docs/beam-scheduler-measurements.md),
+[`docs/beam-compiler-scheduler-measurements.md`](../docs/beam-compiler-scheduler-measurements.md),
 and
-[`docs/beam-compiler-scheduler-measurements.md`](../docs/beam-compiler-scheduler-measurements.md).
+[`docs/beam-compiler-scalar-scheduler-measurements.md`](../docs/beam-compiler-scalar-scheduler-measurements.md).
 
 ## Results
 

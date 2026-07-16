@@ -151,7 +151,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   def execute(:get_var, [atom], frame, execution) do
     name = resolve_atom(atom, execution)
 
-    case global_value(execution, name) do
+    case read_global(execution, name) do
       {:ok, value} -> push(frame, execution, value)
       :error -> {:throw, {:reference_error, name}, frame, execution}
     end
@@ -161,7 +161,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     name = resolve_atom(atom, execution)
 
     value =
-      case global_value(execution, name) do
+      case read_global(execution, name) do
         {:ok, value} -> value
         :error -> :undefined
       end
@@ -172,7 +172,7 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
   def execute(name, [atom | _flags], %{stack: [value | stack]} = frame, execution)
       when name in [:put_var, :put_var_init, :define_func] do
     name = resolve_atom(atom, execution)
-    execution = put_global(execution, name, value)
+    execution = write_global(execution, name, value)
     next(%{frame | stack: stack}, execution)
   end
 
@@ -290,7 +290,9 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
 
   def resolve_atom(value, _execution), do: value
 
-  defp global_value(execution, name) do
+  @doc "Reads a resolved global name through the canonical global-object fallback."
+  @spec read_global(Execution.t(), term()) :: {:ok, term()} | :error
+  def read_global(execution, name) do
     case Map.get(execution.globals, "globalThis") do
       %QuickBEAM.VM.Reference{} = global_this ->
         case Properties.get(global_this, name, execution) do
@@ -304,7 +306,9 @@ defmodule QuickBEAM.VM.Opcodes.Locals do
     end
   end
 
-  defp put_global(execution, name, value) do
+  @doc "Writes a resolved global name and its canonical global-object property."
+  @spec write_global(Execution.t(), term(), term()) :: Execution.t()
+  def write_global(execution, name, value) do
     execution = %{execution | globals: Map.put(execution.globals, name, value)}
 
     case Map.get(execution.globals, "globalThis") do

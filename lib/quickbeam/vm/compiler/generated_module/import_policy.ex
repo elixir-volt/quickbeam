@@ -42,6 +42,8 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.ImportPolicy do
     {Runtime, :frame_pc, 1},
     {Runtime, :frame_state, 1},
     {Runtime, :frame_this, 1},
+    {Runtime, :global_get, 3},
+    {Runtime, :global_put, 3},
     {Runtime, :invoke_state, 5},
     {Runtime, :property_get, 3},
     {Runtime, :resolve_atom, 2},

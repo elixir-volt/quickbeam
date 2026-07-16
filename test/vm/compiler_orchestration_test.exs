@@ -176,6 +176,10 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
     assert compiled.result == interpreted.result
     assert compiled.steps == interpreted.steps
     assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert interpreted.compiler_counters == nil
+    assert compiled.compiler_counters.profile == :pure_v1
+    assert compiled.compiler_counters.frame_attempts > 0
+    assert compiled.compiler_counters.generated_steps <= compiled.steps
     assert compiled.process_memory_bytes > 0
     assert compiled.reductions > 0
   end
@@ -226,8 +230,13 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
       timeout: 2_000
     ]
 
-    assert QuickBEAM.VM.eval(program, [engine: :compiler] ++ options) ==
-             QuickBEAM.VM.eval(program, options)
+    expected = QuickBEAM.VM.eval(program, options)
+    assert QuickBEAM.VM.eval(program, [engine: :compiler] ++ options) == expected
+
+    assert QuickBEAM.VM.eval(
+             program,
+             [engine: :compiler, compiler_profile: :scalar_v1] ++ options
+           ) == expected
   end
 
   test "shares cached generated code across isolated evaluation owners" do

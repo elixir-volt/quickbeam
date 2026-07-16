@@ -33,7 +33,7 @@ edge. Owner-local compile or skip decisions are cached for at most 256
 function IDs per evaluation. The module pool also keeps at most 256 binary-keyed
 negative decisions, avoiding repeated warm lowering without creating atoms.
 
-Scalar lowering is deliberately narrower: at most 64 lowered operations, eight
+Scalar lowering is deliberately narrower: at most 64 lowered operations, 16
 blocks, 32 operations per block, eight arguments, eight locals, and stack depth
 64. Locals captured by nested functions are excluded. Lexical checked-local
 reads require a successful initialization dataflow proof; otherwise the generic
@@ -59,14 +59,16 @@ before-instruction deoptimization path remains authoritative.
 
 ## Versioned artifact identity
 
-`QuickBEAM.VM.Compiler.Contract.artifact_key/3` returns a binary SHA-256 key. It
-includes:
+`QuickBEAM.VM.Compiler.Contract.artifact_key/3` returns a binary SHA-256 key.
+The compiler hashes the exact immutable program namespace once per evaluation,
+then combines it with each function payload and profile. The identity includes:
 
 - the compiler contract version;
 - the runtime ABI version;
 - the exact QuickJS/QuickBEAM ABI fingerprint and bytecode version;
 - the SHA-256 serialized-bytecode digest and source digest when source is available;
-- the immutable function IR, constants, atom table, and source positions;
+- the immutable function IR, constants, and source positions;
+- the exact program atom table in the shared namespace rather than repeated in every function payload;
 - the lowering profile and semantic feature flags.
 
 Keys remain binaries. They are never converted to atoms. Changing any ABI,
@@ -149,7 +151,7 @@ safely purged remains loaded until VM shutdown.
 
 Generated modules may call `:erlang` guard/BIF operations approved by a
 BEAM-disassembly test and one module, `QuickBEAM.VM.Compiler.Runtime`. That
-module is runtime ABI version 3 and delegates semantics to the existing
+module is runtime ABI version 4 and delegates semantics to the existing
 canonical layers:
 
 - `Value` for primitive coercion and operators;
@@ -168,7 +170,7 @@ The current ABI contains only:
 - exact canonical-frame and compact-state charging at basic-block boundaries;
 - verified local/argument/stack transforms shared with opcode-family modules;
 - guarded primitive operations with canonical `Value` fallback;
-- canonical non-accessor property reads and explicit invocation actions;
+- canonical non-accessor property reads, owner-local global reads/writes, and explicit invocation actions;
 - truthiness and verified branch selection;
 - reconstruction of canonical frames and typed `%Compiler.Deopt{}` values.
 
@@ -187,7 +189,10 @@ instruction in the block is guaranteed to execute and cannot throw or suspend.
 If insufficient steps remain, it deopts before the block without charging any of
 its instructions. A terminal conditional still executes exactly once after the
 preceding straight-line operations. This preserves the interpreter's exact `remaining_steps` contract
-and `measure/2` counters.
+and `measure/2` counters. Potentially deoptimizing property and strict-global
+reads occupy isolated preflight blocks: lookup classification happens without an
+observable effect, the instruction is charged only after a successful preflight,
+and a deoptimization resumes the still-uncharged instruction in the interpreter.
 
 All allocation goes through canonical runtime layers and their logical memory
 charges. The compiled path runs in the same monitored evaluation process, so
@@ -197,9 +202,13 @@ unchanged.
 Generated generic blocks are capped at 256 QuickJS instructions and one function
 artifact at 4,096 blocks and 4,096 lowered instructions. Generic blocks still
 deoptimize at control-flow edges. The narrower scalar profile may tail-call at
-most eight generated successor blocks while preserving per-block charging and
+most 16 generated successor blocks while preserving per-block charging and
 outer process containment. The existing `+S 1:1` ticker-gap and timeout report
-remains a regression gate for compiled execution.
+remains a regression gate for compiled execution. Measurement-only compiler
+instrumentation uses one fixed-size owner-local OTP `:counters` reference. It
+records generated/interpreted opcode counts and fixed deoptimization/action
+fields, snapshots only at evaluation completion, and never creates keys from
+user input or runs exporters in generated code.
 
 ## Deoptimization state
 
@@ -252,28 +261,30 @@ An adaptive policy, if added, must be explicitly selected by the caller and
 reported by measurement/telemetry. It still may never fall back to native
 QuickJS.
 
-The current `+S 1:1` compiler-tier Vue probe reports a 46.8 ms maximum ticker
-gap against the 75 ms bound and a 51.0 ms timeout p95 against the 60 ms bound.
+The current `+S 1:1` compiler-tier Vue probe reports a 33.57 ms maximum ticker
+gap against the 75 ms bound and a 51.15 ms timeout p95 against the 60 ms bound.
+The opt-in scalar profile reports 35.52 ms and 51.10 ms respectively.
 The pinned compiler SSR report covers 30 sequential samples plus concurrency
 1/4/8 for Preact, Vue, and Svelte, with 100/100 isolated Preact renders and
 successful step, memory, timeout, and cancellation checks. The Vue parity gate
 also requires more than the root generated module, proving selected nested-frame
-coverage. The selected Test262 gate passes 65/65 supported tests through both
-the interpreter and compiler tier.
+coverage. The selected Test262 gate passes 65/65 supported tests through the
+interpreter and both compiler profiles.
 
-The separate warm loop report now measures 8.18× arithmetic-loop, 7.70×
-branch-loop, 5.56× local-arithmetic, 1.81× array-sum, and 6.14× object-property
-speedups over the interpreter after cold compilation costs of 8.50–25.86 ms.
+The separate warm loop report now measures 8.23× arithmetic-loop, 7.65×
+branch-loop, 5.69× local-arithmetic, 1.71× array-sum, and 5.26× object-property
+speedups over the interpreter after cold compilation costs of 10.77–25.65 ms.
 One-time host-profile initialization is reported separately. Those bounded
 micro-workloads demonstrate that scalar generated execution can amortize
-compilation; they do not replace
-the SSR release gate.
+compilation; they do not replace the SSR release gate.
 
-On the published runs, compiler-tier sequential medians are 10.4 ms for Preact,
-75.77 ms for Vue, and 16.19 ms for Svelte, versus interpreter medians of 8.22 ms,
-49.21 ms, and 15.15 ms respectively. These separate reproducible runs are not a
-paired statistical comparison, but they show that selective nested-function
-re-entry is still not a performance release candidate.
+On the published runs, default compiler-tier sequential medians are 9.74 ms for
+Preact, 60.13 ms for Vue, and 15.70 ms for Svelte. The scalar profile reports
+9.66 ms, 64.45 ms, and 15.45 ms, versus interpreter medians of 8.22 ms,
+49.21 ms, and 15.15 ms respectively. Vue generated-step coverage remains only
+0.4% for `:pure_v1` and 1.1% for `:scalar_v1`. These separate reproducible runs
+are not a paired statistical comparison, and the low useful coverage keeps the
+compiler out of the release path.
 
 ### Release policy
 

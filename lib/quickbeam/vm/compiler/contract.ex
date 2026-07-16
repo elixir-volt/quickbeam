@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   alias QuickBEAM.VM.{Function, Program}
 
   @contract_version 1
-  @runtime_abi_version 3
+  @runtime_abi_version 4
   @artifact_key_bytes 32
   @profiles [:pure_v1, :scalar_v1]
 
@@ -69,6 +69,24 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   @spec pool_capacity() :: pos_integer()
   def pool_capacity, do: length(@pool_modules)
 
+  @doc "Builds a deterministic binary namespace for one immutable verified program."
+  @spec program_identity(Program.t()) :: {:ok, binary()} | {:error, term()}
+  def program_identity(%Program{} = program) do
+    payload = {
+      @contract_version,
+      @runtime_abi_version,
+      program.version,
+      program.fingerprint,
+      program.bytecode_digest,
+      program.source_digest,
+      program.atoms
+    }
+
+    {:ok, digest(payload)}
+  end
+
+  def program_identity(program), do: {:error, {:invalid_artifact_program, program}}
+
   @doc "Builds a deterministic binary identity for one verified function artifact."
   @spec artifact_key(Program.t(), Function.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
@@ -78,26 +96,45 @@ defmodule QuickBEAM.VM.Compiler.Contract do
       when is_list(opts) do
     with :ok <- validate_options(opts),
          profile = Keyword.get(opts, :profile, :pure_v1),
-         :ok <- validate_profile(profile) do
-      payload = {
-        @contract_version,
-        @runtime_abi_version,
-        program.version,
-        program.fingerprint,
-        program.bytecode_digest,
-        program.source_digest,
-        program.atoms,
-        function,
-        profile
-      }
-
-      binary = :erlang.term_to_binary(payload, [:deterministic])
-      {:ok, :crypto.hash(:sha256, binary)}
+         :ok <- validate_profile(profile),
+         {:ok, program_identity} <- program_identity(program) do
+      artifact_key_from_identity(program_identity, function, profile: profile)
     end
   end
 
   def artifact_key(program, function, _opts),
     do: {:error, {:invalid_artifact_input, program, function}}
+
+  @doc "Builds an artifact key from a previously validated program namespace."
+  @spec artifact_key_from_identity(binary(), Function.t(), keyword()) ::
+          {:ok, binary()} | {:error, term()}
+  def artifact_key_from_identity(program_identity, function, opts \\ [])
+
+  def artifact_key_from_identity(program_identity, %Function{} = function, opts)
+      when is_binary(program_identity) and byte_size(program_identity) == @artifact_key_bytes and
+             is_list(opts) do
+    with :ok <- validate_options(opts),
+         profile = Keyword.get(opts, :profile, :pure_v1),
+         :ok <- validate_profile(profile) do
+      payload = {program_identity, strip_repeated_atoms(function), profile}
+      {:ok, digest(payload)}
+    end
+  end
+
+  def artifact_key_from_identity(program_identity, function, _opts),
+    do: {:error, {:invalid_artifact_identity, program_identity, function}}
+
+  defp strip_repeated_atoms(%Function{} = function) do
+    constants = Enum.map(function.constants, &strip_repeated_atoms/1)
+    %{function | atoms: nil, constants: constants}
+  end
+
+  defp strip_repeated_atoms(value), do: value
+
+  defp digest(value) do
+    binary = :erlang.term_to_binary(value, [:deterministic])
+    :crypto.hash(:sha256, binary)
+  end
 
   defp validate_options(opts) do
     if Keyword.keyword?(opts) do

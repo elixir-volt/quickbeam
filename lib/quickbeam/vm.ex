@@ -115,8 +115,8 @@ defmodule QuickBEAM.VM do
 
   @doc """
   Evaluates a program with the same isolation and limits as `eval/2`, returning
-  its result together with deterministic step/logical-memory counters and
-  endpoint process observations.
+  its result together with deterministic step/logical-memory counters, bounded
+  compiler telemetry when selected, and endpoint process observations.
 
   Evaluation failures, including resource limits, are stored in
   `measurement.result`. Invalid programs or options are returned directly as
@@ -313,6 +313,7 @@ defmodule QuickBEAM.VM do
       wall_time_us: wall_time_us,
       steps: Map.get(metrics, :steps),
       logical_memory_bytes: Map.get(metrics, :logical_memory_bytes),
+      compiler_counters: Map.get(metrics, :compiler_counters),
       process_memory_bytes: Map.get(metrics, :process_memory_bytes),
       reductions: Map.get(metrics, :reductions)
     }

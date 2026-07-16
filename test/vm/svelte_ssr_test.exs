@@ -47,8 +47,16 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
       assert {:ok, compiler_rendered} =
                QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
 
+      assert {:ok, scalar_rendered} =
+               QuickBEAM.VM.eval(
+                 program,
+                 [engine: :compiler, compiler_profile: :scalar_v1, handlers: handlers] ++
+                   @eval_opts
+               )
+
       assert beam_rendered == native_rendered
       assert compiler_rendered == native_rendered
+      assert scalar_rendered == native_rendered
     after
       QuickBEAM.stop(runtime)
     end

@@ -2,8 +2,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @moduledoc """
   Defines the versioned semantic ABI available to generated BEAM modules.
 
-  The initial ABI supports exact block charging, explicit deoptimization, and
-  verified pure stack, local, value, and branch operations. Implementations
+  The ABI supports exact block charging, explicit deoptimization, and verified
+  stack, local, global, property, value, branch, and invocation operations. Implementations
   delegate to canonical VM opcode and value layers rather than duplicating
   JavaScript semantics.
   """
@@ -553,6 +553,25 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   defp execute_operation(family, name, operands, _frame, _execution),
     do: {:error, {:unsupported_compiler_operation, family, name, operands}}
+
+  @doc "Reads one global through the canonical local/global layer."
+  @spec global_get(:get_var | :get_var_undef, term(), Execution.t()) :: {:ok, term()} | :deopt
+  def global_get(mode, atom, %Execution{} = execution) when mode in [:get_var, :get_var_undef] do
+    name = Locals.resolve_atom(atom, execution)
+
+    case Locals.read_global(execution, name) do
+      {:ok, value} -> {:ok, value}
+      :error when mode == :get_var_undef -> {:ok, :undefined}
+      :error -> :deopt
+    end
+  end
+
+  @doc "Writes one global through the canonical local/global layer."
+  @spec global_put(term(), term(), Execution.t()) :: Execution.t()
+  def global_put(atom, value, %Execution{} = execution) do
+    name = Locals.resolve_atom(atom, execution)
+    Locals.write_global(execution, name, value)
+  end
 
   @doc "Resolves one decoded atom operand through the canonical local layer."
   @spec resolve_atom(term(), Execution.t()) :: term()

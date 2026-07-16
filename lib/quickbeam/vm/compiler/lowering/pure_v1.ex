@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   alias QuickBEAM.VM.Compiler.GeneratedModule.Template
   alias QuickBEAM.VM.Compiler.Lowering.ScalarBlocks
   alias QuickBEAM.VM.Compiler.Runtime
-  alias QuickBEAM.VM.{Function, StackVerifier}
+  alias QuickBEAM.VM.{Function, Opcodes, StackVerifier}
   alias QuickBEAM.VM.Opcodes.Invocation
 
   @max_block_instruction_count 256
@@ -24,6 +24,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     post_inc: :value
   }
   @extended_scalar_operations %{
+    check_define_var: :global,
+    define_func: :global,
+    define_var: :global,
+    get_var: :global,
+    get_var_undef: :global,
+    push_atom_value: :global,
+    put_var: :global,
+    put_var_init: :global,
     call: :invocation,
     call_method: :invocation,
     get_array_el: :object,
@@ -33,6 +41,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   }
   @scalar_operations Map.merge(@core_scalar_operations, @extended_scalar_operations)
   @line 1
+
+  @doc "Rejects obviously too-small non-loop candidates before artifact hashing."
+  @spec candidate?(Function.t(), non_neg_integer(), :pure_v1 | :scalar_v1) :: boolean()
+  def candidate?(%Function{instructions: instructions}, minimum, profile)
+      when is_tuple(instructions) and is_integer(minimum) and minimum >= 0 and
+             profile in [:pure_v1, :scalar_v1] do
+    minimum <= 1 or tuple_size(instructions) >= minimum or backward_branch?(instructions)
+  end
 
   @doc "Returns the deterministic pure-block execution plan for one function."
   @spec plan(Function.t()) :: {:ok, Runtime.plan()} | {:error, term()}
@@ -111,6 +127,22 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     end)
   end
 
+  defp backward_branch?(instructions) do
+    instructions
+    |> Tuple.to_list()
+    |> Enum.with_index()
+    |> Enum.any?(fn {{opcode, operands}, pc} ->
+      case Opcodes.info(opcode) do
+        {name, _size, _pops, _pushes, _format}
+        when name in [:goto, :goto8, :goto16, :if_false, :if_false8, :if_true, :if_true8] ->
+          match?([target | _] when is_integer(target) and target <= pc, operands)
+
+        _info ->
+          false
+      end
+    end)
+  end
+
   defp loop_plan?(plan) do
     Enum.any?(plan, fn {pc, {operations, _reason}} ->
       Enum.any?(operations, fn
@@ -127,32 +159,39 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
 
   defp plan_block_segments(block) do
     block.instructions
-    |> split_invocation_segments([], [])
+    |> split_scalar_segments([], [])
     |> Enum.map(fn instructions ->
       first_pc = instructions |> hd() |> elem(0)
       plan_block(%{block | start_pc: first_pc, instructions: instructions}, :scalar_v1)
     end)
   end
 
-  defp split_invocation_segments([], [], segments), do: Enum.reverse(segments)
+  defp split_scalar_segments([], [], segments), do: Enum.reverse(segments)
 
-  defp split_invocation_segments([], current, segments),
+  defp split_scalar_segments([], current, segments),
     do: Enum.reverse([Enum.reverse(current) | segments])
 
-  defp split_invocation_segments([instruction | instructions], current, segments) do
+  defp split_scalar_segments([instruction | instructions], current, segments) do
     cond do
       not supported_instruction?(instruction, :scalar_v1) ->
         segments = if current == [], do: segments, else: [Enum.reverse(current) | segments]
-        split_invocation_segments(instructions, [], [[instruction] | segments])
+        split_scalar_segments(instructions, [], [[instruction] | segments])
+
+      preflight_instruction?(instruction) ->
+        segments = if current == [], do: segments, else: [Enum.reverse(current) | segments]
+        split_scalar_segments(instructions, [], [[instruction] | segments])
 
       invocation_instruction?(instruction) ->
         current = [instruction | current]
-        split_invocation_segments(instructions, [], [Enum.reverse(current) | segments])
+        split_scalar_segments(instructions, [], [Enum.reverse(current) | segments])
 
       true ->
-        split_invocation_segments(instructions, [instruction | current], segments)
+        split_scalar_segments(instructions, [instruction | current], segments)
     end
   end
+
+  defp preflight_instruction?({_pc, name, _operands}),
+    do: name in [:get_array_el, :get_field, :get_field2, :get_length, :get_var]
 
   defp invocation_instruction?({_pc, name, _operands}), do: name in [:call, :call_method]
 

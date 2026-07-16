@@ -16,8 +16,11 @@ defmodule QuickBEAM.VM.CompilerContractTest do
 
   test "artifact identities are deterministic binaries and do not allocate per-program atoms" do
     {program, function} = program_and_function()
+    assert {:ok, namespace} = Contract.program_identity(program)
+    assert byte_size(namespace) == Contract.artifact_key_bytes()
     assert {:ok, first} = Contract.artifact_key(program, function)
     assert {:ok, ^first} = Contract.artifact_key(program, function)
+    assert {:ok, ^first} = Contract.artifact_key_from_identity(namespace, function)
     assert byte_size(first) == Contract.artifact_key_bytes()
 
     # Warm every code path before measuring the permanent atom table.
@@ -48,9 +51,12 @@ defmodule QuickBEAM.VM.CompilerContractTest do
                function
              )
 
+    assert {:ok, changed_atoms_key} = Contract.artifact_key(%{program | atoms: {"x"}}, function)
+
     refute changed_program_key == key
     refute changed_function_key == key
     refute changed_source_key == key
+    refute changed_atoms_key == key
 
     assert {:error, {:unknown_option, :unknown}} =
              Contract.artifact_key(program, function, unknown: true)

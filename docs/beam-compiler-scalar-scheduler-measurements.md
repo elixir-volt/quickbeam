@@ -1,14 +1,14 @@
-# BEAM VM single-scheduler probe
+# BEAM scalar compiler single-scheduler probe
 
 Run with `ERL_FLAGS="+S 1:1"`. The pinned Vue SSR fixture and a periodic BEAM
 ticker share one scheduler. The baseline sleeps for the median render wall
 time, allowing the same ticker to run without compiler work.
 
 - Engine: compiler
-- Compiler profile: pure_v1
+- Compiler profile: scalar_v1
 - Git base: `bc1aaf50`
 - Working tree at measurement: modified
-- Generated: 2026-07-16T09:54:39Z
+- Generated: 2026-07-16T09:54:48Z
 - Elixir: 1.20.2
 - OTP: 29
 - ERTS: 17.0.2
@@ -21,8 +21,8 @@ time, allowing the same ticker to run without compiler work.
 
 | workload | wall median | wall p95 | ticker gap median | ticker gap p95 | ticker gap max | ticks median |
 |---|---:|---:|---:|---:|---:|---:|
-| Vue SSR | 166.46 ms | 200.73 ms | 2.0 ms | 8.75 ms | 33.57 ms | 60 |
-| sleep baseline (166 ms target) | 166.95 ms | 166.96 ms | 2.0 ms | 2.01 ms | 2.58 ms | 83 |
+| Vue SSR | 177.57 ms | 205.3 ms | 2.0 ms | 8.53 ms | 35.52 ms | 65 |
+| sleep baseline (178 ms target) | 178.95 ms | 178.98 ms | 2.0 ms | 2.01 ms | 3.8 ms | 89 |
 
 Acceptance bound: Vue SSR ticker gap ≤ 75.0 ms.
 
@@ -32,6 +32,6 @@ An infinite JavaScript loop was evaluated with a 50 ms outer timeout.
 
 | timeout | wall median | wall p95 | wall max | median overshoot |
 |---:|---:|---:|---:|---:|
-| 50 ms | 50.97 ms | 51.15 ms | 51.15 ms | 974 µs |
+| 50 ms | 50.98 ms | 51.1 ms | 51.1 ms | 983 µs |
 
 Acceptance bound: timeout p95 ≤ 60.0 ms.

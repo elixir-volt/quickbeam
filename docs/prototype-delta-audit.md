@@ -323,16 +323,20 @@ handler deoptimization, native pure-expression parity, timeout/memory/step
 containment, and concurrent cache reuse. Preact, Vue, and Svelte now have
 compiler/interpreter/native parity; compiler measurements cover sequential and
 concurrent SSR, cancellation, reclamation, and `+S 1:1`; and the selected
-Test262 compiler gate passes 65/65 supported cases. Selected nested bytecode
+Test262 compiler gate passes 65/65 supported cases through both compiler
+profiles. Selected nested bytecode
 frames now re-enter compiled execution through owner-local, bounded eligibility
 decisions while preserving stack limits and tail calls. The prototype's useful
 performance lesson has also been extracted without its runtime: eligible
 uncaptured lexical loops carry scalar stack/tuple state across generated blocks,
-use guarded BEAM numeric primitives with canonical fallback, and rebuild frames
-only at deoptimization. After one-time host-profile initialization, warm
-arithmetic/branch/local loop execution is now 8.18×/7.70×/5.56× faster than the
-interpreter, with array/property loops at 1.81×/6.14× and cold compilation at
-8.50–25.86 ms. The compiler remains release quarantined because broader
+use guarded BEAM numeric primitives with canonical fallback, thread canonical
+global state, and rebuild frames only at deoptimization. Exact program
+namespaces avoid repeatedly serializing atom tables for per-function keys, and
+measurement-only OTP `:counters` expose bounded opcode coverage. After one-time
+host-profile initialization, warm arithmetic/branch/local loop execution is now
+8.23×/7.65×/5.69× faster than the interpreter, with array/property loops at
+1.71×/5.26× and cold compilation at 10.77–25.65 ms. The compiler remains
+release quarantined because broader
 Preact/Vue/Svelte performance and unsupported semantic families remain the
 release gate. No prototype compiler runtime is approved for copying.
 

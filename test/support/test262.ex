@@ -168,10 +168,12 @@ defmodule QuickBEAM.Test262 do
 
   defp vm_result(source, negative, opts) do
     engine = Keyword.get(opts, :engine, :interpreter)
+    compiler_profile = Keyword.get(opts, :compiler_profile, :pure_v1)
 
     case QuickBEAM.VM.compile(source, filename: "test262.js") do
       {:ok, program} ->
-        classify_execution(QuickBEAM.VM.eval(program, engine: engine), negative, :runtime)
+        result = QuickBEAM.VM.eval(program, engine: engine, compiler_profile: compiler_profile)
+        classify_execution(result, negative, :runtime)
 
       {:error, error} ->
         classify_execution({:error, error}, negative, :parse)

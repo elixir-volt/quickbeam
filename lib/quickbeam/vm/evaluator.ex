@@ -6,6 +6,8 @@ defmodule QuickBEAM.VM.Evaluator do
   coroutines, and waits for the final Promise without polling.
   """
 
+  alias QuickBEAM.VM.Compiler.Counters
+
   alias QuickBEAM.VM.{
     Async,
     Continuation,
@@ -234,6 +236,7 @@ defmodule QuickBEAM.VM.Evaluator do
        %{
          steps: execution.step_limit - execution.remaining_steps,
          logical_memory_bytes: execution.memory_used,
+         compiler_counters: Counters.snapshot(execution),
          process_memory_bytes: process_memory,
          reductions: reductions
        }}

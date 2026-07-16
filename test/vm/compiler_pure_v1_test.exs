@@ -43,6 +43,21 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert {:error, {:invalid_compiler_target, :invalid}} = CFG.analyze(malformed)
   end
 
+  test "prefilters only obviously small non-loop nested candidates" do
+    assert {:ok, small_program} = QuickBEAM.VM.compile("(function(value){return value+1})(41)")
+    small = Enum.find(small_program.root.constants, &is_struct(&1, Function))
+    refute PureV1.candidate?(small, 32, :pure_v1)
+    refute PureV1.candidate?(small, 32, :scalar_v1)
+    assert PureV1.candidate?(small, 1, :pure_v1)
+
+    assert {:ok, loop_program} =
+             QuickBEAM.VM.compile("(function(n){while(n>0)n--;return n})(10)")
+
+    loop = Enum.find(loop_program.root.constants, &is_struct(&1, Function))
+    assert PureV1.candidate?(loop, 10_000, :pure_v1)
+    assert PureV1.candidate?(loop, 10_000, :scalar_v1)
+  end
+
   test "emits bounded pure plans with explicit unsupported boundaries" do
     function = arithmetic_function()
 
@@ -268,9 +283,25 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
 
     for source <- sources do
       assert {:ok, program} = QuickBEAM.VM.compile(source)
+      assert {:ok, interpreted} = QuickBEAM.VM.measure(program)
 
-      assert QuickBEAM.VM.eval(program, engine: :compiler, compiler_profile: :scalar_v1) ==
-               QuickBEAM.VM.eval(program)
+      assert {:ok, compiled} =
+               QuickBEAM.VM.measure(program,
+                 engine: :compiler,
+                 compiler_profile: :scalar_v1
+               )
+
+      assert compiled.result == interpreted.result
+      assert compiled.steps == interpreted.steps
+      assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+
+      for limit <- [1, max(interpreted.steps - 1, 1)] do
+        assert QuickBEAM.VM.eval(program,
+                 engine: :compiler,
+                 compiler_profile: :scalar_v1,
+                 max_steps: limit
+               ) == QuickBEAM.VM.eval(program, max_steps: limit)
+      end
     end
   end
 
@@ -287,11 +318,46 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert compiled.result == interpreted.result
     assert compiled.steps == interpreted.steps
     assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert compiled.compiler_counters.profile == :scalar_v1
+    assert compiled.compiler_counters.generated_steps > 0
+    assert compiled.compiler_counters.generated_steps < compiled.steps
+    assert compiled.compiler_counters.invocation_actions > 0
 
     for limit <- [1, 10, div(interpreted.steps, 2), interpreted.steps - 1] do
       assert QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, limit)) ==
                QuickBEAM.VM.eval(program, max_steps: limit)
     end
+  end
+
+  test "scalar globals preserve canonical state, errors, and resource counters" do
+    start_pool()
+
+    source =
+      "var total=0;(function(n){for(let i=0;i<n;i++)total=total+i;return globalThis.total})(10)"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    opts = [engine: :compiler, compiler_profile: :scalar_v1, max_steps: 10_000]
+    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
+    assert {:ok, compiled} = QuickBEAM.VM.measure(program, opts)
+    assert compiled.result == interpreted.result
+    assert compiled.steps == interpreted.steps
+    assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert compiled.compiler_counters.generated_steps > 100
+    assert compiled.compiler_counters.interpreted_opcodes[:get_var] == nil
+    assert compiled.compiler_counters.interpreted_opcodes[:put_var] == 1
+
+    for limit <- [1, 20, div(interpreted.steps, 2), interpreted.steps - 1] do
+      assert QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, limit)) ==
+               QuickBEAM.VM.eval(program, max_steps: limit)
+    end
+
+    missing = "(function(n){for(let i=0;i<n;i++)missing;return 0})(1)"
+    assert {:ok, missing_program} = QuickBEAM.VM.compile(missing)
+    assert {:ok, missing_interpreted} = QuickBEAM.VM.measure(missing_program)
+    assert {:ok, missing_compiled} = QuickBEAM.VM.measure(missing_program, opts)
+    assert missing_compiled.result == missing_interpreted.result
+    assert missing_compiled.steps == missing_interpreted.steps
+    assert missing_compiled.logical_memory_bytes == missing_interpreted.logical_memory_bytes
   end
 
   test "scalar guarded operations retain canonical nonnumeric fallback semantics" do

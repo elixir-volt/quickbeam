@@ -27,7 +27,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
   def run(args) do
     {opts, positional, invalid} =
       OptionParser.parse(args,
-        strict: [engine: :string, samples: :integer, output: :string]
+        strict: [engine: :string, compiler_profile: :string, samples: :integer, output: :string]
       )
 
     if positional != [] or invalid != [],
@@ -39,14 +39,15 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
 
     samples = positive!(Keyword.get(opts, :samples, 10), :samples)
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
+    compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
     maybe_start_compiler!(engine)
     fixture = compile_fixture!()
 
-    Enum.each(1..2, fn _iteration -> render!(fixture, engine) end)
+    Enum.each(1..2, fn _iteration -> render!(fixture, engine, compiler_profile) end)
 
     render_observations =
       Enum.map(1..samples, fn _iteration ->
-        observe_ticker(fn -> render!(fixture, engine) end)
+        observe_ticker(fn -> render!(fixture, engine, compiler_profile) end)
       end)
 
     render_wall = render_observations |> Enum.map(& &1.wall_time_us) |> Enum.sort()
@@ -64,6 +65,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
         {:ok, measurement} =
           QuickBEAM.VM.measure(timeout_program,
             engine: engine,
+            compiler_profile: compiler_profile,
             max_steps: 1_000_000_000,
             timeout: 50
           )
@@ -80,7 +82,15 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     enforce_gates!(render_summary, timeout_summary)
 
     report =
-      report(engine, samples, baseline_ms, render_summary, baseline_summary, timeout_summary)
+      report(
+        engine,
+        compiler_profile,
+        samples,
+        baseline_ms,
+        render_summary,
+        baseline_summary,
+        timeout_summary
+      )
 
     IO.write(report)
 
@@ -102,13 +112,17 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     program
   end
 
-  defp render!(fixture, engine) do
+  defp render!(fixture, engine, compiler_profile) do
     handler = fn [] -> fixture.props end
 
     {:ok, measurement} =
       QuickBEAM.VM.measure(
         fixture.program,
-        [engine: engine, handlers: %{"load_props" => handler}] ++ @eval_opts
+        [
+          engine: engine,
+          compiler_profile: compiler_profile,
+          handlers: %{"load_props" => handler}
+        ] ++ @eval_opts
       )
 
     unless match?({:ok, _rendered}, measurement.result),
@@ -186,15 +200,21 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
       do: raise("timeout p95 #{timeout.p95} µs exceeded #{@max_timeout_wall_us} µs")
   end
 
-  defp report(engine, samples, baseline_ms, render, baseline, timeout) do
+  defp report(engine, compiler_profile, samples, baseline_ms, render, baseline, timeout) do
+    title =
+      if engine == :compiler and compiler_profile == :scalar_v1,
+        do: "BEAM scalar compiler single-scheduler probe",
+        else: "BEAM VM single-scheduler probe"
+
     """
-    # BEAM VM single-scheduler probe
+    # #{title}
 
     Run with `ERL_FLAGS="+S 1:1"`. The pinned Vue SSR fixture and a periodic BEAM
     ticker share one scheduler. The baseline sleeps for the median render wall
     time, allowing the same ticker to run without #{engine} work.
 
     - Engine: #{engine}
+    - Compiler profile: #{compiler_profile}
     - Git base: `#{command("git", ["rev-parse", "--short", "HEAD"])}`
     - Working tree at measurement: #{tree_state()}
     - Generated: #{DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()}
@@ -272,6 +292,14 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
 
   defp engine!(engine),
     do: raise(ArgumentError, "engine must be interpreter or compiler, got: #{inspect(engine)}")
+
+  defp compiler_profile!("pure_v1"), do: :pure_v1
+  defp compiler_profile!("scalar_v1"), do: :scalar_v1
+
+  defp compiler_profile!(profile) do
+    raise ArgumentError,
+          "compiler profile must be pure_v1 or scalar_v1, got: #{inspect(profile)}"
+  end
 
   defp maybe_start_compiler!(:interpreter), do: :ok
 

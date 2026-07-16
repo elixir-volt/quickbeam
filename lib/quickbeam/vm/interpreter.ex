@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Async,
     AsyncBoundary,
     Builtins,
+    Compiler.Counters,
     Compiler.Deopt,
     Continuation,
     ConstructorBoundary,
@@ -288,6 +289,7 @@ defmodule QuickBEAM.VM.Interpreter do
          %Execution{} = execution
        ) do
     frame = %{frame | compiler_entered: false, compiler_reentry_after_instruction: false}
+    execution = Counters.increment(execution, :reentries)
     execute_current(frame, execution)
   end
 
@@ -318,8 +320,21 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run(%Frame{} = frame, %Execution{} = execution), do: execute_current(frame, execution)
 
+  defp execute_current(
+         frame,
+         %Execution{compiler_context: %{counters: %Counters{}}} = execution
+       ) do
+    {opcode, operands} = elem(frame.function.instructions, frame.pc)
+    execution = Counters.interpreted_opcode(execution, opcode)
+    execute_current_opcode(opcode, operands, frame, execution)
+  end
+
   defp execute_current(frame, execution) do
     {opcode, operands} = elem(frame.function.instructions, frame.pc)
+    execute_current_opcode(opcode, operands, frame, execution)
+  end
+
+  defp execute_current_opcode(opcode, operands, frame, execution) do
     {name, _size, _pops, _pushes, _format} = Opcodes.info(opcode)
     {name, operands} = Opcodes.expand_short_form(name, operands, frame.function.arg_count)
     execution = %{execution | remaining_steps: execution.remaining_steps - 1}

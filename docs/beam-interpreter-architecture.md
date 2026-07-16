@@ -124,8 +124,9 @@ compiler pool, but evaluation must not require a QuickJS execution context.
 
 `decode/2` is an advanced API. It accepts only bytecode matching the running
 QuickBEAM build fingerprint. `measure/2` runs the same isolated evaluation as
-`eval/2` while retaining deterministic step/logical-memory counters, endpoint
-process observations, and end-to-end wall time.
+`eval/2` while retaining deterministic step/logical-memory counters, fixed
+owner-local compiler counters when selected, endpoint process observations, and
+end-to-end wall time.
 
 ### Evaluate
 
@@ -771,10 +772,15 @@ The reproducible fixture measurements are published in
 fairness and timeout gates in
 [`beam-scheduler-measurements.md`](beam-scheduler-measurements.md), the
 release-quarantined compiler SSR matrix in
-[`beam-compiler-ssr-measurements.md`](beam-compiler-ssr-measurements.md), warm-loop results in
-[`beam-compiler-performance-measurements.md`](beam-compiler-performance-measurements.md), and its
-single-scheduler run in
-[`beam-compiler-scheduler-measurements.md`](beam-compiler-scheduler-measurements.md).
+[`beam-compiler-ssr-measurements.md`](beam-compiler-ssr-measurements.md), the
+extended profile in
+[`beam-compiler-scalar-ssr-measurements.md`](beam-compiler-scalar-ssr-measurements.md),
+warm-loop results in
+[`beam-compiler-performance-measurements.md`](beam-compiler-performance-measurements.md),
+and their single-scheduler runs in
+[`beam-compiler-scheduler-measurements.md`](beam-compiler-scheduler-measurements.md)
+and
+[`beam-compiler-scalar-scheduler-measurements.md`](beam-compiler-scalar-scheduler-measurements.md).
 The reports
 separate deterministic VM steps/logical allocation from endpoint BEAM process
 observations, wall latency, concurrent throughput, and cancellation. Current
@@ -806,7 +812,8 @@ QuickBEAM.VM.eval(program, engine: :compiler)
 
 The generic compiler path runs one bounded pure block. Eligible lexical loops
 use bounded scalar generated forms, tail-call successor blocks, perform
-canonical non-accessor property reads, and return explicit invocation actions.
+canonical non-accessor property and owner-local global reads/writes, and return
+explicit invocation actions.
 They reconstruct the canonical frame only at a verified deoptimization or call
 boundary. Compiler
 infrastructure failures are typed errors and never restart the program or invoke
