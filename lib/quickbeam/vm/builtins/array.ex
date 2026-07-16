@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Builtins.Array do
 
   alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.{Heap, Object, Properties, Property, Reference, Value}
+  alias QuickBEAM.VM.{Heap, Object, Properties, Reference, Value}
 
   builtin "Array",
     kind: :constructor,
@@ -182,10 +182,7 @@ defmodule QuickBEAM.VM.Builtins.Array do
           end)
           |> Enum.sort_by(&Value.to_string_value/1)
 
-        {:ok, execution} =
-          Heap.update_object(execution, array, fn object ->
-            %{object | properties: %{}, property_order: [], length: 0}
-          end)
+        {:ok, execution} = Heap.update_object(execution, array, &Heap.clear_array/1)
 
         execution =
           values
@@ -209,20 +206,8 @@ defmodule QuickBEAM.VM.Builtins.Array do
 
   defp array_entries(%Reference{} = reference, execution) do
     case Heap.fetch_object(execution, reference) do
-      {:ok, %Object{kind: :array, length: length, properties: properties}} ->
-        entries =
-          if length == 0 do
-            []
-          else
-            for index <- 0..(length - 1) do
-              case Map.get(properties, index) do
-                %Property{value: value} -> {:present, value}
-                nil -> :hole
-              end
-            end
-          end
-
-        {:ok, entries}
+      {:ok, %Object{kind: :array} = object} ->
+        {:ok, Heap.array_entries(object)}
 
       _not_array ->
         {:error, :not_an_array}

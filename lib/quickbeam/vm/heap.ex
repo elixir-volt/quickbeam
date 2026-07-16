@@ -46,7 +46,7 @@ defmodule QuickBEAM.VM.Heap do
       properties:
         values
         |> Enum.with_index()
-        |> Map.new(fn {value, index} -> {index, %Property{value: value}} end)
+        |> Map.new(fn {value, index} -> {index, {value}} end)
     }
 
     empty_object = %{object | length: 0, properties: %{}}
@@ -79,7 +79,9 @@ defmodule QuickBEAM.VM.Heap do
       {:ok, object} ->
         integer_keys =
           object.properties
-          |> Enum.filter(fn {key, property} -> is_integer(key) and property.enumerable end)
+          |> Enum.filter(fn {key, property} ->
+            is_integer(key) and property_enumerable?(property)
+          end)
           |> Enum.map(&elem(&1, 0))
           |> Enum.sort()
 
@@ -98,6 +100,27 @@ defmodule QuickBEAM.VM.Heap do
   @spec fetch_object(Execution.t(), Reference.t()) :: {:ok, Object.t()} | :error
   def fetch_object(%Execution{} = execution, %Reference{id: id}),
     do: Map.fetch(execution.heap, id)
+
+  @doc "Returns sparse entries for one canonical array object."
+  @spec array_entries(Object.t()) :: [:hole | {:present, term()}]
+  def array_entries(%Object{kind: :array, length: 0}), do: []
+
+  def array_entries(%Object{kind: :array, length: length, properties: properties}) do
+    Enum.map(0..(length - 1), fn index ->
+      case Map.get(properties, index) do
+        {value} -> {:present, value}
+        %Property{value: value} -> {:present, value}
+        nil -> :hole
+      end
+    end)
+  end
+
+  @doc "Clears indexed array elements while retaining non-index properties."
+  @spec clear_array(Object.t()) :: Object.t()
+  def clear_array(%Object{kind: :array} = object) do
+    properties = Map.reject(object.properties, fn {key, _property} -> is_integer(key) end)
+    %{object | properties: properties, length: 0}
+  end
 
   @spec get(Execution.t(), Reference.t(), term()) :: {:ok, term()} | {:error, term()}
   def get(%Execution{} = execution, %Reference{} = reference, key) do
@@ -127,15 +150,19 @@ defmodule QuickBEAM.VM.Heap do
   def put(%Execution{} = execution, %Reference{id: id} = reference, key, value) do
     key = normalize_key(key)
 
-    with {:ok, object} <- fetch_object(execution, reference),
-         {:ok, object} <- put_value(execution, object, key, value) do
-      execution = maybe_charge_property(execution, object, key, value)
-      updated = put_property(object, key, value)
-      {:ok, %{execution | heap: Map.put(execution.heap, id, updated)}}
-    else
-      :error -> {:error, {:invalid_reference, id}}
-      {:error, reason} -> {:error, reason}
-      {:array_length, object} -> {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    case fetch_object(execution, reference) do
+      {:ok, %Object{kind: :array} = object} when is_integer(key) ->
+        case Map.get(object.properties, key) do
+          {_old_value} -> store_default_array_index(execution, id, object, key, value, true)
+          nil -> put_new_default_array_index(execution, id, object, key, value)
+          %Property{} -> put_object(execution, id, object, key, value)
+        end
+
+      {:ok, object} ->
+        put_object(execution, id, object, key, value)
+
+      :error ->
+        {:error, {:invalid_reference, id}}
     end
   end
 
@@ -144,16 +171,24 @@ defmodule QuickBEAM.VM.Heap do
   def define(%Execution{} = execution, %Reference{id: id} = reference, key, value, opts \\ []) do
     key = normalize_key(key)
 
-    with {:ok, object} <- fetch_object(execution, reference),
-         {:ok, object} <- define_property(object, key, value, opts) do
-      execution = maybe_charge_property(execution, object, key, value)
-      property = property(value, opts)
-      object = put_property_struct(object, key, property)
-      {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
-    else
-      :error -> {:error, {:invalid_reference, id}}
-      {:error, reason} -> {:error, reason}
-      {:array_length, object} -> {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    case fetch_object(execution, reference) do
+      {:ok, %Object{kind: :array} = object} when is_integer(key) ->
+        case {Map.get(object.properties, key), default_property_options?(opts)} do
+          {{_old_value}, true} ->
+            store_default_array_index(execution, id, object, key, value, true)
+
+          {nil, true} ->
+            define_new_default_array_index(execution, id, object, key, value)
+
+          {_property, _default?} ->
+            define_object(execution, id, object, key, value, opts)
+        end
+
+      {:ok, object} ->
+        define_object(execution, id, object, key, value, opts)
+
+      :error ->
+        {:error, {:invalid_reference, id}}
     end
   end
 
@@ -174,7 +209,7 @@ defmodule QuickBEAM.VM.Heap do
          }}
 
       {:ok, object} ->
-        {:ok, Map.get(object.properties, key)}
+        {:ok, own_property_value(object, key)}
 
       :error ->
         {:error, {:invalid_reference, id}}
@@ -229,7 +264,7 @@ defmodule QuickBEAM.VM.Heap do
     key = normalize_key(key)
 
     with {:ok, object} <- fetch_object(execution, reference) do
-      current = Map.get(object.properties, key)
+      current = own_property_value(object, key)
 
       property = %Property{
         kind: :accessor,
@@ -326,7 +361,9 @@ defmodule QuickBEAM.VM.Heap do
       {:ok, object} ->
         integer_keys =
           object.properties
-          |> Enum.filter(fn {key, property} -> is_integer(key) and property.enumerable end)
+          |> Enum.filter(fn {key, property} ->
+            is_integer(key) and property_enumerable?(property)
+          end)
           |> Enum.map(&elem(&1, 0))
           |> Enum.sort()
 
@@ -379,6 +416,9 @@ defmodule QuickBEAM.VM.Heap do
 
       {:ok, object} ->
         case Map.fetch(object.properties, key) do
+          {:ok, {value}} ->
+            {:ok, value}
+
           {:ok, %Property{getter: getter}} when not is_nil(getter) ->
             {:ok, {:accessor, getter, receiver}}
 
@@ -400,6 +440,88 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  defp put_object(execution, id, object, key, value) do
+    case put_value(execution, object, key, value) do
+      {:ok, object} ->
+        execution = maybe_charge_property(execution, object, key, value)
+        updated = put_property(object, key, value)
+        {:ok, %{execution | heap: Map.put(execution.heap, id, updated)}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:array_length, object} ->
+        {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    end
+  end
+
+  defp define_object(execution, id, object, key, value, opts) do
+    case define_property(object, key, value, opts) do
+      {:ok, object} ->
+        execution = maybe_charge_property(execution, object, key, value)
+        property = property(value, opts)
+        object = put_property_struct(object, key, property)
+        {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:array_length, object} ->
+        {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    end
+  end
+
+  defp put_new_default_array_index(execution, id, object, key, value) do
+    inherited = inherited_property(execution, object.prototype, key, 0)
+
+    cond do
+      match?(%Property{setter: setter} when not is_nil(setter), inherited) ->
+        {:error, {:invoke_setter, inherited.setter}}
+
+      accessor?(inherited) or match?(%Property{writable: false}, inherited) ->
+        {:error, {:property_not_writable, key}}
+
+      key >= object.length and not object.length_writable ->
+        {:error, {:property_not_writable, "length"}}
+
+      not object.extensible ->
+        {:error, {:object_not_extensible, key}}
+
+      true ->
+        store_default_array_index(execution, id, object, key, value, false)
+    end
+  end
+
+  defp define_new_default_array_index(execution, id, object, key, value) do
+    cond do
+      not object.extensible ->
+        {:error, {:object_not_extensible, key}}
+
+      key >= object.length and not object.length_writable ->
+        {:error, {:property_not_writable, "length"}}
+
+      true ->
+        store_default_array_index(execution, id, object, key, value, false)
+    end
+  end
+
+  defp store_default_array_index(execution, id, object, key, value, present?) do
+    execution = if present?, do: execution, else: Memory.charge_property(execution, key, value)
+
+    object = %{
+      object
+      | properties: Map.put(object.properties, key, {value}),
+        length: max(object.length, key + 1)
+    }
+
+    {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+  end
+
+  defp default_property_options?(opts) do
+    Keyword.get(opts, :writable, true) and Keyword.get(opts, :enumerable, true) and
+      Keyword.get(opts, :configurable, true)
+  end
+
   defp maybe_charge_property(execution, object, key, value) do
     if Map.has_key?(object.properties, key),
       do: execution,
@@ -416,7 +538,7 @@ defmodule QuickBEAM.VM.Heap do
 
   defp put_value(execution, object, key, _value) do
     descriptor =
-      Map.get(object.properties, key) || inherited_property(execution, object.prototype, key, 0)
+      own_property_value(object, key) || inherited_property(execution, object.prototype, key, 0)
 
     cond do
       match?(%Property{setter: setter} when not is_nil(setter), descriptor) ->
@@ -465,13 +587,13 @@ defmodule QuickBEAM.VM.Heap do
     do: validate_definition(object, key, property(value, opts))
 
   defp validate_definition(object, key, candidate) do
-    case Map.get(object.properties, key) do
+    case own_property_value(object, key) do
       %Property{configurable: false} = current ->
         cond do
           candidate.configurable ->
             {:error, {:property_not_configurable, key}}
 
-          candidate.enumerable != current.enumerable ->
+          property_enumerable?(candidate) != property_enumerable?(current) ->
             {:error, {:property_not_configurable, key}}
 
           accessor?(candidate) != accessor?(current) ->
@@ -525,6 +647,7 @@ defmodule QuickBEAM.VM.Heap do
   defp put_property(object, key, value) do
     property =
       case Map.get(object.properties, key) do
+        {_old_value} -> %Property{value: value}
         %Property{} = property -> %{property | value: value}
         nil -> %Property{value: value}
       end
@@ -534,15 +657,13 @@ defmodule QuickBEAM.VM.Heap do
 
   defp put_property_struct(%Object{kind: :array} = object, key, property)
        when is_integer(key) and key >= 0 do
-    object
-    |> remember_property(key)
-    |> then(fn object ->
-      %{
-        object
-        | properties: Map.put(object.properties, key, property),
-          length: max(object.length, key + 1)
-      }
-    end)
+    stored = if default_data_property?(property), do: {property.value}, else: property
+
+    %{
+      object
+      | properties: Map.put(object.properties, key, stored),
+        length: max(object.length, key + 1)
+    }
   end
 
   defp put_property_struct(object, key, property) do
@@ -567,13 +688,37 @@ defmodule QuickBEAM.VM.Heap do
   defp inherited_property(execution, %Reference{} = prototype, key, depth) do
     case fetch_object(execution, prototype) do
       {:ok, object} ->
-        Map.get(object.properties, key) ||
+        own_property_value(object, key) ||
           inherited_property(execution, object.prototype, key, depth + 1)
 
       :error ->
         nil
     end
   end
+
+  defp default_data_property?(%Property{
+         kind: :data,
+         writable: true,
+         enumerable: true,
+         configurable: true,
+         getter: nil,
+         setter: nil
+       }),
+       do: true
+
+  defp default_data_property?(_property), do: false
+
+  defp own_property_value(%Object{kind: :array} = object, key) when is_integer(key) do
+    case Map.get(object.properties, key) do
+      {value} -> %Property{value: value}
+      property -> property
+    end
+  end
+
+  defp own_property_value(object, key), do: Map.get(object.properties, key)
+
+  defp property_enumerable?({_value}), do: true
+  defp property_enumerable?(%Property{enumerable: enumerable}), do: enumerable
 
   defp current_accessor(%Property{} = property, field), do: Map.fetch!(property, field)
   defp current_accessor(nil, _field), do: nil

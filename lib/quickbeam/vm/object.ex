@@ -15,7 +15,9 @@ defmodule QuickBEAM.VM.Object do
   @type t :: %__MODULE__{
           kind: kind(),
           prototype: QuickBEAM.VM.Reference.t() | nil,
-          properties: %{optional(term()) => QuickBEAM.VM.Property.t()},
+          properties: %{
+            optional(term()) => QuickBEAM.VM.Property.t() | {term()}
+          },
           property_order: [term()],
           extensible: boolean(),
           length: non_neg_integer(),

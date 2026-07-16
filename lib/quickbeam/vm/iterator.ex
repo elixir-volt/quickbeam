@@ -16,7 +16,6 @@ defmodule QuickBEAM.VM.Iterator do
     IteratorBoundary,
     Object,
     Promise,
-    Property,
     Reference,
     Symbol,
     Value
@@ -31,13 +30,12 @@ defmodule QuickBEAM.VM.Iterator do
 
   def values(%Reference{} = reference, execution) do
     case Heap.fetch_object(execution, reference) do
-      {:ok, %Object{kind: :array, length: length, properties: properties}} ->
+      {:ok, %Object{kind: :array} = object} ->
         values =
-          if length == 0 do
-            []
-          else
-            for index <- 0..(length - 1), do: property_value(properties, index)
-          end
+          Enum.map(Heap.array_entries(object), fn
+            {:present, value} -> value
+            :hole -> :undefined
+          end)
 
         {:ok, values}
 
@@ -258,11 +256,4 @@ defmodule QuickBEAM.VM.Iterator do
   defp object?(%Reference{}), do: true
   defp object?(value) when is_map(value) and not is_struct(value), do: true
   defp object?(_value), do: false
-
-  defp property_value(properties, index) do
-    case Map.get(properties, index) do
-      %Property{value: value} -> value
-      nil -> :undefined
-    end
-  end
 end

@@ -64,17 +64,12 @@ defmodule QuickBEAM.VM.Export do
   defp convert_object(%Object{callable: callable}, _execution, _seen) when not is_nil(callable),
     do: {:error, :function_result}
 
-  defp convert_object(
-         %Object{kind: :array, length: length, properties: properties},
-         execution,
-         seen
-       ) do
+  defp convert_object(%Object{kind: :array} = object, execution, seen) do
     values =
-      if length == 0 do
-        []
-      else
-        for index <- 0..(length - 1), do: property_value(properties, index)
-      end
+      Enum.map(Heap.array_entries(object), fn
+        {:present, value} -> value
+        :hole -> :undefined
+      end)
 
     convert_list(values, execution, seen, [])
   end
@@ -96,13 +91,6 @@ defmodule QuickBEAM.VM.Export do
     case convert(value, execution, seen) do
       {:ok, value} -> convert_list(rest, execution, seen, [value | result])
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp property_value(properties, key) do
-    case Map.get(properties, key) do
-      %Property{value: value} -> value
-      nil -> :undefined
     end
   end
 end

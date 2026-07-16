@@ -751,20 +751,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp interpreter_array_values(%Reference{} = reference, execution) do
     case Heap.fetch_object(execution, reference) do
-      {:ok, %QuickBEAM.VM.Object{kind: :array, length: length, properties: properties}} ->
-        values =
-          if length == 0 do
-            []
-          else
-            for index <- 0..(length - 1) do
-              case Map.get(properties, index) do
-                %QuickBEAM.VM.Property{value: value} -> {:present, value}
-                nil -> :hole
-              end
-            end
-          end
-
-        {:ok, values}
+      {:ok, %QuickBEAM.VM.Object{kind: :array} = object} ->
+        {:ok, Heap.array_entries(object)}
 
       _ ->
         {:error, :not_an_array}

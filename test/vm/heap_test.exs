@@ -36,6 +36,22 @@ defmodule QuickBEAM.VM.HeapTest do
     assert {:ok, %{property_order: []}} = Heap.fetch_object(bulk_execution, bulk)
   end
 
+  test "stores default array descriptors compactly and retains exceptional descriptors" do
+    {array, execution} = Heap.allocate(execution(), :array)
+    {:ok, execution} = Heap.define(execution, array, 0, :undefined)
+    {:ok, execution} = Heap.define(execution, array, 1, "fixed", writable: false)
+
+    assert {:ok, object} = Heap.fetch_object(execution, array)
+    assert object.properties[0] == {:undefined}
+    assert %QuickBEAM.VM.Property{value: "fixed", writable: false} = object.properties[1]
+
+    assert {:ok, %QuickBEAM.VM.Property{value: :undefined}} =
+             Heap.own_property(execution, array, 0)
+
+    assert {:ok, :undefined} = Heap.get(execution, array, 0)
+    assert {:error, {:property_not_writable, 1}} = Heap.put(execution, array, 1, "changed")
+  end
+
   test "tracks array length while preserving sparse entries" do
     execution = execution()
     {array, execution} = Heap.allocate(execution, :array)
