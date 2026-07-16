@@ -45,14 +45,15 @@ is compiled only for the non-JIT emulator.
 
 ### QuickBEAM's emitted BEAM
 
-`:beam_disasm.file/1` confirms the shape of the compact array write rather than
-assuming source-level syntax is cheap. `store_default_array_index/6` emits a
-`test_heap 2` plus `put_tuple2` for `{value}`, then calls `maps:put/3` for the
-element dictionary. The `%Object{}` update is one `put_map_exact` carrying both
-`:properties` and `:length`; the outer heap still requires another
-`maps:put/3`, followed by a final exact `%Execution{}` map update. The new-entry
-branch calls `Memory.charge_property/3`; replacement skips it before allocating
-the compact tuple.
+`:beam_disasm.file/1` confirms the shape of compact writes rather than assuming
+source-level syntax is cheap. `store_default_array_index/6` and the common
+`put_default_property/3` path emit a `test_heap 2` plus `put_tuple2` for
+`{value}`, then call `maps:put/3` for the property dictionary. The array
+`%Object{}` update is one `put_map_exact` carrying both `:properties` and
+`:length`; the ordinary-object path updates `:properties`. The outer heap still
+requires another `maps:put/3`, followed by a final exact `%Execution{}` map
+update. A new property calls `Memory.charge_property/3`; replacement skips that
+charge before allocating the compact tuple.
 
 The full descriptor path constructs a `%Property{}` flatmap before performing
 the same persistent dictionary, object, outer-heap, and execution updates. The
@@ -77,13 +78,15 @@ The first fix removes integer keys from `property_order` and bulk-constructs
 literal arrays in one heap update. Exact VM steps and logical memory accounting
 are unchanged.
 
-A second representation improvement encodes an array's overwhelmingly common
-data descriptor directly in the existing property map as the one-tuple
-`{value}`. Accessors and data properties with non-default descriptor flags remain
-full `%QuickBEAM.VM.Property{}` values. This keeps one OTP map, one lookup path,
-and canonical descriptor behavior while avoiding a full descriptor struct for
-every ordinary element. No input-derived atoms, ETS table, process dictionary,
-or native mutable state is introduced.
+A second representation improvement encodes every default data descriptor
+directly in the existing property map as the one-tuple `{value}`. Accessors and
+data properties with non-default descriptor flags remain full
+`%QuickBEAM.VM.Property{}` values. Reflection expands the compact form only at
+the canonical descriptor boundary. Common writes avoid constructing a transient
+full descriptor, and property definition reuses its validated candidate rather
+than building it twice. This keeps one OTP map, one lookup path, and canonical
+descriptor behavior. No input-derived atoms, ETS table, process dictionary, or
+native mutable state is introduced.
 
 ## Measurements
 
@@ -102,16 +105,27 @@ layout with the compact default descriptor:
 | full descriptor per element | 74.87 ms | 9,803,575 | 7.28 MiB | 280,022 | 1.95 MiB |
 | compact default descriptor | 72.92 ms | 9,655,746 | 2.78 MiB | 280,022 | 1.95 MiB |
 
-The compact representation reduces endpoint process memory by about 62%,
-reductions by 1.5%, and observed wall time by 2.6% on this fixture. The current
-reproducible report is
+The compact array representation reduces endpoint process memory by about 62%,
+reductions by 1.5%, and observed wall time by 2.6% in that paired run.
+
+A second paired fixture retains 5,000 ordinary three-property objects:
+
+| layout | wall median | reductions median | endpoint process memory | retained VM heap | steps | logical memory |
+|---|---:|---:|---:|---:|---:|---:|
+| full ordinary descriptors | 45.50 ms | 5,011,812 | 9.13 MiB | 3.30 MiB | 130,022 | 5.14 MiB |
+| compact ordinary descriptors | 44.97 ms | 4,904,137 | 7.28 MiB | 2.27 MiB | 130,022 | 5.14 MiB |
+
+This lowers the shared retained VM heap by 31%, reductions by 2.1%, and observed
+wall time by 1.2%. Endpoint process memory is less stable because it reports
+allocated BEAM heap classes rather than only live terms. The reproducible report
+therefore includes both endpoint memory and diagnostic `:erts_debug.size/1`
+retained bytes:
 [`beam-object-memory-measurements.md`](beam-object-memory-measurements.md).
 
-On the pinned Vue fixture, a five-render `:eprof` comparison attributed
-466.69 ms of CPU before compact descriptors and 458.06 ms after them. SSR
-endpoint heap-size classes did not change, so the improvement is intentionally
-claimed for retained array-heavy workloads rather than as a framework-wide
-memory reduction.
+Three paired five-render Vue `:eprof` repetitions had median totals of 466.44 ms
+before ordinary-object compaction and 462.88 ms after it. The improvement is
+small but, together with lower deterministic reductions, rules out hiding a CPU
+regression behind the retained-memory win.
 
 ## Rejected representations
 
@@ -128,6 +142,15 @@ terms but required two lookup/update paths and enlarged array objects. It
 regressed SSR reductions and was rejected. Encoding compact values in the
 existing map retained the memory benefit without a second persistent structure.
 
+The evaluation's outer object heap has dense, monotonic integer IDs, so OTP
+`:array` was also tested there rather than as a JavaScript property store. The
+full VM and pinned Test262 gates passed. However, the 5,000-object fixture reduced
+retained heap size only from 2.32 MiB to 2.22 MiB while increasing reductions by
+8.1%; the 20,000-element fixture had negligible retained improvement and 4.4%
+more reductions. Three paired Vue `:eprof` repetitions had median CPU totals of
+567.10 ms for the persistent map and 607.12 ms for `:array`, a 7.1% regression.
+The outer persistent map remains the better fit.
+
 Private ETS was not selected. ETS would copy inserted and fetched terms, lose
 literal/subterm sharing, move memory outside the evaluation process's
 `max_heap_size`, and require separate accounting and cleanup. It remains a
@@ -135,9 +158,11 @@ candidate only if a future measured overlay beats the persistent one-map design.
 
 ## Next deep optimization: shapes
 
-Ordinary objects still allocate a descriptor struct, a property-map update, an
-object-struct update, and an outer heap-map update for each new field. The next
-high-leverage design is a bounded owner-local hidden-class fast path:
+Ordinary objects no longer retain a descriptor struct for default fields, but
+each new field still performs a property-map update, an object-struct update,
+and an outer heap-map update. Non-default definitions also construct descriptor
+maps. The next high-leverage design is a bounded owner-local hidden-class fast
+path:
 
 - integer shape IDs, never dynamic atoms;
 - one shape record containing ordered keys, default descriptors, and key-to-slot

@@ -3,23 +3,45 @@ defmodule QuickBEAM.Bench.VMObjectMemory do
   Measures the isolated VM's array-heavy allocation path.
   """
 
+  alias QuickBEAM.VM.{Execution, Interpreter}
+
   @default_count 20_000
+  @default_object_count 5_000
   @default_samples 30
 
   def run(args) do
     {opts, positional, invalid} =
-      OptionParser.parse(args, strict: [count: :integer, samples: :integer, output: :string])
+      OptionParser.parse(args,
+        strict: [count: :integer, object_count: :integer, samples: :integer, output: :string]
+      )
 
     if positional != [] or invalid != [],
       do: raise(ArgumentError, "invalid arguments: #{inspect(positional ++ invalid)}")
 
     count = positive!(Keyword.get(opts, :count, @default_count), :count)
-    samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
-    program = compile_workload!(count)
 
-    Enum.each(1..3, fn _iteration -> measure!(program, count) end)
-    measurements = Enum.map(1..samples, fn _iteration -> measure!(program, count) end)
-    report = report(count, samples, measurements)
+    object_count =
+      positive!(Keyword.get(opts, :object_count, @default_object_count), :object_count)
+
+    samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
+
+    fixtures = [
+      {"sequential array", count, 20, compile_array_workload!(count)},
+      {"ordinary objects", object_count, 80, compile_object_workload!(object_count)}
+    ]
+
+    measurements =
+      Enum.map(fixtures, fn {name, entries, step_factor, program} ->
+        Enum.each(1..3, fn _iteration -> measure!(program, entries, step_factor) end)
+
+        values =
+          Enum.map(1..samples, fn _iteration -> measure!(program, entries, step_factor) end)
+
+        retained_heap_bytes = retained_heap_bytes!(program, entries, step_factor)
+        {name, entries, retained_heap_bytes, values}
+      end)
+
+    report = report(samples, measurements)
     IO.write(report)
 
     if output = opts[:output] do
@@ -28,7 +50,7 @@ defmodule QuickBEAM.Bench.VMObjectMemory do
     end
   end
 
-  defp compile_workload!(count) do
+  defp compile_array_workload!(count) do
     source = """
     let values = [];
     for (let index = 0; index < #{count}; index++) values.push(index);
@@ -36,14 +58,28 @@ defmodule QuickBEAM.Bench.VMObjectMemory do
     values.length;
     """
 
+    {:ok, program} = QuickBEAM.VM.compile(source, filename: "vm_array_memory.js")
+    program
+  end
+
+  defp compile_object_workload!(count) do
+    source = """
+    let values = [];
+    for (let index = 0; index < #{count}; index++) {
+      values.push({id: index, label: "item-" + index, active: (index & 1) === 0});
+    }
+    globalThis.__quickbeamRetainedObjects = values;
+    values.length;
+    """
+
     {:ok, program} = QuickBEAM.VM.compile(source, filename: "vm_object_memory.js")
     program
   end
 
-  defp measure!(program, count) do
+  defp measure!(program, count, step_factor) do
     {:ok, measurement} =
       QuickBEAM.VM.measure(program,
-        max_steps: count * 20 + 10_000,
+        max_steps: count * step_factor + 10_000,
         memory_limit: 256_000_000,
         timeout: 5_000
       )
@@ -54,18 +90,35 @@ defmodule QuickBEAM.Bench.VMObjectMemory do
     measurement
   end
 
-  defp report(count, samples, measurements) do
+  defp retained_heap_bytes!(program, count, step_factor) do
+    {:ok, ^count, %Execution{} = execution} =
+      Interpreter.start(program,
+        max_steps: count * step_factor + 10_000,
+        memory_limit: 256_000_000
+      )
+
+    :erts_debug.size(execution.heap) * :erlang.system_info(:wordsize)
+  end
+
+  defp report(samples, fixture_measurements) do
     metadata = metadata()
-    wall = Enum.map(measurements, & &1.wall_time_us)
-    reductions = Enum.map(measurements, & &1.reductions)
-    memory = Enum.map(measurements, & &1.process_memory_bytes)
-    first = hd(measurements)
+
+    rows =
+      Enum.map_join(fixture_measurements, "\n", fn
+        {name, entries, retained_heap_bytes, measurements} ->
+          wall = Enum.map(measurements, & &1.wall_time_us)
+          reductions = Enum.map(measurements, & &1.reductions)
+          memory = Enum.map(measurements, & &1.process_memory_bytes)
+          first = hd(measurements)
+
+          "| #{name} | #{entries} | #{format_us(median(wall))} | #{format_us(percentile(wall, 0.95))} | #{median(reductions)} | #{format_bytes(median(memory))} | #{format_bytes(retained_heap_bytes)} | #{first.steps} | #{format_bytes(first.logical_memory_bytes)} |"
+      end)
 
     """
     # BEAM VM object-memory measurements
 
-    This fixture retains one JavaScript array populated by sequential
-    `Array.prototype.push` calls. It measures the canonical interpreter path,
+    These fixtures retain a sequential JavaScript array and an array of ordinary
+    three-property objects. They measure the canonical interpreter path,
     including isolated-process startup and result conversion. Endpoint process
     memory is not a sampled peak or operating-system RSS value.
 
@@ -79,16 +132,17 @@ defmodule QuickBEAM.Bench.VMObjectMemory do
     - ERTS: #{metadata.erts}
     - Architecture: #{metadata.architecture}
     - CPU: #{metadata.cpu}
-    - Array entries: #{count}
-    - Samples after 3 warmups: #{samples}
+    - Samples per fixture after 3 warmups: #{samples}
 
-    | wall median | wall p95 | reductions median | endpoint process memory | VM steps | logical memory |
-    |---:|---:|---:|---:|---:|---:|
-    | #{format_us(median(wall))} | #{format_us(percentile(wall, 0.95))} | #{median(reductions)} | #{format_bytes(median(memory))} | #{first.steps} | #{format_bytes(first.logical_memory_bytes)} |
+    | workload | entries | wall median | wall p95 | reductions median | endpoint process memory | retained VM heap | VM steps | logical memory |
+    |---|---:|---:|---:|---:|---:|---:|---:|---:|
+    #{rows}
 
-    VM steps and logical memory are deterministic. The benchmark intentionally
-    retains the array until measurement so the endpoint observation includes
-    its live representation.
+    VM steps and logical memory are deterministic. Retained VM heap uses
+    `:erts_debug.size/1` after direct canonical interpretation and includes
+    shared subterms once; it is diagnostic rather than a supported OTP API.
+    Endpoint process memory is observational and reflects allocated heap classes,
+    not only live terms.
     """
   end
 

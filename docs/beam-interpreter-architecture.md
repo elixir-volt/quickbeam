@@ -466,8 +466,8 @@ ECMAScript own-key ordering, prototype-cycle rejection, constructor return
 rules, and `instanceof`. Native Array callback frames retain explicit holes:
 `map` preserves their indices, while `filter`, `forEach`, `some`, and `reduce`
 skip them; reduction without an initial value starts at the first present
-entry. Default array data descriptors are encoded compactly as one-tuples in the
-existing property map; exceptional descriptors retain full `Property` structs.
+entry. Default data descriptors are encoded compactly as one-tuples in the existing
+property map; accessors and non-default descriptors retain full `Property` structs.
 Integer indices never enter the separate insertion-order list. This preserves
 one OTP map lookup path and avoids descriptor and quadratic ordering allocation;
 see the [object-memory investigation](beam-object-memory-investigation.md).
