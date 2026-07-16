@@ -24,6 +24,10 @@ MIX_ENV=bench mix run bench/concurrent.exs
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --output docs/beam-ssr-measurements.md
 
+# Reproduce the retained array/object-memory measurement
+MIX_ENV=bench mix run bench/vm_object_memory.exs \
+  --output docs/beam-object-memory-measurements.md
+
 # Reproduce runtime-initialization, cold-compilation, and warm loop measurements
 COMPILER_PERF_ITERATIONS=2000 MIX_ENV=bench \
   mix run bench/vm_compiler_perf.exs
@@ -86,6 +90,8 @@ endpoint BEAM process observations, sequential latency, concurrent throughput,
 and timeout/cancellation behavior for the pinned Preact, Vue, and Svelte
 fixtures. Published results are in
 [`docs/beam-ssr-measurements.md`](../docs/beam-ssr-measurements.md),
+[`docs/beam-object-memory-investigation.md`](../docs/beam-object-memory-investigation.md),
+[`docs/beam-object-memory-measurements.md`](../docs/beam-object-memory-measurements.md),
 [`docs/beam-compiler-performance-measurements.md`](../docs/beam-compiler-performance-measurements.md),
 [`docs/beam-compiler-ssr-measurements.md`](../docs/beam-compiler-ssr-measurements.md),
 [`docs/beam-compiler-scalar-ssr-measurements.md`](../docs/beam-compiler-scalar-ssr-measurements.md),

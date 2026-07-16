@@ -125,6 +125,8 @@ defmodule QuickBEAM.MixProject do
           "docs/javascript-api.md",
           "docs/architecture.md",
           "docs/beam-interpreter-architecture.md",
+          "docs/beam-object-memory-investigation.md",
+          "docs/beam-object-memory-measurements.md",
           "docs/beam-compiler-contract.md",
           "docs/beam-compiler-performance-measurements.md",
           "docs/beam-compiler-region-investigation.md",
@@ -147,6 +149,8 @@ defmodule QuickBEAM.MixProject do
       source_ref: "v#{@version}"
     ]
   end
+
+  defp skip_doc_warning?(reference) when not is_binary(reference), do: false
 
   defp skip_doc_warning?(reference) do
     internal_vm_modules = [

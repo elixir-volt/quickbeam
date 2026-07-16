@@ -466,7 +466,12 @@ ECMAScript own-key ordering, prototype-cycle rejection, constructor return
 rules, and `instanceof`. Native Array callback frames retain explicit holes:
 `map` preserves their indices, while `filter`, `forEach`, `some`, and `reduce`
 skip them; reduction without an initial value starts at the first present
-entry. Getter, setter, and `Object.assign` calls use resumable
+entry. Default array data descriptors are encoded compactly as one-tuples in the
+existing property map; exceptional descriptors retain full `Property` structs.
+Integer indices never enter the separate insertion-order list. This preserves
+one OTP map lookup path and avoids descriptor and quadratic ordering allocation;
+see the [object-memory investigation](beam-object-memory-investigation.md).
+Getter, setter, and `Object.assign` calls use resumable
 boundaries so arbitrary JavaScript and exceptions do not escape the explicit
 machine state. Promise resolution reads accessor-backed `then` properties
 synchronously and queues invocation of returned then functions as microtasks.

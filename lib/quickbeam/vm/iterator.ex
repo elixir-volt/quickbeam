@@ -16,6 +16,7 @@ defmodule QuickBEAM.VM.Iterator do
     IteratorBoundary,
     Object,
     Promise,
+    Properties,
     Reference,
     Symbol,
     Value
@@ -137,7 +138,7 @@ defmodule QuickBEAM.VM.Iterator do
     do: reject(boundary, reason, execution)
 
   defp read_iterator_method(boundary, execution) do
-    case QuickBEAM.VM.Properties.get(boundary.iterable, Symbol.iterator(), execution) do
+    case Properties.get(boundary.iterable, Symbol.iterator(), execution) do
       {:ok, {:accessor, getter, receiver}} ->
         dispatch_getter(boundary, :iterator_getter, getter, receiver, execution)
 
@@ -158,7 +159,7 @@ defmodule QuickBEAM.VM.Iterator do
   end
 
   defp read_next(boundary, execution) do
-    case QuickBEAM.VM.Properties.get(boundary.iterator, "next", execution) do
+    case Properties.get(boundary.iterator, "next", execution) do
       {:ok, {:accessor, getter, receiver}} ->
         dispatch_getter(boundary, :next_getter, getter, receiver, execution)
 
@@ -182,7 +183,7 @@ defmodule QuickBEAM.VM.Iterator do
     do: dispatch(boundary, :next_call, boundary.next, [], boundary.iterator, execution)
 
   defp read_done(boundary, execution) do
-    case QuickBEAM.VM.Properties.get(boundary.result, "done", execution) do
+    case Properties.get(boundary.result, "done", execution) do
       {:ok, {:accessor, getter, receiver}} ->
         dispatch_getter(boundary, :done_getter, getter, receiver, execution)
 
@@ -221,7 +222,7 @@ defmodule QuickBEAM.VM.Iterator do
   end
 
   defp read_value(boundary, execution) do
-    case QuickBEAM.VM.Properties.get(boundary.result, "value", execution) do
+    case Properties.get(boundary.result, "value", execution) do
       {:ok, {:accessor, getter, receiver}} ->
         dispatch_getter(boundary, :value_getter, getter, receiver, execution)
 
