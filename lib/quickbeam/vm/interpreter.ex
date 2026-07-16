@@ -12,13 +12,11 @@ defmodule QuickBEAM.VM.Interpreter do
     Async,
     AsyncBoundary,
     Builtins,
-    Compiler.Counters,
-    Compiler.Deopt,
-    Continuation,
     ConstructorBoundary,
+    Continuation,
     Coroutine,
-    Execution,
     Exceptions,
+    Execution,
     Export,
     Frame,
     Heap,
@@ -30,10 +28,10 @@ defmodule QuickBEAM.VM.Interpreter do
     ObjectAssignBoundary,
     Opcodes,
     Program,
-    Properties,
     Promise,
     PromiseExecutorBoundary,
     PromiseReference,
+    Properties,
     Reaction,
     ReactionBoundary,
     Reference,
@@ -45,6 +43,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   alias QuickBEAM.VM.Builtin.Registry
   alias QuickBEAM.VM.Compiler, as: VMCompiler
+  alias QuickBEAM.VM.Compiler.{Counters, Deopt, RegionProbe}
   alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Opcodes.Invocation, as: InvocationOpcodes
   alias QuickBEAM.VM.Opcodes.Locals, as: LocalOpcodes
@@ -319,6 +318,16 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run(%Frame{} = frame, %Execution{} = execution), do: execute_current(frame, execution)
+
+  defp execute_current(
+         frame,
+         %Execution{compiler_context: %{region_probe: %RegionProbe{}}} = execution
+       ) do
+    {opcode, operands} = elem(frame.function.instructions, frame.pc)
+    execution = RegionProbe.observe(execution, frame)
+    execution = Counters.interpreted_opcode(execution, opcode)
+    execute_current_opcode(opcode, operands, frame, execution)
+  end
 
   defp execute_current(
          frame,

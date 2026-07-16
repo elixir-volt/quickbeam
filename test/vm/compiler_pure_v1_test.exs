@@ -58,6 +58,26 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert PureV1.candidate?(loop, 10_000, :scalar_v1)
   end
 
+  test "extracts a bounded scalar entry region from an oversized function" do
+    body = Enum.map_join(1..100, "", fn _index -> "value=value+1;" end)
+
+    assert {:ok, program} =
+             QuickBEAM.VM.compile("(function(){let value=0;#{body}return value})()")
+
+    function = Enum.find(program.root.constants, &is_struct(&1, Function))
+
+    assert {:ok, whole_template, _count} = PureV1.prepare(function, 32, :scalar_v1)
+    refute PureV1.scalar_template?(whole_template)
+
+    assert {:ok, region_template, 32} = PureV1.prepare_region(function, 0, :scalar_v1)
+    assert PureV1.scalar_template?(region_template)
+
+    assert [{:function, _, :block, 7, clauses}] =
+             Enum.filter(region_template.forms, &match?({:function, _, :block, 7, _}, &1))
+
+    assert length(clauses) <= 17
+  end
+
   test "emits bounded pure plans with explicit unsupported boundaries" do
     function = arithmetic_function()
 

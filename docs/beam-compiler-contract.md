@@ -151,7 +151,7 @@ safely purged remains loaded until VM shutdown.
 
 Generated modules may call `:erlang` guard/BIF operations approved by a
 BEAM-disassembly test and one module, `QuickBEAM.VM.Compiler.Runtime`. That
-module is runtime ABI version 4 and delegates semantics to the existing
+module is runtime ABI version 5 and delegates semantics to the existing
 canonical layers:
 
 - `Value` for primitive coercion and operators;
@@ -172,7 +172,8 @@ The current ABI contains only:
 - guarded primitive operations with canonical `Value` fallback;
 - canonical non-accessor property reads, owner-local global reads/writes, and explicit invocation actions;
 - truthiness and verified branch selection;
-- reconstruction of canonical frames and typed `%Compiler.Deopt{}` values.
+- reconstruction of canonical frames and typed `%Compiler.Deopt{}` values;
+- bounded runtime tuple updates for generated regions that end before the full scalar CFG.
 
 `Compiler.GeneratedModule.ImportPolicy` inspects every generated module import
 before installation. The closed allowlist contains this ABI, a fixed set of
@@ -201,7 +202,20 @@ unchanged.
 
 Generated generic blocks are capped at 256 QuickJS instructions and one function
 artifact at 4,096 blocks and 4,096 lowered instructions. Generic blocks still
-deoptimize at control-flow edges. The narrower scalar profile may tail-call at
+deoptimize at control-flow edges. The quarantined `compiler_regions: true` experiment admits binary
+`{program, function, entry_pc, profile}` identities only after three encounters.
+Its shared observation table is capped at `capacity * 8` (at most 256 entries),
+the stable admitted set is capped at half the module pool, owner-local decisions
+remain capped at 256, and generated artifacts still use only the fixed module
+pool. The current executor deliberately compiles only the
+first straight-line block at function entry, with at most 32 operations; it
+removes a terminal branch and deoptimizes before the next instruction. Runtime
+tuple updates avoid invalid early-boundary BEAM tuple-update optimization. This
+experiment is disabled by default: measured Vue overhead and module churn reject
+it as a production tier even though exact steps, logical memory, and results
+remain canonical.
+
+The narrower scalar profile may tail-call at
 most 16 generated successor blocks while preserving per-block charging and
 outer process containment. The existing `+S 1:1` ticker-gap and timeout report
 remains a regression gate for compiled execution. Measurement-only compiler

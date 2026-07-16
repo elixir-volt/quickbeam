@@ -256,6 +256,11 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   def execute_stack(name, operands, _frame, _execution),
     do: {:error, {:unsupported_compiler_stack_operation, name, operands}}
 
+  @doc "Updates a bounded argument or local tuple without generated tuple-update optimization."
+  @spec tuple_put(tuple(), non_neg_integer(), term()) :: tuple()
+  def tuple_put(tuple, index, value) when is_tuple(tuple) and is_integer(index) and index >= 0,
+    do: put_elem(tuple, index, value)
+
   @doc "Executes one verified pure local or argument instruction and advances the PC."
   @spec execute_local(atom(), [term()], Frame.t(), Execution.t()) :: action()
   def execute_local(name, operands, %Frame{} = frame, %Execution{} = execution)

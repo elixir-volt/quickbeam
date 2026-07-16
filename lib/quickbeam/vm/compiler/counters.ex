@@ -27,7 +27,11 @@ defmodule QuickBEAM.VM.Compiler.Counters do
     suspension_boundary_deopts: 12,
     guard_failed_deopts: 13,
     invocation_actions: 14,
-    reentries: 15
+    reentries: 15,
+    region_attempts: 16,
+    region_cold: 17,
+    region_hot: 18,
+    region_compiled: 19
   }
   @event_count map_size(@indexes)
   @opcode_slots 256

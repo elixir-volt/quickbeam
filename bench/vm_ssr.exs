@@ -15,6 +15,7 @@ defmodule QuickBEAM.Bench.VMSSR do
         strict: [
           engine: :string,
           compiler_profile: :string,
+          compiler_regions: :boolean,
           samples: :integer,
           warmup: :integer,
           concurrency: :string,
@@ -27,6 +28,7 @@ defmodule QuickBEAM.Bench.VMSSR do
 
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
     compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
+    compiler_regions = Keyword.get(opts, :compiler_regions, false)
     maybe_start_compiler!(engine)
     samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
     warmup = non_negative!(Keyword.get(opts, :warmup, @default_warmup), :warmup)
@@ -34,7 +36,8 @@ defmodule QuickBEAM.Bench.VMSSR do
     concurrency =
       concurrency!(Keyword.get(opts, :concurrency, Enum.join(@default_concurrency, ",")))
 
-    fixtures = Enum.map(fixture_specs(), &compile_fixture!(&1, engine, compiler_profile))
+    fixtures =
+      Enum.map(fixture_specs(), &compile_fixture!(&1, engine, compiler_profile, compiler_regions))
 
     results =
       Enum.map(fixtures, fn fixture ->
@@ -51,7 +54,16 @@ defmodule QuickBEAM.Bench.VMSSR do
     isolation = isolation_probe(hd(fixtures))
 
     report =
-      markdown_report(engine, compiler_profile, results, isolation, samples, warmup, concurrency)
+      markdown_report(
+        engine,
+        compiler_profile,
+        compiler_regions,
+        results,
+        isolation,
+        samples,
+        warmup,
+        concurrency
+      )
 
     IO.write(report)
 
@@ -108,7 +120,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     ]
   end
 
-  defp compile_fixture!(spec, engine, compiler_profile) do
+  defp compile_fixture!(spec, engine, compiler_profile, compiler_regions) do
     {:ok, source} = QuickBEAM.JS.bundle_file(spec.fixture, spec.bundle_opts)
     {:ok, program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
 
@@ -116,6 +128,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       spec.eval_opts
       |> Keyword.put(:engine, engine)
       |> Keyword.put(:compiler_profile, compiler_profile)
+      |> Keyword.put(:compiler_regions, compiler_regions)
 
     spec
     |> Map.put(:program, program)
@@ -368,6 +381,7 @@ defmodule QuickBEAM.Bench.VMSSR do
   defp markdown_report(
          engine,
          compiler_profile,
+         compiler_regions,
          results,
          isolation,
          samples,
@@ -384,10 +398,19 @@ defmodule QuickBEAM.Bench.VMSSR do
       end
 
     title =
-      case {engine, compiler_profile} do
-        {:compiler, :scalar_v1} -> "BEAM scalar compiler SSR measurements"
-        {:compiler, _profile} -> "BEAM compiler SSR measurements"
-        {:interpreter, _profile} -> "BEAM VM SSR measurements"
+      case {engine, compiler_profile, compiler_regions} do
+        {:compiler, _profile, true} -> "Bounded region compiler SSR measurements"
+        {:compiler, :scalar_v1, false} -> "BEAM scalar compiler SSR measurements"
+        {:compiler, _profile, false} -> "BEAM compiler SSR measurements"
+        {:interpreter, _profile, _regions} -> "BEAM VM SSR measurements"
+      end
+
+    scheduler_note =
+      if compiler_regions do
+        "The region experiment has no scheduler-gate claim because it fails the SSR latency gate."
+      else
+        "The single-scheduler fairness and timeout gate is published separately in " <>
+          "[`#{scheduler_report}`](#{scheduler_report})."
       end
 
     """
@@ -395,14 +418,14 @@ defmodule QuickBEAM.Bench.VMSSR do
 
     These results cover only the pinned, non-streaming fixtures listed below. They
     are not browser, DOM, or general framework compatibility claims. Each render
-    performs one asynchronous `Beam.call` with a fixed 5 ms handler delay. The
-    single-scheduler fairness and timeout gate is published separately in
-    [`#{scheduler_report}`](#{scheduler_report}).
+    performs one asynchronous `Beam.call` with a fixed 5 ms handler delay.
+    #{scheduler_note}
 
     ## Environment
 
     - Engine: #{engine}
     - Compiler profile: #{compiler_profile}
+    - Compiler regions: #{compiler_regions}
     - Git base: `#{metadata.git}`
     - Working tree at measurement: #{metadata.tree_state}
     - Generated: #{metadata.generated}

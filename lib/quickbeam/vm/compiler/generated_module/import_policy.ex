@@ -48,6 +48,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratedModule.ImportPolicy do
     {Runtime, :property_get, 3},
     {Runtime, :resolve_atom, 2},
     {Runtime, :truthy?, 1},
+    {Runtime, :tuple_put, 3},
     {Runtime, :unary, 2},
     {Runtime, :binary, 3}
   ]

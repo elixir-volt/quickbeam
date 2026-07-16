@@ -239,6 +239,54 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
            ) == expected
   end
 
+  test "admits and reuses one bounded entry region for an oversized scalar function" do
+    start_compiler()
+    body = Enum.map_join(1..100, "", fn _index -> "value=value+1;" end)
+
+    assert {:ok, program} =
+             QuickBEAM.VM.compile("(function(){let value=0;#{body}return value})()")
+
+    assert {:ok, 100} =
+             QuickBEAM.VM.eval(program,
+               engine: :compiler,
+               compiler_profile: :scalar_v1,
+               max_steps: 10_000
+             )
+
+    opts = [
+      engine: :compiler,
+      compiler_profile: :scalar_v1,
+      compiler_regions: true,
+      max_steps: 10_000
+    ]
+
+    assert {:ok, 100} = QuickBEAM.VM.eval(program, opts)
+    assert {:ok, 100} = QuickBEAM.VM.eval(program, opts)
+
+    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
+    assert {:ok, admitted} = QuickBEAM.VM.measure(program, opts)
+    assert admitted.result == interpreted.result
+    assert admitted.steps == interpreted.steps
+    assert admitted.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert admitted.compiler_counters.generated_steps == 32
+    assert admitted.compiler_counters.region_compiled == 1
+
+    assert {:ok, cached} = QuickBEAM.VM.measure(program, opts)
+    assert cached.result == interpreted.result
+    assert cached.steps == interpreted.steps
+    assert cached.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert cached.compiler_counters.generated_steps == 32
+    assert cached.compiler_counters.region_hot > 0
+    assert cached.compiler_counters.region_compiled == 0
+    assert ModulePool.stats(ModulePool).region_admissions == 2
+
+    Enum.each([1, 16, 32, 33, interpreted.steps - 1], fn step_limit ->
+      interpreter_result = QuickBEAM.VM.eval(program, max_steps: step_limit)
+      compiler_result = QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, step_limit))
+      assert compiler_result == interpreter_result
+    end)
+  end
+
   test "shares cached generated code across isolated evaluation owners" do
     start_compiler()
     assert {:ok, program} = QuickBEAM.VM.compile("(20 + 1) * 2")
@@ -267,6 +315,12 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
 
     assert {:error, {:invalid_option, :compiler_profile, :unbounded}} =
              QuickBEAM.VM.eval(program, engine: :compiler, compiler_profile: :unbounded)
+
+    assert {:error, {:invalid_option, :compiler_region_probe, :always}} =
+             QuickBEAM.VM.eval(program, engine: :compiler, compiler_region_probe: :always)
+
+    assert {:error, {:invalid_option, :compiler_regions, :always}} =
+             QuickBEAM.VM.eval(program, engine: :compiler, compiler_regions: :always)
   end
 
   defp start_compiler do

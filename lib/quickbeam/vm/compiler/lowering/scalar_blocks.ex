@@ -29,7 +29,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
 
   @doc "Emits scalar forms when stack depth and capture ownership are statically bounded."
   @spec lower(Function.t(), plan(), map()) :: {:ok, Template.t()} | :not_eligible
-  def lower(%Function{} = function, plan, levels) when is_map(plan) and is_map(levels) do
+  def lower(%Function{} = function, plan, levels) when is_map(plan) and is_map(levels),
+    do: lower(function, plan, levels, :beam)
+
+  @doc "Emits a region using runtime tuple updates that remain valid at early boundaries."
+  @spec lower_region(Function.t(), plan(), map()) :: {:ok, Template.t()} | :not_eligible
+  def lower_region(%Function{} = function, plan, levels) when is_map(plan) and is_map(levels),
+    do: lower(function, plan, levels, :runtime)
+
+  defp lower(function, plan, levels, tuple_mode) do
     if eligible?(function, plan, levels) do
       {:ok,
        %Template{
@@ -37,7 +45,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
            {:attribute, @line, :module, Template.placeholder_module()},
            {:attribute, @line, :export, [run: 3]},
            run_form(),
-           block_form(plan, levels),
+           block_form(plan, levels, tuple_mode),
            {:eof, @line}
          ]
        }}
@@ -184,11 +192,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     function(:run, 3, [clause([lease, frame, execution], [body])])
   end
 
-  defp block_form(plan, levels) do
+  defp block_form(plan, levels, tuple_mode) do
     clauses =
       plan
       |> Enum.sort_by(fn {pc, _block} -> pc end)
-      |> Enum.map(fn {pc, block} -> block_clause(pc, block, levels) end)
+      |> Enum.map(fn {pc, block} -> block_clause(pc, block, levels, tuple_mode) end)
 
     fallback =
       clause(
@@ -207,7 +215,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     function(:block, 7, clauses ++ [fallback])
   end
 
-  defp block_clause(pc, {[], reason}, levels) do
+  defp block_clause(pc, {[], reason}, levels, _tuple_mode) do
     depth = stack_depth!(levels, pc)
 
     clause(
@@ -216,7 +224,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     )
   end
 
-  defp block_clause(pc, {[{family, name, _operands}] = operations, reason}, levels)
+  defp block_clause(pc, {[{family, name, _operands}] = operations, reason}, levels, tuple_mode)
        when family == :object or (family == :global and name == :get_var) do
     depth = stack_depth!(levels, pc)
 
@@ -227,13 +235,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
       args: variable(:Args),
       locals: variable(:Locals),
       stack: stack_values(depth),
-      execution: variable(:Execution)
+      execution: variable(:Execution),
+      tuple_mode: tuple_mode
     }
 
     clause(block_arguments(pc, depth), [lower_operations(operations, reason, state)])
   end
 
-  defp block_clause(pc, {operations, reason}, levels) do
+  defp block_clause(pc, {operations, reason}, levels, tuple_mode) do
     depth = stack_depth!(levels, pc)
     lease = variable(:Lease)
     frame = variable(:Frame)
@@ -250,7 +259,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
       args: args,
       locals: locals,
       stack: stack_values(depth),
-      execution: charged_execution
+      execution: charged_execution,
+      tuple_mode: tuple_mode
     }
 
     lowered = lower_operations(operations, reason, state)
@@ -564,10 +574,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     do: push_expression(state, tuple_element(state.args, index))
 
   defp lower_local(:put_arg, [index], %{stack: [value | stack]} = state),
-    do: %{state | pc: state.pc + 1, args: tuple_put(state.args, index, value), stack: stack}
+    do: %{
+      state
+      | pc: state.pc + 1,
+        args: tuple_put(state, state.args, index, value),
+        stack: stack
+    }
 
   defp lower_local(:set_arg, [index], %{stack: [value | _]} = state),
-    do: %{state | pc: state.pc + 1, args: tuple_put(state.args, index, value)}
+    do: %{state | pc: state.pc + 1, args: tuple_put(state, state.args, index, value)}
 
   defp lower_local(name, [index], state) when name in [:get_loc, :get_loc_check],
     do: push_expression(state, tuple_element(state.locals, index))
@@ -582,13 +597,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
     operation = if name == :inc_loc, do: :inc, else: :dec
     current = tuple_element(state.locals, index)
     value = unary_expression(operation, current, state.pc)
-    %{state | pc: state.pc + 1, locals: tuple_put(state.locals, index, value)}
+    %{state | pc: state.pc + 1, locals: tuple_put(state, state.locals, index, value)}
   end
 
   defp lower_local(:add_loc, [index], %{stack: [value | stack]} = state) do
     current = tuple_element(state.locals, index)
     value = binary_expression(:add, current, value, state.pc)
-    %{state | pc: state.pc + 1, locals: tuple_put(state.locals, index, value), stack: stack}
+
+    %{
+      state
+      | pc: state.pc + 1,
+        locals: tuple_put(state, state.locals, index, value),
+        stack: stack
+    }
   end
 
   defp lower_local(name, [index], %{stack: [value | stack]} = state)
@@ -596,15 +617,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
        do: %{
          state
          | pc: state.pc + 1,
-           locals: tuple_put(state.locals, index, value),
+           locals: tuple_put(state, state.locals, index, value),
            stack: stack
        }
 
   defp lower_local(:set_loc, [index], %{stack: [value | _]} = state),
-    do: %{state | pc: state.pc + 1, locals: tuple_put(state.locals, index, value)}
+    do: %{state | pc: state.pc + 1, locals: tuple_put(state, state.locals, index, value)}
 
   defp lower_local(:set_loc_uninitialized, [index], state),
-    do: %{state | pc: state.pc + 1, locals: tuple_put(state.locals, index, atom(:uninitialized))}
+    do: %{
+      state
+      | pc: state.pc + 1,
+        locals: tuple_put(state, state.locals, index, atom(:uninitialized))
+    }
 
   defp boundary_expression(:continue, state), do: block_call(state)
   defp boundary_expression(reason, state), do: deopt_call(reason, integer(state.pc), state)
@@ -761,8 +786,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
   defp tuple_element(tuple, index),
     do: remote_call(:erlang, :element, [integer(index + 1), tuple])
 
-  defp tuple_put(tuple, index, value),
+  defp tuple_put(%{tuple_mode: :beam}, tuple, index, value),
     do: remote_call(:erlang, :setelement, [integer(index + 1), tuple, value])
+
+  defp tuple_put(%{tuple_mode: :runtime}, tuple, index, value),
+    do: remote_call(Runtime, :tuple_put, [tuple, integer(index), value])
 
   defp function(name, arity, clauses), do: {:function, @line, name, arity, clauses}
   defp clause(arguments, body), do: {:clause, @line, arguments, [], body}

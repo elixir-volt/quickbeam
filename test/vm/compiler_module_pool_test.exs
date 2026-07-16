@@ -200,6 +200,30 @@ defmodule QuickBEAM.VM.CompilerModulePoolTest do
     assert :erlang.system_info(:atom_count) == atom_count
   end
 
+  test "bounds shared region admission without allocating key atoms" do
+    pool = start_pool(capacity: 1)
+    atom_count = :erlang.system_info(:atom_count)
+
+    assert :cold = ModulePool.admit_region(pool, key(1))
+    assert :cold = ModulePool.admit_region(pool, key(1))
+    assert :hot = ModulePool.admit_region(pool, key(1))
+    assert :hot = ModulePool.admit_region(pool, key(1))
+
+    for id <- 2..300 do
+      assert :cold = ModulePool.admit_region(pool, key(id))
+    end
+
+    stats = ModulePool.stats(pool)
+    assert stats.region_admissions == 256
+    assert stats.region_hot == 1
+    assert stats.region_hot_capacity == 1
+    assert :hot = ModulePool.admit_region(pool, key(1))
+    assert :cold = ModulePool.admit_region(pool, key(2))
+    assert :cold = ModulePool.admit_region(pool, key(2))
+    assert :cold = ModulePool.admit_region(pool, key(2))
+    assert :erlang.system_info(:atom_count) == atom_count
+  end
+
   @tag capture_log: true
   test "makes a slot reusable after a compiler task exits" do
     pool = start_pool(capacity: 1)

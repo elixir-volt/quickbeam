@@ -13,7 +13,16 @@ defmodule QuickBEAM.VM.Compiler do
   as typed compiler errors and never invoke native QuickJS.
   """
 
-  alias QuickBEAM.VM.Compiler.{Context, Contract, Counters, Deopt, GeneratedModule, ModulePool}
+  alias QuickBEAM.VM.Compiler.{
+    Context,
+    Contract,
+    Counters,
+    Deopt,
+    GeneratedModule,
+    ModulePool,
+    RegionProbe
+  }
+
   alias QuickBEAM.VM.Compiler.Lowering.PureV1
   alias QuickBEAM.VM.{Evaluator, Execution, Frame, Function, Interpreter, Program}
 
@@ -80,7 +89,9 @@ defmodule QuickBEAM.VM.Compiler do
       counters: if(execution.measurement_target, do: Counters.new()),
       pool: pool,
       profile: Keyword.get(opts, :compiler_profile, :pure_v1),
-      program: program
+      program: program,
+      region_probe: if(Keyword.get(opts, :compiler_region_probe) == true, do: RegionProbe.new()),
+      regions: Keyword.get(opts, :compiler_regions, false)
     }
 
     execution = %{execution | compiler_context: context}
@@ -104,7 +115,7 @@ defmodule QuickBEAM.VM.Compiler do
       with :ok <- ensure_pool_available(pool) do
         case Map.fetch(context.decisions, function_id) do
           {:ok, :skip} ->
-            {:skip, frame, execution}
+            prepare_region_frame(function, frame, execution)
 
           {:ok, {:compile, key, template}} ->
             invoke_frame(pool, key, template, frame, execution)
@@ -137,7 +148,8 @@ defmodule QuickBEAM.VM.Compiler do
       prepare_keyed_frame(program, function, minimum, profile, frame, execution)
     else
       execution = Counters.increment(execution, :skipped_functions)
-      {:skip, frame, cache_decision(execution, function.id, :skip)}
+      execution = cache_decision(execution, function.id, :skip)
+      prepare_region_frame(function, frame, execution)
     end
   end
 
@@ -151,7 +163,8 @@ defmodule QuickBEAM.VM.Compiler do
 
         :skip ->
           execution = Counters.increment(execution, :skipped_functions)
-          {:skip, frame, cache_decision(execution, function.id, :skip)}
+          execution = cache_decision(execution, function.id, :skip)
+          prepare_region_frame(function, frame, execution)
 
         :miss ->
           prepare_uncached_frame(function, minimum, profile, key, frame, execution)
@@ -162,28 +175,61 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  defp artifact_key(%Context{artifact_namespace: namespace}, _program, function, profile)
+  defp artifact_key(
+         %Context{artifact_namespace: namespace} = context,
+         _program,
+         function,
+         profile
+       )
        when is_binary(namespace),
-       do: Contract.artifact_key_from_identity(namespace, function, profile: profile)
+       do:
+         Contract.artifact_key_from_identity(namespace, function,
+           profile: profile,
+           region_preferred: context.regions and profile == :scalar_v1
+         )
 
-  defp artifact_key(_context, program, function, profile),
-    do: Contract.artifact_key(program, function, profile: profile)
+  defp artifact_key(context, program, function, profile),
+    do:
+      Contract.artifact_key(program, function,
+        profile: profile,
+        region_preferred: context.regions and profile == :scalar_v1
+      )
 
   defp prepare_uncached_frame(function, minimum, profile, key, frame, execution) do
     case PureV1.prepare(function, minimum, profile) do
       {:ok, template, _count} ->
-        execution = Counters.increment(execution, :compiled_functions)
-        execution = cache_decision(execution, function.id, {:compile, key, template})
-        invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
+        prepare_template(function, profile, key, template, frame, execution)
 
       {:skip, _count} ->
-        with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
-          execution = Counters.increment(execution, :skipped_functions)
-          {:skip, frame, cache_decision(execution, function.id, :skip)}
-        end
+        skip_uncached_frame(function, key, frame, execution)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp prepare_template(function, :scalar_v1, key, template, frame, execution) do
+    if PureV1.scalar_template?(template) or not execution.compiler_context.regions do
+      prepare_compiled_template(function, key, template, frame, execution)
+    else
+      skip_uncached_frame(function, key, frame, execution)
+    end
+  end
+
+  defp prepare_template(function, _profile, key, template, frame, execution),
+    do: prepare_compiled_template(function, key, template, frame, execution)
+
+  defp prepare_compiled_template(function, key, template, frame, execution) do
+    execution = Counters.increment(execution, :compiled_functions)
+    execution = cache_decision(execution, function.id, {:compile, key, template})
+    invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
+  end
+
+  defp skip_uncached_frame(function, key, frame, execution) do
+    with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
+      execution = Counters.increment(execution, :skipped_functions)
+      execution = cache_decision(execution, function.id, :skip)
+      prepare_region_frame(function, frame, execution)
     end
   end
 
@@ -194,13 +240,139 @@ defmodule QuickBEAM.VM.Compiler do
 
       :skip ->
         execution = Counters.increment(execution, :skipped_functions)
-        {:skip, frame, cache_decision(execution, function.id, :skip)}
+        execution = cache_decision(execution, function.id, :skip)
+        prepare_region_frame(function, frame, execution)
 
       :miss ->
         prepare_frame(function, frame, execution)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp prepare_region_frame(
+         %Function{id: function_id} = function,
+         %Frame{pc: 0} = frame,
+         %Execution{compiler_context: %Context{profile: :scalar_v1, regions: true} = context} =
+           execution
+       ) do
+    decision_key = {:region, function_id, 0}
+    execution = Counters.increment(execution, :region_attempts)
+
+    case Map.fetch(context.decisions, decision_key) do
+      {:ok, :skip} ->
+        {:skip, frame, execution}
+
+      {:ok, {:compile, key, template}} ->
+        invoke_frame(context.pool, key, template, frame, execution)
+
+      {:ok, {:cached, key}} ->
+        invoke_cached_region(key, decision_key, function, frame, execution)
+
+      :error ->
+        admit_region(decision_key, function, frame, execution)
+    end
+  end
+
+  defp prepare_region_frame(_function, frame, execution), do: {:skip, frame, execution}
+
+  defp admit_region(
+         decision_key,
+         %Function{id: function_id} = function,
+         frame,
+         %Execution{
+           compiler_context: %Context{
+             artifact_namespace: namespace,
+             pool: pool,
+             profile: profile
+           }
+         } = execution
+       ) do
+    with {:ok, admission_key} <-
+           Contract.region_admission_key(namespace, function_id, frame.pc, profile) do
+      case ModulePool.admit_region(pool, admission_key) do
+        :cold ->
+          {:skip, frame, Counters.increment(execution, :region_cold)}
+
+        :hot ->
+          execution = Counters.increment(execution, :region_hot)
+          prepare_region_keyed(decision_key, function, frame, execution)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp prepare_region_keyed(
+         decision_key,
+         function,
+         frame,
+         %Execution{
+           compiler_context: %Context{
+             artifact_namespace: namespace,
+             pool: pool,
+             profile: profile
+           }
+         } = execution
+       ) do
+    with {:ok, key} <-
+           Contract.artifact_key_from_identity(namespace, function,
+             profile: profile,
+             region_entry: frame.pc
+           ) do
+      case ModulePool.checkout_cached(pool, key) do
+        {:ok, lease} ->
+          execution = Counters.increment(execution, :cached_functions)
+          execution = cache_decision(execution, decision_key, {:cached, key})
+          invoke_lease(pool, lease, frame, execution)
+
+        :skip ->
+          execution = cache_decision(execution, decision_key, :skip)
+          {:skip, frame, execution}
+
+        :miss ->
+          prepare_uncached_region(decision_key, key, function, frame, execution)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp prepare_uncached_region(decision_key, key, function, frame, execution) do
+    profile = execution.compiler_context.profile
+
+    case PureV1.prepare_region(function, frame.pc, profile) do
+      {:ok, template, _count} ->
+        execution = Counters.increment(execution, :compiled_functions)
+        execution = Counters.increment(execution, :region_compiled)
+        execution = cache_decision(execution, decision_key, {:compile, key, template})
+
+        case invoke_frame(execution.compiler_context.pool, key, template, frame, execution) do
+          {:error, reason} -> {:error, {:region_compile_failed, function.id, frame.pc, reason}}
+          action -> action
+        end
+
+      {:skip, _count} ->
+        with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
+          {:skip, frame, cache_decision(execution, decision_key, :skip)}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp invoke_cached_region(key, decision_key, function, frame, execution) do
+    pool = execution.compiler_context.pool
+
+    case ModulePool.checkout_cached(pool, key) do
+      {:ok, lease} -> invoke_lease(pool, lease, frame, execution)
+      :skip -> {:skip, frame, cache_decision(execution, decision_key, :skip)}
+      :miss -> prepare_region_keyed(decision_key, function, frame, execution)
+      {:error, reason} -> {:error, reason}
     end
   end
 

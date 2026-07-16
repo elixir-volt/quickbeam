@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   alias QuickBEAM.VM.{Function, Program}
 
   @contract_version 1
-  @runtime_abi_version 4
+  @runtime_abi_version 5
   @artifact_key_bytes 32
   @profiles [:pure_v1, :scalar_v1]
 
@@ -96,14 +96,37 @@ defmodule QuickBEAM.VM.Compiler.Contract do
       when is_list(opts) do
     with :ok <- validate_options(opts),
          profile = Keyword.get(opts, :profile, :pure_v1),
+         region_entry = Keyword.get(opts, :region_entry),
+         region_preferred = Keyword.get(opts, :region_preferred, false),
          :ok <- validate_profile(profile),
+         :ok <- validate_region_entry(region_entry),
+         :ok <- validate_region_preferred(region_preferred),
          {:ok, program_identity} <- program_identity(program) do
-      artifact_key_from_identity(program_identity, function, profile: profile)
+      artifact_key_from_identity(program_identity, function,
+        profile: profile,
+        region_entry: region_entry,
+        region_preferred: region_preferred
+      )
     end
   end
 
   def artifact_key(program, function, _opts),
     do: {:error, {:invalid_artifact_input, program, function}}
+
+  @doc "Builds a cheap binary admission identity for one bounded function region."
+  @spec region_admission_key(binary(), non_neg_integer(), non_neg_integer(), atom()) ::
+          {:ok, binary()} | {:error, term()}
+  def region_admission_key(program_identity, function_id, entry_pc, profile)
+      when is_binary(program_identity) and byte_size(program_identity) == @artifact_key_bytes and
+             is_integer(function_id) and function_id >= 0 and is_integer(entry_pc) and
+             entry_pc >= 0 do
+    with :ok <- validate_profile(profile) do
+      {:ok, digest({program_identity, function_id, entry_pc, profile, :region_admission})}
+    end
+  end
+
+  def region_admission_key(program_identity, function_id, entry_pc, profile),
+    do: {:error, {:invalid_region_admission, program_identity, function_id, entry_pc, profile}}
 
   @doc "Builds an artifact key from a previously validated program namespace."
   @spec artifact_key_from_identity(binary(), Function.t(), keyword()) ::
@@ -115,8 +138,19 @@ defmodule QuickBEAM.VM.Compiler.Contract do
              is_list(opts) do
     with :ok <- validate_options(opts),
          profile = Keyword.get(opts, :profile, :pure_v1),
-         :ok <- validate_profile(profile) do
-      payload = {program_identity, strip_repeated_atoms(function), profile}
+         region_entry = Keyword.get(opts, :region_entry),
+         region_preferred = Keyword.get(opts, :region_preferred, false),
+         :ok <- validate_profile(profile),
+         :ok <- validate_region_entry(region_entry),
+         :ok <- validate_region_preferred(region_preferred) do
+      payload = {
+        program_identity,
+        strip_repeated_atoms(function),
+        profile,
+        region_entry,
+        region_preferred
+      }
+
       {:ok, digest(payload)}
     end
   end
@@ -138,7 +172,7 @@ defmodule QuickBEAM.VM.Compiler.Contract do
 
   defp validate_options(opts) do
     if Keyword.keyword?(opts) do
-      case Keyword.keys(opts) -- [:profile] do
+      case Keyword.keys(opts) -- [:profile, :region_entry, :region_preferred] do
         [] -> :ok
         [key | _rest] -> {:error, {:unknown_option, key}}
       end
@@ -146,6 +180,13 @@ defmodule QuickBEAM.VM.Compiler.Contract do
       {:error, {:invalid_option, :options, opts}}
     end
   end
+
+  defp validate_region_entry(nil), do: :ok
+  defp validate_region_entry(entry) when is_integer(entry) and entry >= 0, do: :ok
+  defp validate_region_entry(entry), do: {:error, {:invalid_region_entry, entry}}
+
+  defp validate_region_preferred(value) when is_boolean(value), do: :ok
+  defp validate_region_preferred(value), do: {:error, {:invalid_region_preferred, value}}
 
   defp validate_profile(profile) when profile in @profiles, do: :ok
   defp validate_profile(profile), do: {:error, {:unsupported_compiler_profile, profile}}

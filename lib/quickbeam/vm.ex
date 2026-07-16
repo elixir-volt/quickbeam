@@ -96,7 +96,8 @@ defmodule QuickBEAM.VM do
 
   Supported options include the explicit `:engine` (`:interpreter` or
   `:compiler`), the experimental compiler `:compiler_profile` (`:pure_v1` by
-  default or opt-in `:scalar_v1`), `:vars`, asynchronous `:handlers`, the builtin `:profile`
+  default or opt-in `:scalar_v1`), the quarantined `:compiler_regions` experiment,
+  `:vars`, asynchronous `:handlers`, the builtin `:profile`
   (`:core` or `:ssr`), `:timeout`, `:max_steps`, `:max_stack_depth`, and the
   JavaScript allocation budget `:memory_limit`. Isolated workers also receive a
   BEAM process heap ceiling. `isolation: :caller` is available for trusted
@@ -144,6 +145,8 @@ defmodule QuickBEAM.VM do
     allowed = [
       :compiler_pool,
       :compiler_profile,
+      :compiler_region_probe,
+      :compiler_regions,
       :engine,
       :handlers,
       :isolation,
@@ -166,6 +169,8 @@ defmodule QuickBEAM.VM do
     engine = Keyword.get(opts, :engine, :interpreter)
     compiler_pool = Keyword.get(opts, :compiler_pool, QuickBEAM.VM.Compiler.ModulePool)
     compiler_profile = Keyword.get(opts, :compiler_profile, :pure_v1)
+    compiler_region_probe = Keyword.get(opts, :compiler_region_probe, false)
+    compiler_regions = Keyword.get(opts, :compiler_regions, false)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
@@ -186,6 +191,12 @@ defmodule QuickBEAM.VM do
 
       compiler_profile not in [:pure_v1, :scalar_v1] ->
         {:error, {:invalid_option, :compiler_profile, compiler_profile}}
+
+      not is_boolean(compiler_region_probe) ->
+        {:error, {:invalid_option, :compiler_region_probe, compiler_region_probe}}
+
+      not is_boolean(compiler_regions) ->
+        {:error, {:invalid_option, :compiler_regions, compiler_regions}}
 
       timeout != :infinity and (not is_integer(timeout) or timeout <= 0) ->
         {:error, {:invalid_option, :timeout, timeout}}
@@ -221,6 +232,8 @@ defmodule QuickBEAM.VM do
            interpreter: %{
              compiler_pool: compiler_pool,
              compiler_profile: compiler_profile,
+             compiler_region_probe: compiler_region_probe,
+             compiler_regions: compiler_regions,
              handlers: handlers,
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
@@ -314,6 +327,7 @@ defmodule QuickBEAM.VM do
       steps: Map.get(metrics, :steps),
       logical_memory_bytes: Map.get(metrics, :logical_memory_bytes),
       compiler_counters: Map.get(metrics, :compiler_counters),
+      compiler_regions: Map.get(metrics, :compiler_regions),
       process_memory_bytes: Map.get(metrics, :process_memory_bytes),
       reductions: Map.get(metrics, :reductions)
     }

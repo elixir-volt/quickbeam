@@ -21,6 +21,18 @@ defmodule QuickBEAM.VM.CompilerContractTest do
     assert {:ok, first} = Contract.artifact_key(program, function)
     assert {:ok, ^first} = Contract.artifact_key(program, function)
     assert {:ok, ^first} = Contract.artifact_key_from_identity(namespace, function)
+
+    assert {:ok, region} =
+             Contract.artifact_key_from_identity(namespace, function, region_entry: 0)
+
+    assert {:ok, preferred} =
+             Contract.artifact_key_from_identity(namespace, function, region_preferred: true)
+
+    refute region == first
+    refute preferred == first
+
+    assert {:ok, admission} = Contract.region_admission_key(namespace, function.id, 0, :scalar_v1)
+    assert byte_size(admission) == Contract.artifact_key_bytes()
     assert byte_size(first) == Contract.artifact_key_bytes()
 
     # Warm every code path before measuring the permanent atom table.
@@ -63,6 +75,12 @@ defmodule QuickBEAM.VM.CompilerContractTest do
 
     assert {:error, {:unsupported_compiler_profile, :future}} =
              Contract.artifact_key(program, function, profile: :future)
+
+    assert {:error, {:invalid_region_entry, -1}} =
+             Contract.artifact_key(program, function, region_entry: -1)
+
+    assert {:error, {:invalid_region_preferred, :always}} =
+             Contract.artifact_key(program, function, region_preferred: :always)
   end
 
   test "deoptimization state is owner-local and points before a valid instruction" do

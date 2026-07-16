@@ -4,6 +4,7 @@ alias QuickBEAM.VM.Compiler
 
 iterations = String.to_integer(System.get_env("COMPILER_SSR_EPROF_ITERATIONS", "5"))
 profile = System.get_env("COMPILER_SSR_EPROF_PROFILE", "pure_v1")
+regions = System.get_env("COMPILER_SSR_EPROF_REGIONS", "false") == "true"
 
 {engine, compiler_profile} =
   case profile do
@@ -39,6 +40,7 @@ props = %{
 options = [
   engine: engine,
   compiler_profile: compiler_profile,
+  compiler_regions: regions,
   isolation: :caller,
   profile: :ssr,
   handlers: %{"load_props" => fn [] -> props end},
@@ -47,7 +49,13 @@ options = [
   timeout: 5_000
 ]
 
-expected = QuickBEAM.VM.eval(program, options)
+expected =
+  Enum.reduce(1..if(regions, do: 3, else: 1), nil, fn _iteration, expected ->
+    result = QuickBEAM.VM.eval(program, options)
+    if expected != nil and result != expected, do: raise("warmup result changed")
+    result
+  end)
+
 pool = Process.whereis(QuickBEAM.VM.Compiler.ModulePool)
 
 tools_pattern = Path.join([to_string(:code.root_dir()), "lib", "tools-*", "ebin"])
@@ -65,7 +73,8 @@ end)
 :eprof.stop_profiling()
 
 IO.puts(
-  "EPROF fixture=vue_ssr engine=#{engine} compiler_profile=#{compiler_profile} iterations=#{iterations}"
+  "EPROF fixture=vue_ssr engine=#{engine} compiler_profile=#{compiler_profile} " <>
+    "regions=#{regions} iterations=#{iterations}"
 )
 
 :eprof.analyze(:total)

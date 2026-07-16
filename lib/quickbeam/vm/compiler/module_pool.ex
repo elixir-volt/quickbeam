@@ -16,6 +16,8 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   @default_compile_max_heap_bytes 64 * 1024 * 1024
   @max_capacity Contract.pool_capacity()
   @max_skip_entries @max_capacity * 8
+  @max_region_admissions @max_capacity * 8
+  @region_admission_threshold 3
 
   @type server :: GenServer.server()
 
@@ -54,6 +56,16 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   def remember_skip(server, key) do
     if valid_key?(key) do
       GenServer.call(server, {:remember_skip, key})
+    else
+      {:error, {:invalid_artifact_key, key}}
+    end
+  end
+
+  @doc "Admits a repeated binary region identity into the stable half-pool region budget."
+  @spec admit_region(server(), binary()) :: :cold | :hot | {:error, term()}
+  def admit_region(server, key) do
+    if valid_key?(key) do
+      GenServer.call(server, {:admit_region, key})
     else
       {:error, {:invalid_artifact_key, key}}
     end
@@ -113,6 +125,9 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
          slots: slots,
          key_index: %{},
          skip_index: %{},
+         region_admissions: %{},
+         region_hot: MapSet.new(),
+         region_hot_capacity: max(div(capacity, 2), 1),
          leases: %{},
          monitor_index: %{},
          tasks: %{},
@@ -161,6 +176,25 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   def handle_call({:remember_skip, key}, _from, state) do
     state = state |> put_skip(key) |> trim_skips()
     {:reply, :ok, state}
+  end
+
+  def handle_call({:admit_region, _key}, _from, %{mode: mode} = state)
+      when mode != :running,
+      do: {:reply, {:error, :compiler_pool_stopping}, state}
+
+  def handle_call({:admit_region, key}, _from, state) do
+    state = tick(state)
+    current = Map.get(state.region_admissions, key, %{count: 0, clock: state.clock})
+    count = min(current.count + 1, @region_admission_threshold)
+    entry = %{count: count, clock: state.clock}
+
+    state =
+      state
+      |> put_in([:region_admissions, key], entry)
+      |> trim_region_admissions()
+
+    {reply, state} = admit_hot_region(key, count, state)
+    {:reply, reply, state}
   end
 
   def handle_call({:checkin, lease, caller}, _from, state) do
@@ -221,6 +255,9 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
        leases: map_size(state.leases),
        compilations: map_size(state.tasks),
        skips: map_size(state.skip_index),
+       region_admissions: map_size(state.region_admissions),
+       region_hot: MapSet.size(state.region_hot),
+       region_hot_capacity: state.region_hot_capacity,
        mode: state.mode,
        slots: slots
      }, state}
@@ -600,6 +637,33 @@ defmodule QuickBEAM.VM.Compiler.ModulePool do
   defp trim_skips(state) do
     {key, _clock} = Enum.min_by(state.skip_index, fn {_key, clock} -> clock end)
     %{state | skip_index: Map.delete(state.skip_index, key)}
+  end
+
+  defp admit_hot_region(key, count, state) do
+    cond do
+      MapSet.member?(state.region_hot, key) ->
+        {:hot, state}
+
+      count < @region_admission_threshold ->
+        {:cold, state}
+
+      MapSet.size(state.region_hot) < state.region_hot_capacity ->
+        {:hot, %{state | region_hot: MapSet.put(state.region_hot, key)}}
+
+      true ->
+        {:cold, state}
+    end
+  end
+
+  defp trim_region_admissions(state)
+       when map_size(state.region_admissions) <= @max_region_admissions,
+       do: state
+
+  defp trim_region_admissions(state) do
+    {key, _entry} =
+      Enum.min_by(state.region_admissions, fn {candidate, entry} -> {entry.clock, candidate} end)
+
+    %{state | region_admissions: Map.delete(state.region_admissions, key)}
   end
 
   defp tick(state), do: %{state | clock: state.clock + 1}

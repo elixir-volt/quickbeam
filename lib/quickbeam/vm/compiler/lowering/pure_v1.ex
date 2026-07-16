@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   @max_block_instruction_count 256
   @max_block_count 4_096
   @max_lowered_instruction_count 4_096
+  @max_region_operations 32
   @suspension_operations [:await] ++ Invocation.opcodes()
   @core_scalar_operations %{
     get_loc_check: :local,
@@ -48,6 +49,22 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
       when is_tuple(instructions) and is_integer(minimum) and minimum >= 0 and
              profile in [:pure_v1, :scalar_v1] do
     minimum <= 1 or tuple_size(instructions) >= minimum or backward_branch?(instructions)
+  end
+
+  @doc "Emits one bounded scalar entry region from an oversized function."
+  @spec prepare_region(Function.t(), non_neg_integer(), :pure_v1 | :scalar_v1) ::
+          {:ok, Template.t(), non_neg_integer()} | {:skip, non_neg_integer()} | {:error, term()}
+  def prepare_region(%Function{} = function, entry_pc, profile)
+      when is_integer(entry_pc) and entry_pc >= 0 and profile in [:pure_v1, :scalar_v1] do
+    with {:ok, plan, levels} <- analyze_plan(function, profile) do
+      region = select_region(plan, entry_pc)
+      count = lowered_operation_count(region)
+
+      case ScalarBlocks.lower_region(function, region, levels) do
+        {:ok, template} when count > 0 -> {:ok, template, count}
+        _not_eligible -> {:skip, count}
+      end
+    end
   end
 
   @doc "Returns the deterministic pure-block execution plan for one function."
@@ -106,7 +123,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     end
   end
 
-  defp scalar_template?(%Template{forms: forms}),
+  @doc "Reports whether a template uses bounded scalar block forms."
+  @spec scalar_template?(Template.t()) :: boolean()
+  def scalar_template?(%Template{forms: forms}),
     do: Enum.any?(forms, &match?({:function, _, :block, 7, _}, &1))
 
   defp lowered_operation_count(plan) do
@@ -150,6 +169,30 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
         _operation -> false
       end)
     end)
+  end
+
+  defp select_region(plan, entry_pc) do
+    case Map.get(plan, entry_pc) do
+      {operations, reason} when operations != [] ->
+        selected = operations |> Enum.take(@max_region_operations) |> drop_terminal_branch()
+
+        selected_reason =
+          if length(selected) < length(operations) or reason == :continue,
+            do: :unsupported_semantics,
+            else: reason
+
+        if selected == [], do: %{}, else: %{entry_pc => {selected, selected_reason}}
+
+      _missing_or_unsupported_entry ->
+        %{}
+    end
+  end
+
+  defp drop_terminal_branch(operations) do
+    case List.last(operations) do
+      {:branch, _name, _operands} -> Enum.drop(operations, -1)
+      _operation -> operations
+    end
   end
 
   defp build_plan(blocks, :pure_v1), do: Map.new(blocks, &plan_block(&1, :pure_v1))
@@ -207,7 +250,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     {block.start_pc, {operations, reason}}
   end
 
-  defp supported_instruction?({_pc, name, _operands}, profile) do
+  @doc "Reports whether one canonical instruction belongs to a bounded profile."
+  @spec supported_instruction?({non_neg_integer(), atom(), [term()]}, :pure_v1 | :scalar_v1) ::
+          boolean()
+  def supported_instruction?({_pc, name, _operands}, profile)
+      when profile in [:pure_v1, :scalar_v1] do
     scalar_operations =
       if profile == :scalar_v1, do: @scalar_operations, else: @core_scalar_operations
 
