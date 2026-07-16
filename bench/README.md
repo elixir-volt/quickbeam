@@ -93,6 +93,7 @@ fixtures. Published results are in
 [`docs/beam-object-memory-investigation.md`](../docs/beam-object-memory-investigation.md),
 [`docs/beam-object-memory-measurements.md`](../docs/beam-object-memory-measurements.md),
 [`docs/beam-object-shape-investigation.md`](../docs/beam-object-shape-investigation.md),
+[`docs/beam-object-literal-investigation.md`](../docs/beam-object-literal-investigation.md),
 [`docs/beam-compiler-performance-measurements.md`](../docs/beam-compiler-performance-measurements.md),
 [`docs/beam-compiler-ssr-measurements.md`](../docs/beam-compiler-ssr-measurements.md),
 [`docs/beam-compiler-scalar-ssr-measurements.md`](../docs/beam-compiler-scalar-ssr-measurements.md),

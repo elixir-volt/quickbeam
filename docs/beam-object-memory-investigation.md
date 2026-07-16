@@ -170,12 +170,18 @@ its 50-sample median regressed from 47.07 ms to 50.30 ms with no endpoint memory
 change. The runtime shape representation was rejected. See the
 [bounded object-shape investigation](beam-object-shape-investigation.md).
 
-If shapes are revisited, they should be selected from decode-time object-literal
-semantics or repeated complete key sequences rather than speculative first-use
-transitions. Bulk construction must prove that the object cannot escape while it
-is incomplete. Fixed metadata helpers may use Erlang records where OTP's
-`update_record` optimization is measurable, but OTP 29 native records remain too
-experimental for the runtime contract.
+A decode-time object-literal implementation was subsequently tested with reserved
+identity, exact per-instruction accounting, fixed tuple builders, and one-shot
+map construction. It improved an ideal repeated four-field fixture by 10.1%, but
+only reached 16 literals per Vue render and regressed Vue's controlled median by
+7.1%. It was also rejected; see the
+[object-literal allocation investigation](beam-object-literal-investigation.md).
+
+If either technique is revisited, admission must come from a substantially larger
+measured dynamic population rather than static opportunity. Fixed metadata
+helpers may use Erlang records where OTP's `update_record` optimization is
+measurable, but OTP 29 native records remain too experimental for the runtime
+contract.
 
 ## Process heap sizing
 
