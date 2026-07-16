@@ -20,6 +20,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
   @left_variables List.to_tuple(for index <- 0..255, do: :"_CompilerLeft#{index}")
   @right_variables List.to_tuple(for index <- 0..255, do: :"_CompilerRight#{index}")
   @value_variables List.to_tuple(for index <- 0..255, do: :"_CompilerValue#{index}")
+  @property_variables List.to_tuple(for index <- 0..255, do: :"_CompilerProperty#{index}")
 
   @type plan :: Runtime.plan()
 
@@ -43,14 +44,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
   end
 
   defp eligible?(function, plan, levels) do
+    bounded_shape?(function, plan, levels) and eligible_constants?(function.constants) and
+      checked_locals_initialized?(function, plan)
+  end
+
+  defp bounded_shape?(function, plan, levels) do
     function.stack_size <= @max_stack_depth and function.arg_count <= 8 and
       function.var_count <= 8 and map_size(plan) <= 8 and
       scalar_operation_count(plan) <= @max_scalar_operations and
       Enum.all?(plan, fn {_pc, {operations, _reason}} -> length(operations) <= 32 end) and
-      Enum.all?(levels, fn {_pc, {depth, _catch}} -> depth <= @max_stack_depth end) and
-      not captured_frame_slots?(function.constants) and
-      checked_locals_initialized?(function, plan)
+      Enum.all?(levels, fn {_pc, {depth, _catch}} -> depth <= @max_stack_depth end)
   end
+
+  defp eligible_constants?(constants),
+    do: not nested_function_constants?(constants) and not captured_frame_slots?(constants)
 
   defp checked_locals_initialized?(function, plan) do
     count = max(function.arg_count + function.var_count, 1)
@@ -142,6 +149,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
       Enum.reduce(plan, 0, fn {_pc, {operations, _reason}}, count ->
         count + length(operations)
       end)
+
+  defp nested_function_constants?(constants), do: Enum.any?(constants, &is_struct(&1, Function))
 
   defp captured_frame_slots?(constants) do
     Enum.any?(constants, fn
@@ -257,12 +266,75 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ScalarBlocks do
 
   defp lower_operations([], reason, state), do: boundary_expression(reason, state)
 
+  defp lower_operations([{:object, name, operands} | operations], reason, state) do
+    lower_property(name, operands, operations, reason, state)
+  end
+
+  defp lower_operations([{:invocation, name, operands}], _reason, state),
+    do: lower_invocation(name, operands, state)
+
   defp lower_operations([operation | operations], reason, state) do
     case lower_operation(operation, state) do
       {:next, state} -> lower_operations(operations, reason, state)
       {:terminal, expression} -> expression
     end
   end
+
+  defp lower_invocation(:call, [argument_count], state) do
+    {arguments, [callable | stack]} = Enum.split(state.stack, argument_count)
+    arguments = arguments |> Enum.reverse() |> list()
+    state = %{state | pc: state.pc + 1, stack: stack}
+    invoke_call(callable, arguments, literal(:undefined), state)
+  end
+
+  defp lower_invocation(:call_method, [argument_count], state) do
+    {arguments, [callable, this | stack]} = Enum.split(state.stack, argument_count)
+    arguments = arguments |> Enum.reverse() |> list()
+    state = %{state | pc: state.pc + 1, stack: stack}
+    invoke_call(callable, arguments, this, state)
+  end
+
+  defp invoke_call(callable, arguments, this, state) do
+    compact = tuple([state.frame, integer(state.pc), state.args, state.locals, list(state.stack)])
+
+    remote_call(Runtime, :invoke_state, [
+      callable,
+      arguments,
+      this,
+      compact,
+      state.execution
+    ])
+  end
+
+  defp lower_property(name, operands, operations, reason, state) do
+    {object, key, result_stack} = property_operands(name, operands, state)
+    property_value = variable(elem(@property_variables, rem(state.pc, 256)))
+    get = remote_call(Runtime, :property_get, [object, key, state.execution])
+    next_state = %{state | pc: state.pc + 1, stack: [property_value | result_stack]}
+
+    case_expression(get, [
+      clause([tuple([atom(:ok), property_value])], [
+        lower_operations(operations, reason, next_state)
+      ]),
+      clause([atom(:deopt)], [deopt_call(:unsupported_semantics, integer(state.pc), state)])
+    ])
+  end
+
+  defp property_operands(:get_field, [atom_operand], %{stack: [object | stack]} = state) do
+    key = remote_call(Runtime, :resolve_atom, [literal(atom_operand), state.execution])
+    {object, key, stack}
+  end
+
+  defp property_operands(:get_field2, [atom_operand], %{stack: [object | stack]} = state) do
+    key = remote_call(Runtime, :resolve_atom, [literal(atom_operand), state.execution])
+    {object, key, [object | stack]}
+  end
+
+  defp property_operands(:get_array_el, [], %{stack: [key, object | stack]}),
+    do: {object, key, stack}
+
+  defp property_operands(:get_length, [], %{stack: [object | stack]}),
+    do: {object, literal("length"), stack}
 
   defp lower_operation({:stack, name, operands}, state),
     do: {:next, lower_stack(name, operands, state)}

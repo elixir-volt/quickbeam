@@ -186,7 +186,7 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
     assert {:deopt, %Deopt{} = deopt} =
              GeneratedModule.invoke(pool, lease, frame, execution)
 
-    assert deopt.frame == unspecialized.frame
+    assert %{deopt.frame | compiler_allow_reentry: false} == unspecialized.frame
     assert deopt.execution == unspecialized.execution
     assert deopt.reason == :unsupported_opcode
     assert deopt.frame.pc == 3
@@ -251,6 +251,45 @@ defmodule QuickBEAM.VM.CompilerPureV1Test do
 
     for limit <- [1, 7, 50, interpreter.steps - 1] do
       assert QuickBEAM.VM.eval(program, engine: :compiler, max_steps: limit) ==
+               QuickBEAM.VM.eval(program, max_steps: limit)
+    end
+  end
+
+  test "scalar properties and explicit calls preserve canonical boundaries" do
+    start_pool()
+
+    sources = [
+      "(function(arr){let s=0;for(let i=0;i<arr.length;i++)s+=arr[i];return s})([1,2,3,4])",
+      "(function(obj,n){let s=0;for(let i=0;i<n;i++)s+=obj.x;return s})({x:3},10)",
+      "let hits=0;let obj={get x(){hits++;return 3}};[(function(o){let s=0;for(let i=0;i<3;i++)s+=o.x;return s})(obj),hits]",
+      "(function(value){return value.x})(null)",
+      "(function(fn,n){let s=0;for(let i=0;i<n;i++)s=fn(s);return s})(function(x){return x+1},10)"
+    ]
+
+    for source <- sources do
+      assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+      assert QuickBEAM.VM.eval(program, engine: :compiler, compiler_profile: :scalar_v1) ==
+               QuickBEAM.VM.eval(program)
+    end
+  end
+
+  test "scalar call re-entry preserves stacks and deterministic resources" do
+    start_pool()
+
+    source =
+      "(function(fn,n){let s=0;for(let i=0;i<n;i++)s=fn(s);return s})(function(x){return x+1},10)"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    opts = [engine: :compiler, compiler_profile: :scalar_v1, max_steps: 10_000]
+    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
+    assert {:ok, compiled} = QuickBEAM.VM.measure(program, opts)
+    assert compiled.result == interpreted.result
+    assert compiled.steps == interpreted.steps
+    assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+
+    for limit <- [1, 10, div(interpreted.steps, 2), interpreted.steps - 1] do
+      assert QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, limit)) ==
                QuickBEAM.VM.eval(program, max_steps: limit)
     end
   end

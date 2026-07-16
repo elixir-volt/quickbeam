@@ -24,9 +24,17 @@ MIX_ENV=bench mix run bench/concurrent.exs
 MIX_ENV=bench mix run bench/vm_ssr.exs \
   --output docs/beam-ssr-measurements.md
 
-# Reproduce cold-versus-warm compiler loop measurements
+# Reproduce runtime-initialization, cold-compilation, and warm loop measurements
 COMPILER_PERF_ITERATIONS=2000 MIX_ENV=bench \
   mix run bench/vm_compiler_perf.exs
+
+# Profile warm generated execution or one-time host-template initialization
+COMPILER_EPROF_PHASE=execution COMPILER_EPROF_ENGINE=compiler \
+  COMPILER_EPROF_WORKLOAD=object_property_loop COMPILER_EPROF_ITERATIONS=200 \
+  MIX_ENV=bench mix run bench/vm_compiler_eprof.exs
+COMPILER_EPROF_PHASE=initialization COMPILER_EPROF_ENGINE=interpreter \
+  COMPILER_EPROF_WORKLOAD=object_property_loop MIX_ENV=bench \
+  mix run bench/vm_compiler_eprof.exs
 
 # Reproduce the release-quarantined compiler SSR report
 MIX_ENV=bench mix run bench/vm_ssr.exs \
@@ -40,6 +48,12 @@ ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
 ERL_FLAGS='+S 1:1' MIX_ENV=bench mix run bench/vm_scheduler_probe.exs \
   --engine compiler --output docs/beam-compiler-scheduler-measurements.md
 ```
+
+The compiler performance runner reports one-time core-profile initialization
+separately before measuring cold compilation and warm execution. The eprof
+runner accepts `COMPILER_EPROF_PHASE=execution|initialization`; initialization
+profiles exactly one first evaluation in a fresh Mix VM, while execution warms
+the profile template and generated artifact before collecting samples.
 
 The SSR runner accepts `--engine interpreter|compiler`, `--samples`, `--warmup`,
 and a comma-separated `--concurrency` list. It reports deterministic VM steps and logical allocation,

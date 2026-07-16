@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Memory do
   controlled limit failures before the worker's process heap ceiling.
   """
 
-  alias QuickBEAM.VM.Execution
+  alias QuickBEAM.VM.{Execution, Object}
 
   @object_bytes 128
   @property_bytes 64
@@ -41,6 +41,23 @@ defmodule QuickBEAM.VM.Memory do
   def estimate(%QuickBEAM.VM.Reference{}), do: 16
   def estimate(%QuickBEAM.VM.PromiseReference{}), do: 16
   def estimate(%QuickBEAM.VM.Function{}), do: 16
+
+  def estimate(%Object{} = object) do
+    464 +
+      estimate(object.prototype) +
+      estimate(object.properties) +
+      estimate(object.property_order) +
+      estimate(object.callable) +
+      estimate(object.internal)
+  end
+
+  def estimate({first, second}), do: 16 + estimate(first) + estimate(second)
+
+  def estimate({first, second, third}),
+    do: 16 + estimate(first) + estimate(second) + estimate(third)
+
+  def estimate({first, second, third, fourth}),
+    do: 16 + estimate(first) + estimate(second) + estimate(third) + estimate(fourth)
 
   def estimate(value) when is_tuple(value) do
     16 + Enum.reduce(Tuple.to_list(value), 0, &(estimate(&1) + &2))

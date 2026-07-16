@@ -18,9 +18,13 @@ block plan, then emits fixed-name generated forms. The generic path uses
 `run/3` and `block/4` with bounded canonical runtime block calls. Eligible scalar
 loops use `run/3` and `block/7`, retain stack values as BEAM expressions, carry
 locals as bounded tuples, and rebuild canonical frames only at deoptimization.
-Calls, accessors, constructors, iterators, exceptions, Promise operations, host
-calls, and `await` deopt before their instruction until their resumable compiler
-ABI exists.
+The conservative `:pure_v1` profile remains the default. The explicitly selected
+`:scalar_v1` profile additionally lets ordinary scalar `call` and `call_method`
+instructions return canonical invocation actions and lets non-accessor property
+reads continue in generated code. Accessors deopt before invocation.
+Constructors, iterators, exceptions,
+Promise operations, host calls, and `await` still deopt before their instruction
+until their resumable compiler ABI exists.
 
 The root frame always receives an eligibility attempt. Nested frames are
 selected by a 32-operation entry prefix on the generic path; scalar-eligible
@@ -145,7 +149,7 @@ safely purged remains loaded until VM shutdown.
 
 Generated modules may call `:erlang` guard/BIF operations approved by a
 BEAM-disassembly test and one module, `QuickBEAM.VM.Compiler.Runtime`. That
-module is runtime ABI version 2 and delegates semantics to the existing
+module is runtime ABI version 3 and delegates semantics to the existing
 canonical layers:
 
 - `Value` for primitive coercion and operators;
@@ -159,11 +163,12 @@ No generated external call to `Heap`, builtin installers, process dictionaries,
 or prototype compiler helpers is allowed. ABI functions return explicit actions
 rather than recursively invoking JavaScript.
 
-The first ABI now contains only:
+The current ABI contains only:
 
 - exact canonical-frame and compact-state charging at basic-block boundaries;
 - verified local/argument/stack transforms shared with opcode-family modules;
 - guarded primitive operations with canonical `Value` fallback;
+- canonical non-accessor property reads and explicit invocation actions;
 - truthiness and verified branch selection;
 - reconstruction of canonical frames and typed `%Compiler.Deopt{}` values.
 
@@ -247,8 +252,8 @@ An adaptive policy, if added, must be explicitly selected by the caller and
 reported by measurement/telemetry. It still may never fall back to native
 QuickJS.
 
-The current `+S 1:1` compiler-tier Vue probe reports a 31.67 ms maximum ticker
-gap against the 75 ms bound and a 51.03 ms timeout p95 against the 60 ms bound.
+The current `+S 1:1` compiler-tier Vue probe reports a 46.8 ms maximum ticker
+gap against the 75 ms bound and a 51.0 ms timeout p95 against the 60 ms bound.
 The pinned compiler SSR report covers 30 sequential samples plus concurrency
 1/4/8 for Preact, Vue, and Svelte, with 100/100 isolated Preact renders and
 successful step, memory, timeout, and cancellation checks. The Vue parity gate
@@ -256,15 +261,17 @@ also requires more than the root generated module, proving selected nested-frame
 coverage. The selected Test262 gate passes 65/65 supported tests through both
 the interpreter and compiler tier.
 
-The separate warm loop report now measures 1.72× arithmetic-loop, 1.97×
-branch-loop, and 2.31× local-arithmetic speedups over the interpreter after cold
-compilation costs of 9.26–42.61 ms. Those bounded micro-workloads demonstrate
-that scalar generated execution can amortize compilation; they do not replace
+The separate warm loop report now measures 8.18× arithmetic-loop, 7.70×
+branch-loop, 5.56× local-arithmetic, 1.81× array-sum, and 6.14× object-property
+speedups over the interpreter after cold compilation costs of 8.50–25.86 ms.
+One-time host-profile initialization is reported separately. Those bounded
+micro-workloads demonstrate that scalar generated execution can amortize
+compilation; they do not replace
 the SSR release gate.
 
-On the published runs, compiler-tier sequential medians are 9.83 ms for Preact,
-72.42 ms for Vue, and 17.05 ms for Svelte, versus interpreter medians of 8.49 ms,
-48.55 ms, and 12.36 ms respectively. These separate reproducible runs are not a
+On the published runs, compiler-tier sequential medians are 10.4 ms for Preact,
+75.77 ms for Vue, and 16.19 ms for Svelte, versus interpreter medians of 8.22 ms,
+49.21 ms, and 15.15 ms respectively. These separate reproducible runs are not a
 paired statistical comparison, but they show that selective nested-function
 re-entry is still not a performance release candidate.
 
@@ -291,7 +298,7 @@ Prototype code is not copied as a subsystem. Each part has one bounded target:
 | --- | --- |
 | CFG/basic-block discovery | Adapt the pure graph algorithm to current v26 instruction tuples. Targets remain verified instruction indexes. |
 | Stack analysis | Do not extract. `StackVerifier` remains authoritative; lowering consumes its verified heights and joins. |
-| Opcode support analysis | Replace broad fallback analysis with a closed `:pure_v1` allowlist. Every other opcode emits a before-instruction deopt. |
+| Opcode support analysis | Keep the conservative `:pure_v1` allowlist and add an explicit `:scalar_v1` property/call extension. Every other opcode emits a before-instruction deopt. |
 | Local/stack lowering | Adapt scalar block arguments only under fixed stack/slot/form bounds. Rebuild canonical `%Frame{}` at deoptimization and exclude captured locals. |
 | Value lowering | Use allowlisted guarded BEAM primitives with canonical `Value` fallback. Do not retain prototype coercion or object tags. |
 | Property lowering | Initially deopt. Later call `Properties` and preserve its accessor boundary actions. |

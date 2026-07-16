@@ -255,6 +255,9 @@ defmodule QuickBEAM.VM.CompilerOrchestrationTest do
 
     assert {:error, {:invalid_option, :compiler_pool, "pool"}} =
              QuickBEAM.VM.eval(program, engine: :compiler, compiler_pool: "pool")
+
+    assert {:error, {:invalid_option, :compiler_profile, :unbounded}} =
+             QuickBEAM.VM.eval(program, engine: :compiler, compiler_profile: :unbounded)
   end
 
   defp start_compiler do

@@ -135,7 +135,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
 
     refute QuickBEAM.VM.Builtins.Console in Registry.modules(:core)
     assert QuickBEAM.VM.Builtins.Console in Registry.modules(:ssr)
+    generation = Registry.generation()
     assert Registry.modules(:core) == Enum.map(Registry.refresh()[:core], & &1.module)
+    assert Registry.generation() == generation + 1
 
     assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :constructor
 

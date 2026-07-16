@@ -7,7 +7,14 @@ defmodule QuickBEAM.VM.Compiler.Context do
   """
 
   @enforce_keys [:pool, :program]
-  defstruct [:pool, :program, decisions: %{}, max_decisions: 256, min_nested_instructions: 32]
+  defstruct [
+    :pool,
+    :program,
+    decisions: %{},
+    max_decisions: 256,
+    min_nested_instructions: 32,
+    profile: :pure_v1
+  ]
 
   @type t :: %__MODULE__{
           pool: QuickBEAM.VM.Compiler.ModulePool.server(),
@@ -17,6 +24,7 @@ defmodule QuickBEAM.VM.Compiler.Context do
               :skip | {:cached, binary()} | {:compile, binary(), term()}
           },
           max_decisions: pos_integer(),
-          min_nested_instructions: non_neg_integer()
+          min_nested_instructions: non_neg_integer(),
+          profile: :pure_v1 | :scalar_v1
         }
 end

@@ -18,46 +18,58 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
   @max_block_count 4_096
   @max_lowered_instruction_count 4_096
   @suspension_operations [:await] ++ Invocation.opcodes()
-  @scalar_operations %{get_loc_check: :local, post_inc: :value, post_dec: :value}
+  @core_scalar_operations %{
+    get_loc_check: :local,
+    post_dec: :value,
+    post_inc: :value
+  }
+  @extended_scalar_operations %{
+    call: :invocation,
+    call_method: :invocation,
+    get_array_el: :object,
+    get_field: :object,
+    get_field2: :object,
+    get_length: :object
+  }
+  @scalar_operations Map.merge(@core_scalar_operations, @extended_scalar_operations)
   @line 1
 
   @doc "Returns the deterministic pure-block execution plan for one function."
   @spec plan(Function.t()) :: {:ok, Runtime.plan()} | {:error, term()}
   def plan(%Function{} = function) do
-    with {:ok, plan, _levels} <- analyze_plan(function), do: {:ok, plan}
+    with {:ok, plan, _levels} <- analyze_plan(function, :pure_v1), do: {:ok, plan}
   end
 
   @doc "Emits specialized generated-module forms for the bounded pure profile."
   @spec lower(Function.t()) :: {:ok, Template.t()} | {:error, term()}
   def lower(%Function{} = function) do
-    with {:ok, plan, levels} <- analyze_plan(function), do: lower_plan(function, plan, levels)
+    with {:ok, plan, levels} <- analyze_plan(function, :pure_v1),
+         do: lower_plan(function, plan, levels, :pure_v1)
   end
 
   @doc "Selects functions with a useful entry prefix and emits their validated plan."
-  @spec prepare(Function.t(), non_neg_integer()) ::
+  @spec prepare(Function.t(), non_neg_integer(), :pure_v1 | :scalar_v1) ::
           {:ok, Template.t(), non_neg_integer()} | {:skip, non_neg_integer()} | {:error, term()}
-  def prepare(%Function{} = function, minimum) when is_integer(minimum) and minimum >= 0 do
-    with {:ok, plan, levels} <- analyze_plan(function) do
+  def prepare(function, minimum, profile \\ :pure_v1)
+
+  def prepare(%Function{} = function, minimum, profile)
+      when is_integer(minimum) and minimum >= 0 and profile in [:pure_v1, :scalar_v1] do
+    with {:ok, plan, levels} <- analyze_plan(function, profile) do
       count = lowered_operation_count(plan)
       entry_count = entry_operation_count(plan)
-      template = template(function, plan, levels)
+      template = template(function, plan, levels, profile)
 
-      eligible? =
-        if scalar_template?(template) do
-          count >= minimum or (minimum > 0 and loop_plan?(plan))
-        else
-          entry_count >= minimum
-        end
-
-      if eligible?, do: {:ok, template, count}, else: {:skip, count}
+      if eligible_template?(template, plan, count, entry_count, minimum),
+        do: {:ok, template, count},
+        else: {:skip, count}
     end
   end
 
-  defp analyze_plan(function) do
+  defp analyze_plan(function, profile) do
     with {:ok, analysis} <- StackVerifier.analyze(function),
          true <- analysis.maximum == function.stack_size,
          {:ok, blocks} <- CFG.analyze(function),
-         plan = Map.new(blocks, &plan_block/1),
+         plan <- build_plan(blocks, profile),
          :ok <- validate_plan_size(plan) do
       {:ok, plan, analysis.levels}
     else
@@ -66,8 +78,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     end
   end
 
-  @spec lower_plan(Function.t(), Runtime.plan(), map()) :: {:ok, Template.t()}
-  defp lower_plan(function, plan, levels), do: {:ok, template(function, plan, levels)}
+  @spec lower_plan(Function.t(), Runtime.plan(), map(), :pure_v1 | :scalar_v1) ::
+          {:ok, Template.t()}
+  defp lower_plan(function, plan, levels, profile),
+    do: {:ok, template(function, plan, levels, profile)}
 
   defp entry_operation_count(plan) do
     case Map.get(plan, 0) do
@@ -83,6 +97,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     Enum.reduce(plan, 0, fn {_pc, {operations, _reason}}, count -> count + length(operations) end)
   end
 
+  defp eligible_template?(template, plan, count, entry_count, minimum) do
+    cond do
+      scalar_template?(template) and extended_scalar_plan?(plan) -> loop_plan?(plan)
+      scalar_template?(template) -> count >= minimum or (minimum > 0 and loop_plan?(plan))
+      true -> entry_count >= minimum
+    end
+  end
+
+  defp extended_scalar_plan?(plan) do
+    Enum.any?(plan, fn {_pc, {operations, _reason}} ->
+      Enum.any?(operations, fn {family, _name, _operands} -> family in [:object, :invocation] end)
+    end)
+  end
+
   defp loop_plan?(plan) do
     Enum.any?(plan, fn {pc, {operations, _reason}} ->
       Enum.any?(operations, fn
@@ -92,24 +120,68 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
     end)
   end
 
-  defp plan_block(block) do
-    {supported, remainder} = Enum.split_while(block.instructions, &supported_instruction?/1)
+  defp build_plan(blocks, :pure_v1), do: Map.new(blocks, &plan_block(&1, :pure_v1))
+
+  defp build_plan(blocks, :scalar_v1),
+    do: blocks |> Enum.flat_map(&plan_block_segments/1) |> Map.new()
+
+  defp plan_block_segments(block) do
+    block.instructions
+    |> split_invocation_segments([], [])
+    |> Enum.map(fn instructions ->
+      first_pc = instructions |> hd() |> elem(0)
+      plan_block(%{block | start_pc: first_pc, instructions: instructions}, :scalar_v1)
+    end)
+  end
+
+  defp split_invocation_segments([], [], segments), do: Enum.reverse(segments)
+
+  defp split_invocation_segments([], current, segments),
+    do: Enum.reverse([Enum.reverse(current) | segments])
+
+  defp split_invocation_segments([instruction | instructions], current, segments) do
+    cond do
+      not supported_instruction?(instruction, :scalar_v1) ->
+        segments = if current == [], do: segments, else: [Enum.reverse(current) | segments]
+        split_invocation_segments(instructions, [], [[instruction] | segments])
+
+      invocation_instruction?(instruction) ->
+        current = [instruction | current]
+        split_invocation_segments(instructions, [], [Enum.reverse(current) | segments])
+
+      true ->
+        split_invocation_segments(instructions, [instruction | current], segments)
+    end
+  end
+
+  defp invocation_instruction?({_pc, name, _operands}), do: name in [:call, :call_method]
+
+  defp plan_block(block, profile) do
+    {supported, remainder} =
+      Enum.split_while(block.instructions, &supported_instruction?(&1, profile))
+
     capped? = length(supported) > @max_block_instruction_count
     supported = Enum.take(supported, @max_block_instruction_count)
-    operations = Enum.map(supported, &operation/1)
+    operations = Enum.map(supported, &operation(&1, profile))
     next_instruction = Enum.at(block.instructions, length(supported))
     reason = boundary_reason(operations, remainder, next_instruction, capped?)
     {block.start_pc, {operations, reason}}
   end
 
-  defp supported_instruction?({_pc, name, _operands}),
-    do:
-      Map.has_key?(@scalar_operations, name) or
-        match?({:ok, _family}, Runtime.operation_family(name))
+  defp supported_instruction?({_pc, name, _operands}, profile) do
+    scalar_operations =
+      if profile == :scalar_v1, do: @scalar_operations, else: @core_scalar_operations
 
-  defp operation({_pc, name, operands}) do
+    Map.has_key?(scalar_operations, name) or
+      match?({:ok, _family}, Runtime.operation_family(name))
+  end
+
+  defp operation({_pc, name, operands}, profile) do
+    scalar_operations =
+      if profile == :scalar_v1, do: @scalar_operations, else: @core_scalar_operations
+
     family =
-      case Map.fetch(@scalar_operations, name) do
+      case Map.fetch(scalar_operations, name) do
         {:ok, family} -> family
         :error -> name |> Runtime.operation_family() |> elem(1)
       end
@@ -150,7 +222,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.PureV1 do
          {:compiler_resource_limit, :lowered_instructions, count, @max_lowered_instruction_count}}
   end
 
-  defp template(function, plan, levels) do
+  defp template(function, plan, levels, _profile) do
     case ScalarBlocks.lower(function, plan, levels) do
       {:ok, template} -> template
       :not_eligible -> generic_template(generic_plan(plan))

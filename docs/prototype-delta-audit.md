@@ -329,9 +329,10 @@ decisions while preserving stack limits and tail calls. The prototype's useful
 performance lesson has also been extracted without its runtime: eligible
 uncaptured lexical loops carry scalar stack/tuple state across generated blocks,
 use guarded BEAM numeric primitives with canonical fallback, and rebuild frames
-only at deoptimization. Warm arithmetic/branch/local loop execution is now
-1.72×/1.97×/2.31× faster than the interpreter while cold compilation remains
-9.26–42.61 ms. The compiler remains release quarantined because broader
+only at deoptimization. After one-time host-profile initialization, warm
+arithmetic/branch/local loop execution is now 8.18×/7.70×/5.56× faster than the
+interpreter, with array/property loops at 1.81×/6.14× and cold compilation at
+8.50–25.86 ms. The compiler remains release quarantined because broader
 Preact/Vue/Svelte performance and unsupported semantic families remain the
 release gate. No prototype compiler runtime is approved for copying.
 

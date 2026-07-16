@@ -18,7 +18,11 @@ defmodule QuickBEAM.VM.Compiler do
   alias QuickBEAM.VM.{Evaluator, Execution, Frame, Function, Interpreter, Program}
 
   @type result :: {:ok, term()} | {:error, term()} | {:suspended, term()}
-  @type frame_action :: {:deopt, term()} | {:skip, struct(), struct()} | {:error, term()}
+  @type frame_action ::
+          {:deopt, term()}
+          | {:invoke, term(), [term()], term(), struct(), struct(), false}
+          | {:skip, struct(), struct()}
+          | {:error, term()}
 
   @doc "Returns a child specification for the singleton generated-module pool."
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -69,7 +73,13 @@ defmodule QuickBEAM.VM.Compiler do
   def start(%Program{root: %Function{}} = program, opts \\ []) when is_list(opts) do
     {frame, execution} = Interpreter.initialize(program, opts)
     pool = Keyword.get(opts, :compiler_pool, ModulePool)
-    context = %Context{pool: pool, program: program}
+
+    context = %Context{
+      pool: pool,
+      profile: Keyword.get(opts, :compiler_profile, :pure_v1),
+      program: program
+    }
+
     execution = %{execution | compiler_context: context}
 
     frame
@@ -107,13 +117,14 @@ defmodule QuickBEAM.VM.Compiler do
          %Execution{
            compiler_context: %Context{
              program: %Program{root: %Function{} = root} = program,
-             min_nested_instructions: nested_minimum
+             min_nested_instructions: nested_minimum,
+             profile: profile
            }
          } = execution
        ) do
     minimum = if function.id == root.id, do: 1, else: nested_minimum
 
-    with {:ok, key} <- Contract.artifact_key(program, function, profile: :pure_v1) do
+    with {:ok, key} <- Contract.artifact_key(program, function, profile: profile) do
       case ModulePool.checkout_cached(execution.compiler_context.pool, key) do
         {:ok, lease} ->
           execution = cache_decision(execution, function.id, {:cached, key})
@@ -123,7 +134,7 @@ defmodule QuickBEAM.VM.Compiler do
           {:skip, frame, cache_decision(execution, function.id, :skip)}
 
         :miss ->
-          prepare_uncached_frame(function, minimum, key, frame, execution)
+          prepare_uncached_frame(function, minimum, profile, key, frame, execution)
 
         {:error, reason} ->
           {:error, reason}
@@ -131,8 +142,8 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  defp prepare_uncached_frame(function, minimum, key, frame, execution) do
-    case PureV1.prepare(function, minimum) do
+  defp prepare_uncached_frame(function, minimum, profile, key, frame, execution) do
+    case PureV1.prepare(function, minimum, profile) do
       {:ok, template, _count} ->
         execution = cache_decision(execution, function.id, {:compile, key, template})
         invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
@@ -177,6 +188,12 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp resume_action({:deopt, deopt}, _execution), do: Interpreter.resume_deopt_raw(deopt)
+
+  defp resume_action(
+         {:invoke, callable, arguments, this, caller, execution, false},
+         _initial
+       ),
+       do: Interpreter.resume_compiler_invoke(callable, arguments, this, caller, execution)
 
   defp resume_action({:skip, frame, execution}, _initial),
     do: Interpreter.run_frame(frame, execution)

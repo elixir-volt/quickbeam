@@ -138,6 +138,20 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert Task.await_many(tasks) == Enum.map(1..40, &{:ok, &1 + 1})
   end
 
+  test "isolates mutations of the shared immutable builtin template" do
+    source = "Object.__quickbeam_count = (Object.__quickbeam_count || 0) + 1"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    tasks = for _ <- 1..40, do: Task.async(fn -> QuickBEAM.VM.eval(program) end)
+    assert Task.await_many(tasks) == List.duplicate({:ok, 1}, 40)
+    assert {:ok, 1} = QuickBEAM.VM.eval(program)
+
+    assert {:ok, globals} = QuickBEAM.VM.compile("[Infinity, typeof Beam.call]")
+
+    assert {:ok, [42, "function"]} =
+             QuickBEAM.VM.eval(globals, vars: %{"Infinity" => 42, "Beam" => :shadowed})
+  end
+
   test "injects independent globals for each evaluation" do
     assert {:ok, program} = QuickBEAM.VM.compile("input + 1")
 

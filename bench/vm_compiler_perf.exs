@@ -13,7 +13,11 @@ workloads = [
   {"branch_loop",
    "(function(n){let s=0; for(let i=0;i<n;i++){if((i&1)===0)s+=i;else s-=i} return s})(100)"},
   {"local_arithmetic",
-   "(function(n){let a=1,b=2,c=3; for(let i=0;i<n;i++){a=b+c+i;b=a+c;c=a+b} return c})(100)"}
+   "(function(n){let a=1,b=2,c=3; for(let i=0;i<n;i++){a=b+c+i;b=a+c;c=a+b} return c})(100)"},
+  {"array_sum",
+   "(function(arr){let s=0;for(let i=0;i<arr.length;i++)s+=arr[i];return s})([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20])"},
+  {"object_property_loop",
+   "(function(obj,n){let s=0;for(let i=0;i<n;i++)s+=obj.x;return s})({x:3},100)"}
 ]
 
 average_us = fn fun ->
@@ -24,16 +28,32 @@ average_us = fn fun ->
 end
 
 {:ok, compiler} = Compiler.start_link(capacity: 32)
+{:ok, initialization_program} = QuickBEAM.VM.compile("0")
+
+{runtime_init_us, {:ok, 0}} =
+  :timer.tc(fn ->
+    QuickBEAM.VM.eval(initialization_program, isolation: :caller, max_steps: 1_000_000)
+  end)
+
+IO.puts("COMPILER_PERF runtime_initialization_us=#{runtime_init_us} profile=core")
 
 try do
   Enum.each(workloads, fn {name, source} ->
     {:ok, program} = QuickBEAM.VM.compile(source)
     interpreter_opts = [isolation: :caller, max_steps: 1_000_000]
-    compiler_opts = [engine: :compiler, isolation: :caller, max_steps: 1_000_000]
+
+    compiler_opts = [
+      engine: :compiler,
+      compiler_profile: :scalar_v1,
+      isolation: :caller,
+      max_steps: 1_000_000
+    ]
 
     {cold_us, compiled_result} = :timer.tc(fn -> QuickBEAM.VM.eval(program, compiler_opts) end)
     interpreted_result = QuickBEAM.VM.eval(program, interpreter_opts)
-    {:ok, _raw_value, raw_execution} = Compiler.start(program, max_steps: 1_000_000)
+
+    {:ok, _raw_value, raw_execution} =
+      Compiler.start(program, compiler_profile: :scalar_v1, max_steps: 1_000_000)
 
     compiled_functions =
       Enum.count(raw_execution.compiler_context.decisions, fn {_id, decision} ->

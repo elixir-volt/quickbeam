@@ -1,6 +1,12 @@
 defmodule QuickBEAM.VM.MemoryLimitTest do
   use ExUnit.Case, async: false
 
+  alias QuickBEAM.VM.{Memory, Object}
+
+  test "specialized fresh-object accounting preserves the canonical estimate" do
+    assert Memory.estimate(%Object{}) == 520
+  end
+
   test "validates the JavaScript allocation budget" do
     assert {:ok, program} = QuickBEAM.VM.compile("1")
 

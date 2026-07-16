@@ -11,9 +11,14 @@ defmodule QuickBEAM.VM.Heap do
   @max_prototype_depth 1_000
 
   @spec allocate(Execution.t(), Object.kind(), keyword()) :: {Reference.t(), Execution.t()}
-  def allocate(%Execution{} = execution, kind \\ :ordinary, opts \\ []) do
-    id = execution.next_object_id
+  def allocate(execution, kind \\ :ordinary, opts \\ [])
 
+  def allocate(%Execution{} = execution, kind, []) do
+    object = %Object{kind: kind, prototype: Map.get(execution.default_prototypes, kind)}
+    store_new_object(execution, object)
+  end
+
+  def allocate(%Execution{} = execution, kind, opts) do
     prototype =
       case Keyword.fetch(opts, :prototype) do
         {:ok, prototype} -> prototype
@@ -28,6 +33,11 @@ defmodule QuickBEAM.VM.Heap do
       internal: Keyword.get(opts, :internal)
     }
 
+    store_new_object(execution, object)
+  end
+
+  defp store_new_object(execution, object) do
+    id = execution.next_object_id
     reference = %Reference{id: id}
     execution = Memory.charge_object(execution, object)
     execution = %{execution | heap: Map.put(execution.heap, id, object), next_object_id: id + 1}
@@ -586,7 +596,7 @@ defmodule QuickBEAM.VM.Heap do
   defp normalize_key(key) when is_float(key) and trunc(key) == key,
     do: Integer.to_string(trunc(key))
 
-  defp normalize_key(key) when is_binary(key) do
+  defp normalize_key(<<first, _rest::binary>> = key) when first in ?0..?9 do
     case Integer.parse(key) do
       {index, ""} when index in 0..4_294_967_294 ->
         if Integer.to_string(index) == key, do: index, else: key
@@ -596,5 +606,6 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  defp normalize_key(key) when is_binary(key), do: key
   defp normalize_key(key), do: key
 end

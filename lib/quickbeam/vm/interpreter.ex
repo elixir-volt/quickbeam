@@ -42,6 +42,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Value
   }
 
+  alias QuickBEAM.VM.Builtin.Registry
   alias QuickBEAM.VM.Compiler, as: VMCompiler
   alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Opcodes.Invocation, as: InvocationOpcodes
@@ -52,6 +53,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
   @default_max_steps 5_000_000
   @default_max_stack_depth 1_000
+  @host_template_cache {__MODULE__, :host_templates}
+  @host_override_names ["Beam", "globalThis"]
+  @host_user_names ["Infinity", "NaN", "undefined"]
 
   @control_opcodes ControlOpcodes.opcodes()
   @invocation_opcodes InvocationOpcodes.opcodes()
@@ -101,6 +105,17 @@ defmodule QuickBEAM.VM.Interpreter do
   @spec run_frame(Frame.t(), Execution.t()) :: term()
   def run_frame(%Frame{} = frame, %Execution{} = execution), do: run(frame, execution)
 
+  @doc "Resumes an explicit generated-code invocation through canonical dispatch."
+  @spec resume_compiler_invoke(term(), [term()], term(), Frame.t(), Execution.t()) :: term()
+  def resume_compiler_invoke(
+        callable,
+        arguments,
+        this,
+        %Frame{} = caller,
+        %Execution{} = execution
+      ),
+      do: dispatch_call(callable, arguments, this, caller, execution, false)
+
   @spec resume(Continuation.t(), {:ok, term()} | {:error, term()}) :: result()
   def resume(%Continuation{} = continuation, result),
     do: continuation |> resume_raw(result) |> finish()
@@ -114,8 +129,16 @@ defmodule QuickBEAM.VM.Interpreter do
           {:ok, term(), Execution.t()} | {:error, term(), Execution.t()} | {:suspended, term()}
   def resume_deopt_raw(%Deopt{} = deopt) do
     case Deopt.validate(deopt) do
-      :ok -> run(deopt.frame, deopt.execution)
-      {:error, reason} -> {:error, {:invalid_compiler_deopt, reason}, deopt.execution}
+      :ok ->
+        frame =
+          if deopt.frame.compiler_allow_reentry,
+            do: %{deopt.frame | compiler_reentry_after_instruction: true},
+            else: deopt.frame
+
+        run(frame, deopt.execution)
+
+      {:error, reason} ->
+        {:error, {:invalid_compiler_deopt, reason}, deopt.execution}
     end
   end
 
@@ -261,6 +284,14 @@ defmodule QuickBEAM.VM.Interpreter do
        do: {:error, {:invalid_program_counter, pc}, execution}
 
   defp run(
+         %Frame{compiler_reentry_after_instruction: true} = frame,
+         %Execution{} = execution
+       ) do
+    frame = %{frame | compiler_entered: false, compiler_reentry_after_instruction: false}
+    execute_current(frame, execution)
+  end
+
+  defp run(
          %Frame{compiler_entered: false} = frame,
          %Execution{compiler_context: compiler_context} = execution
        )
@@ -268,14 +299,26 @@ defmodule QuickBEAM.VM.Interpreter do
     frame = %{frame | compiler_entered: true}
 
     case VMCompiler.execute_frame(frame, execution) do
-      {:deopt, %Deopt{} = deopt} -> resume_deopt_raw(deopt)
-      {:skip, frame, execution} -> run(frame, execution)
-      {:error, reason} -> {:error, {:compiler_error, reason}, execution}
-      action -> {:error, {:compiler_error, {:invalid_generated_action, action}}, execution}
+      {:deopt, %Deopt{} = deopt} ->
+        resume_deopt_raw(deopt)
+
+      {:invoke, callable, arguments, this, caller, execution, false} ->
+        dispatch_call(callable, arguments, this, caller, execution, false)
+
+      {:skip, frame, execution} ->
+        run(frame, execution)
+
+      {:error, reason} ->
+        {:error, {:compiler_error, reason}, execution}
+
+      action ->
+        {:error, {:compiler_error, {:invalid_generated_action, action}}, execution}
     end
   end
 
-  defp run(%Frame{} = frame, %Execution{} = execution) do
+  defp run(%Frame{} = frame, %Execution{} = execution), do: execute_current(frame, execution)
+
+  defp execute_current(frame, execution) do
     {opcode, operands} = elem(frame.function.instructions, frame.pc)
     {name, _size, _pops, _pushes, _format} = Opcodes.info(opcode)
     {name, operands} = Opcodes.expand_short_form(name, operands, frame.function.arg_count)
@@ -812,6 +855,58 @@ defmodule QuickBEAM.VM.Interpreter do
     do: frame |> next_frame() |> Async.suspend_microtask(execution, result) |> execute_async()
 
   defp install_host_globals(execution, profile) do
+    template = host_template(profile)
+    user_globals = execution.globals
+    validate_host_global_conflicts!(user_globals, template.globals)
+
+    globals =
+      template.globals
+      |> Map.merge(user_globals)
+      |> Map.put("Beam", Map.fetch!(template.globals, "Beam"))
+      |> Map.put("globalThis", Map.fetch!(template.globals, "globalThis"))
+
+    execution = %{
+      execution
+      | default_prototypes: template.default_prototypes,
+        error_prototypes: template.error_prototypes,
+        globals: globals,
+        heap: template.heap,
+        next_cell_id: template.next_cell_id,
+        next_object_id: template.next_object_id,
+        next_promise_id: template.next_promise_id,
+        next_symbol_id: template.next_symbol_id
+    }
+
+    Memory.charge(execution, template.memory_used)
+  end
+
+  defp host_template(profile) do
+    key = {@host_template_cache, profile}
+    generation = Registry.generation()
+
+    case :persistent_term.get(key, :missing) do
+      {^generation, template} ->
+        template
+
+      _missing_or_stale ->
+        template = build_host_template(profile)
+        :persistent_term.put(key, {generation, template})
+        template
+    end
+  end
+
+  defp build_host_template(profile) do
+    execution = %Execution{
+      atoms: {},
+      max_stack_depth: 1,
+      remaining_steps: 1,
+      step_limit: 1
+    }
+
+    build_host_globals(execution, profile)
+  end
+
+  defp build_host_globals(execution, profile) do
     execution = Builtins.install(execution, profile)
     {beam, execution} = Heap.allocate(execution)
 
@@ -829,6 +924,15 @@ defmodule QuickBEAM.VM.Interpreter do
       |> Map.put("globalThis", global_this)
 
     %{execution | globals: globals}
+  end
+
+  defp validate_host_global_conflicts!(user_globals, template_globals) do
+    protected_names = Map.keys(template_globals) -- (@host_override_names ++ @host_user_names)
+
+    case Enum.find(protected_names, &Map.has_key?(user_globals, &1)) do
+      nil -> :ok
+      name -> raise ArgumentError, "builtin #{name} conflicts with an installed global"
+    end
   end
 
   defp start_host_call(arguments, caller, execution, tail?) do

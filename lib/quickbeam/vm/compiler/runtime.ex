@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   alias QuickBEAM.VM.Execution
   alias QuickBEAM.VM.Frame
   alias QuickBEAM.VM.Opcodes.{Control, Locals, Stack, Values}
-  alias QuickBEAM.VM.{StackState, Value}
+  alias QuickBEAM.VM.{Properties, StackState, Value}
 
   @stack_operations Stack.opcodes()
   @local_operations [
@@ -72,6 +72,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @type action ::
           {:ok, Frame.t(), Execution.t()}
           | {:deopt, Deopt.t()}
+          | {:invoke, term(), [term()], term(), Frame.t(), Execution.t(), false}
           | {:error, term(), Execution.t()}
           | {:error, term()}
 
@@ -208,7 +209,16 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
         %Execution{} = execution
       )
       when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) do
-    deopt(reason, lease, %{frame | pc: pc, args: args, locals: locals, stack: stack}, execution)
+    frame = %{
+      frame
+      | pc: pc,
+        args: args,
+        locals: locals,
+        stack: stack,
+        compiler_allow_reentry: scalar_profile?(execution)
+    }
+
+    deopt(reason, lease, frame, execution)
   end
 
   def deopt_state(_reason, _lease, state, _execution),
@@ -543,6 +553,50 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   defp execute_operation(family, name, operands, _frame, _execution),
     do: {:error, {:unsupported_compiler_operation, family, name, operands}}
+
+  @doc "Resolves one decoded atom operand through the canonical local layer."
+  @spec resolve_atom(term(), Execution.t()) :: term()
+  def resolve_atom(atom, %Execution{} = execution), do: Locals.resolve_atom(atom, execution)
+
+  @doc "Reads a non-accessor property or requests before-instruction deoptimization."
+  @spec property_get(term(), term(), Execution.t()) :: {:ok, term()} | :deopt
+  def property_get(object, key, %Execution{} = execution) do
+    case Properties.get(object, key, execution) do
+      {:ok, {:accessor, _getter, _receiver}} -> :deopt
+      {:ok, value} -> {:ok, value}
+      {:error, _reason} -> :deopt
+    end
+  end
+
+  @doc "Returns an explicit interpreter-owned invocation from bounded scalar state."
+  @spec invoke_state(term(), [term()], term(), tuple(), Execution.t()) :: action()
+  def invoke_state(
+        callable,
+        arguments,
+        this,
+        {%Frame{} = frame, pc, args, locals, stack},
+        %Execution{} = execution
+      )
+      when is_list(arguments) and is_integer(pc) and pc >= 0 and is_tuple(args) and
+             is_tuple(locals) and is_list(stack) do
+    caller = %{
+      frame
+      | pc: pc,
+        args: args,
+        locals: locals,
+        stack: stack,
+        compiler_allow_reentry: true,
+        compiler_entered: false
+    }
+
+    {:invoke, callable, arguments, this, caller, execution, false}
+  end
+
+  def invoke_state(_callable, _arguments, _this, state, _execution),
+    do: {:error, {:invalid_compiler_invocation_state, state}}
+
+  defp scalar_profile?(%Execution{compiler_context: %{profile: :scalar_v1}}), do: true
+  defp scalar_profile?(_execution), do: false
 
   @doc "Returns canonical JavaScript truthiness for a represented value."
   @spec truthy?(term()) :: boolean()

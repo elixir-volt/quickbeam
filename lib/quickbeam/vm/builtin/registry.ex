@@ -7,14 +7,15 @@ defmodule QuickBEAM.VM.Builtin.Registry do
   exporting `builtin_spec/0`, then orders their immutable specs by declared
   JavaScript dependencies. It does not depend on module loading order.
 
-  The resulting profile registry is cached in `:persistent_term` because every
-  isolated evaluation installs the same immutable builtin topology.
+  The resulting profile registry is cached in `:persistent_term` and versions
+  the immutable host templates shared structurally by isolated evaluations.
   """
 
   alias QuickBEAM.VM.Builtin.Spec
 
   @application :quickbeam
   @cache_key {__MODULE__, :profiles}
+  @generation_key {__MODULE__, :generation}
   @profiles [:core, :ssr]
 
   @doc "Returns discovered builtin modules in deterministic dependency order."
@@ -23,6 +24,13 @@ defmodule QuickBEAM.VM.Builtin.Registry do
     registry()
     |> Map.fetch!(profile)
     |> Enum.map(& &1.module)
+  end
+
+  @doc "Returns the cache generation for the current discovered registry."
+  @spec generation() :: non_neg_integer()
+  def generation do
+    _registry = registry()
+    :persistent_term.get(@generation_key, 0)
   end
 
   @doc "Refreshes and returns the builtin registry from the compiled application manifest."
@@ -37,7 +45,9 @@ defmodule QuickBEAM.VM.Builtin.Registry do
         {profile, dependency_order(selected, profile)}
       end)
 
+    generation = :persistent_term.get(@generation_key, 0) + 1
     :persistent_term.put(@cache_key, registry)
+    :persistent_term.put(@generation_key, generation)
     registry
   end
 

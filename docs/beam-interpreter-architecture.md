@@ -84,7 +84,7 @@ The existing `QuickBEAM` runtime remains the stateful engine:
 - a `%QuickBEAM.VM.Program{}` is immutable and reusable;
 - each evaluation executes in a dedicated BEAM process by default;
 - the JavaScript heap is local to that process;
-- there is no implicit persistent state between evaluations;
+- there is no implicit mutable persistent state between evaluations;
 - concurrent evaluations of one program are independent.
 
 This distinction must be visible in the API. A `mode: :beam` option on a
@@ -503,9 +503,19 @@ Function prototype, constructor cycles, boxed primitives, and Array defaults
 without a bootstrap constructor table. Mix records the complete QuickBEAM
 module inventory in the compiled application manifest. The profile registry
 filters that inventory for immutable builtin specs, orders them by declared
-JavaScript dependencies, caches the result, and installs it into each owner-local
-execution. This avoids both a manually duplicated module list and
-code-loading-order-dependent runtime discovery.
+JavaScript dependencies, and caches the result. The first evaluation of each
+profile and registry generation validates and installs those specs into an
+immutable host template;
+subsequent evaluations seed their owner-local heap and globals from that
+persistent template. BEAM's immutable maps provide copy-on-write isolation, so
+mutating `Object`, `globalThis`, or any other intrinsic in one evaluation cannot
+change another evaluation or the template. References are interpreted only
+against the receiving evaluation's heap, and no jobs, handlers, continuations,
+or mutable owner state enter the template. The template's exact logical
+allocation is charged to every evaluation before user code runs, preserving
+memory-limit behavior and deterministic measurement while removing repeated
+spec validation and topology construction. This avoids both a manually
+duplicated module list and code-loading-order-dependent runtime discovery.
 
 Installed functions are real owner-local function objects carrying stable
 module/handler tokens, not captured closures. Calls receive an explicit
@@ -795,8 +805,10 @@ QuickBEAM.VM.eval(program, engine: :compiler)
 ```
 
 The generic compiler path runs one bounded pure block. Eligible lexical loops
-use bounded scalar generated forms, tail-call successor blocks, and reconstruct
-the canonical frame only at a verified deoptimization boundary. Compiler
+use bounded scalar generated forms, tail-call successor blocks, perform
+canonical non-accessor property reads, and return explicit invocation actions.
+They reconstruct the canonical frame only at a verified deoptimization or call
+boundary. Compiler
 infrastructure failures are typed errors and never restart the program or invoke
 native QuickJS. The default
 `QuickBEAM.VM` path remains the interpreter until compiler resource, scheduler,

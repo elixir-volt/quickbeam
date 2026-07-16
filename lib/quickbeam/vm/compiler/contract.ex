@@ -10,9 +10,9 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   alias QuickBEAM.VM.{Function, Program}
 
   @contract_version 1
-  @runtime_abi_version 2
+  @runtime_abi_version 3
   @artifact_key_bytes 32
-  @profiles [:pure_v1]
+  @profiles [:pure_v1, :scalar_v1]
 
   @pool_modules [
     QuickBEAM.VM.Compiler.Slot00,

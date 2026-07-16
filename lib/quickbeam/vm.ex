@@ -95,7 +95,8 @@ defmodule QuickBEAM.VM do
   Evaluates a verified program in an isolated BEAM process.
 
   Supported options include the explicit `:engine` (`:interpreter` or
-  `:compiler`), `:vars`, asynchronous `:handlers`, the builtin `:profile`
+  `:compiler`), the experimental compiler `:compiler_profile` (`:pure_v1` by
+  default or opt-in `:scalar_v1`), `:vars`, asynchronous `:handlers`, the builtin `:profile`
   (`:core` or `:ssr`), `:timeout`, `:max_steps`, `:max_stack_depth`, and the
   JavaScript allocation budget `:memory_limit`. Isolated workers also receive a
   BEAM process heap ceiling. `isolation: :caller` is available for trusted
@@ -142,6 +143,7 @@ defmodule QuickBEAM.VM do
   defp evaluation_options(opts) do
     allowed = [
       :compiler_pool,
+      :compiler_profile,
       :engine,
       :handlers,
       :isolation,
@@ -163,6 +165,7 @@ defmodule QuickBEAM.VM do
     isolation = Keyword.get(opts, :isolation, :process)
     engine = Keyword.get(opts, :engine, :interpreter)
     compiler_pool = Keyword.get(opts, :compiler_pool, QuickBEAM.VM.Compiler.ModulePool)
+    compiler_profile = Keyword.get(opts, :compiler_profile, :pure_v1)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
@@ -180,6 +183,9 @@ defmodule QuickBEAM.VM do
 
       not (is_atom(compiler_pool) or is_pid(compiler_pool)) ->
         {:error, {:invalid_option, :compiler_pool, compiler_pool}}
+
+      compiler_profile not in [:pure_v1, :scalar_v1] ->
+        {:error, {:invalid_option, :compiler_profile, compiler_profile}}
 
       timeout != :infinity and (not is_integer(timeout) or timeout <= 0) ->
         {:error, {:invalid_option, :timeout, timeout}}
@@ -214,6 +220,7 @@ defmodule QuickBEAM.VM do
            timeout: timeout,
            interpreter: %{
              compiler_pool: compiler_pool,
+             compiler_profile: compiler_profile,
              handlers: handlers,
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
