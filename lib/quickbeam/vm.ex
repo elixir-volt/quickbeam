@@ -6,6 +6,21 @@ defmodule QuickBEAM.VM do
   heap, Promise state, host operations, and resource limits. The optional BEAM
   compiler is an internal, release-quarantined subsystem and is not selected
   through this public facade.
+
+  ## Execution model and limitations
+
+  `eval/2` and `call/4` create fresh mutable JavaScript state for every request.
+  `call/4` runs program initialization and then invokes its named global in that
+  same fresh state; unlike `QuickBEAM.call/4`, mutations do not persist across
+  calls. Programs and bytecode are locked to the exact vendored QuickJS ABI and
+  must be recompiled after an incompatible upgrade.
+
+  The interpreter implements bounded, explicitly tested bytecode and builtin
+  profiles rather than every native QuickJS, browser, Node.js, DOM, WASM, or
+  addon feature. Unsupported behavior fails without native fallback.
+  `:memory_limit` governs deterministic logical VM allocation, while endpoint
+  BEAM process memory is reported separately by measurement APIs. Pinned
+  storage is fixed-capacity, explicitly retired, and never implicitly evicted.
   """
 
   alias QuickBEAM.VM.ABI
@@ -44,6 +59,8 @@ defmodule QuickBEAM.VM do
           :invalid_program
           | :invalid_source
           | :invalid_bytecode
+          | :invalid_function_name
+          | :invalid_arguments
           | :invalid_pinned_program
           | :pinned_program_capacity
           | :pinned_program_unavailable
@@ -188,6 +205,34 @@ defmodule QuickBEAM.VM do
   def eval(_program, opts), do: {:error, {:invalid_options, opts}}
 
   @doc """
+  Initializes a fresh isolated heap and calls a named global JavaScript function.
+
+  Program initialization runs before every call, so globals mutated by one call
+  are not visible to the next. Arguments and Promise results use the same value
+  conversion, asynchronous handlers, isolation, and resource limits as `eval/2`.
+  Missing globals produce `ReferenceError`; non-callable globals produce
+  `TypeError`.
+  """
+  @spec call(Program.t() | Pinned.t(), String.t(), [term()], [evaluation_option()]) ::
+          result(term())
+  def call(program, name, arguments \\ [], opts \\ [])
+
+  def call(program, name, arguments, opts)
+      when is_binary(name) and is_list(arguments) and is_list(opts) do
+    with :ok <- validate_options(opts, @evaluation_options) do
+      Engine.call(program, name, arguments, Keyword.put(opts, :engine, :interpreter))
+    end
+  end
+
+  def call(_program, name, _arguments, _opts) when not is_binary(name),
+    do: {:error, :invalid_function_name}
+
+  def call(_program, _name, arguments, _opts) when not is_list(arguments),
+    do: {:error, :invalid_arguments}
+
+  def call(_program, _name, _arguments, opts), do: {:error, {:invalid_options, opts}}
+
+  @doc """
   Evaluates with the same isolation and limits as `eval/2` and returns resource
   observations in a `QuickBEAM.VM.Measurement`.
 
@@ -206,6 +251,44 @@ defmodule QuickBEAM.VM do
   end
 
   def measure(_program, opts), do: {:error, {:invalid_options, opts}}
+
+  @doc """
+  Calls a named global with the same fresh initialization and limits as `call/4`
+  and returns resource observations in a `QuickBEAM.VM.Measurement`.
+
+  Call failures are stored in `measurement.result`. Invalid names, arguments,
+  programs, or options return directly because no evaluation started.
+  """
+  @spec measure_call(
+          Program.t() | Pinned.t(),
+          String.t(),
+          [term()],
+          [evaluation_option()]
+        ) :: result(Measurement.t())
+  def measure_call(program, name, arguments \\ [], opts \\ [])
+
+  def measure_call(program, name, arguments, opts)
+      when is_binary(name) and is_list(arguments) and is_list(opts) do
+    with :ok <- validate_options(opts, @evaluation_options),
+         {:ok, measurement} <-
+           Engine.measure_call(
+             program,
+             name,
+             arguments,
+             Keyword.put(opts, :engine, :interpreter)
+           ) do
+      {:ok, public_measurement(measurement)}
+    end
+  end
+
+  def measure_call(_program, name, _arguments, _opts) when not is_binary(name),
+    do: {:error, :invalid_function_name}
+
+  def measure_call(_program, _name, arguments, _opts) when not is_list(arguments),
+    do: {:error, :invalid_arguments}
+
+  def measure_call(_program, _name, _arguments, opts),
+    do: {:error, {:invalid_options, opts}}
 
   @doc """
   Unpins a handle after its current evaluations finish.

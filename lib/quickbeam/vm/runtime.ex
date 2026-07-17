@@ -26,155 +26,189 @@ defmodule QuickBEAM.VM.Runtime do
     |> drive()
   end
 
+  @doc "Calls a named global after initialization and drains the owner-local event loop."
+  @spec call(Program.t(), String.t(), [term()], keyword()) :: Interpreter.result()
+  def call(%Program{} = program, name, arguments \\ [], opts \\ []) do
+    finish_initialization = fn
+      {:ok, _value, execution} ->
+        program
+        |> Interpreter.invoke_global(name, arguments, execution)
+        |> drive()
+
+      result ->
+        finish_final(result)
+    end
+
+    program
+    |> Interpreter.start(opts)
+    |> drive_with(finish_initialization)
+  end
+
   @doc "Evaluates a program and returns deterministic counters plus endpoint process observations."
   @spec eval_with_metrics(Program.t(), keyword()) :: {Interpreter.result(), map() | nil}
   def eval_with_metrics(%Program{} = program, opts \\ []) do
-    ref = make_ref()
-    result = eval(program, Keyword.put(opts, :measurement_target, {self(), ref}))
+    measured(fn measured_opts -> eval(program, measured_opts) end, opts)
+  end
 
-    receive do
-      {:quickbeam_vm_measurement, ^ref, metrics} -> {result, metrics}
-    after
-      0 -> {result, nil}
-    end
+  @doc "Calls a global and returns deterministic counters plus endpoint process observations."
+  @spec call_with_metrics(Program.t(), String.t(), [term()], keyword()) ::
+          {Interpreter.result(), map() | nil}
+  def call_with_metrics(%Program{} = program, name, arguments \\ [], opts \\ []) do
+    measured(fn measured_opts -> call(program, name, arguments, measured_opts) end, opts)
   end
 
   @doc "Drives a raw interpreter or compiler machine result through the owner-local event loop."
   @spec drive(term()) :: Interpreter.result()
-  def drive({:ok, %PromiseReference{} = promise, execution}),
-    do: await_final_promise(promise, execution)
+  def drive(result), do: drive_with(result, &finish_final/1)
 
-  def drive({:suspended, %Continuation{awaiting: :microtask} = continuation}) do
+  defp drive_with({:ok, %PromiseReference{} = promise, execution}, finish),
+    do: await_final_promise(promise, execution, finish)
+
+  defp drive_with({:suspended, %Continuation{awaiting: :microtask} = continuation}, finish) do
     case :queue.out(continuation.execution.jobs) do
       {{:value, result}, jobs} when elem(result, 0) in [:ok, :error] ->
         continuation = %{continuation | execution: %{continuation.execution | jobs: jobs}}
-        then_resume(result, continuation)
+        then_resume(result, continuation, finish)
 
       {:empty, _jobs} ->
-        finish_final({:error, :missing_microtask, continuation.execution})
+        finish.({:error, :missing_microtask, continuation.execution})
     end
   end
 
-  def drive({:suspended, %Continuation{awaiting: %PromiseReference{}} = continuation}) do
-    await_legacy_promise(continuation)
+  defp drive_with(
+         {:suspended, %Continuation{awaiting: %PromiseReference{}} = continuation},
+         finish
+       ) do
+    await_legacy_promise(continuation, finish)
   end
 
-  def drive({:suspended, %Continuation{} = continuation} = suspended),
+  defp drive_with({:suspended, %Continuation{} = continuation} = suspended, _finish),
     do: finish_suspended(suspended, continuation.execution)
 
-  def drive({status, _value, _execution} = result) when status in [:ok, :error],
-    do: finish_final(result)
+  defp drive_with({status, _value, _execution} = result, finish) when status in [:ok, :error],
+    do: finish.(result)
 
-  def drive({:idle, execution}),
-    do: finish_final({:error, :idle_evaluation, execution})
+  defp drive_with({:idle, execution}, finish),
+    do: finish.({:error, :idle_evaluation, execution})
 
-  defp await_final_promise(%PromiseReference{} = promise, execution) do
+  defp await_final_promise(%PromiseReference{} = promise, execution, finish) do
     if :queue.is_empty(execution.sync_jobs) do
-      await_settled_promise(promise, execution)
+      await_settled_promise(promise, execution, finish)
     else
       execution
       |> Interpreter.run_synchronous_job()
-      |> continue_final(promise)
+      |> continue_final(promise, finish)
     end
   end
 
-  defp await_settled_promise(promise, execution) do
+  defp await_settled_promise(promise, execution, finish) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} ->
-        finish_final({:ok, value, execution})
+        finish.({:ok, value, execution})
 
       {:rejected, %QuickBEAM.JSError{} = error} ->
-        finish_final({:error, error, execution})
+        finish.({:error, error, execution})
 
       {:rejected, reason} ->
         error = Exception.to_js_error(reason, execution, [])
-        finish_final({:error, error, execution})
+        finish.({:error, error, execution})
 
       :pending ->
-        drive_event_loop(promise, execution)
+        drive_event_loop(promise, execution, finish)
     end
   end
 
-  defp drive_event_loop(final_promise, execution) do
+  defp drive_event_loop(final_promise, execution, finish) do
     case :queue.out(execution.jobs) do
       {{:value, job}, jobs} ->
         execution = %{execution | jobs: jobs}
-        run_job(job, final_promise, execution)
+        run_job(job, final_promise, execution, finish)
 
       {:empty, _jobs} when map_size(execution.operations) > 0 ->
-        receive_host_reply(final_promise, execution)
+        receive_host_reply(final_promise, execution, finish)
 
       {:empty, _jobs} ->
-        finish_final({:error, {:promise_deadlock, final_promise.id}, execution})
+        finish.({:error, {:promise_deadlock, final_promise.id}, execution})
     end
   end
 
-  defp run_job({:resume_coroutine, %Coroutine{} = coroutine, result}, final_promise, execution) do
+  defp run_job(
+         {:resume_coroutine, %Coroutine{} = coroutine, result},
+         final_promise,
+         execution,
+         finish
+       ) do
     coroutine
     |> Interpreter.resume_coroutine(result, execution)
-    |> continue_final(final_promise)
+    |> continue_final(final_promise, finish)
   end
 
-  defp run_job({:read_thenable, promise, thenable, getter}, final_promise, execution) do
+  defp run_job({:read_thenable, promise, thenable, getter}, final_promise, execution, finish) do
     promise
     |> Interpreter.read_thenable(thenable, getter, execution)
-    |> continue_final(final_promise)
+    |> continue_final(final_promise, finish)
   end
 
   defp run_job(
          {:assimilate_thenable, promise, thenable, callable},
          final_promise,
-         execution
+         execution,
+         finish
        ) do
     promise
     |> Interpreter.assimilate_thenable(thenable, callable, execution)
-    |> continue_final(final_promise)
+    |> continue_final(final_promise, finish)
   end
 
-  defp run_job({:run_reaction, %Reaction{} = reaction, result}, final_promise, execution) do
+  defp run_job(
+         {:run_reaction, %Reaction{} = reaction, result},
+         final_promise,
+         execution,
+         finish
+       ) do
     reaction
     |> Interpreter.run_reaction(result, execution)
-    |> continue_final(final_promise)
+    |> continue_final(final_promise, finish)
   end
 
-  defp run_job({:aggregate_settle, id, index, result}, final_promise, execution) do
+  defp run_job({:aggregate_settle, id, index, result}, final_promise, execution, finish) do
     execution = Promise.settle_aggregate(execution, id, index, result)
-    await_final_promise(final_promise, execution)
+    await_final_promise(final_promise, execution, finish)
   end
 
-  defp run_job({:settle_assimilated, promise, result}, final_promise, execution) do
+  defp run_job({:settle_assimilated, promise, result}, final_promise, execution, finish) do
     execution = Promise.settle_assimilated(execution, promise, result)
-    await_final_promise(final_promise, execution)
+    await_final_promise(final_promise, execution, finish)
   end
 
-  defp run_job({:settle_promise, promise, result}, final_promise, execution) do
+  defp run_job({:settle_promise, promise, result}, final_promise, execution, finish) do
     execution = Promise.settle(execution, promise, result)
-    await_final_promise(final_promise, execution)
+    await_final_promise(final_promise, execution, finish)
   end
 
-  defp continue_final({:idle, execution}, final_promise),
-    do: await_final_promise(final_promise, execution)
+  defp continue_final({:idle, execution}, final_promise, finish),
+    do: await_final_promise(final_promise, execution, finish)
 
-  defp continue_final({:ok, _value, execution}, final_promise),
-    do: await_final_promise(final_promise, execution)
+  defp continue_final({:ok, _value, execution}, final_promise, finish),
+    do: await_final_promise(final_promise, execution, finish)
 
-  defp continue_final({:error, _reason, _execution} = error, _final_promise),
-    do: finish_final(error)
+  defp continue_final({:error, _reason, _execution} = error, _final_promise, finish),
+    do: finish.(error)
 
-  defp continue_final({:suspended, continuation}, _final_promise),
-    do: drive({:suspended, continuation})
+  defp continue_final({:suspended, continuation}, _final_promise, finish),
+    do: drive_with({:suspended, continuation}, finish)
 
-  defp receive_host_reply(final_promise, execution) do
+  defp receive_host_reply(final_promise, execution, finish) do
     receive do
       {:quickbeam_vm_host_reply, operation, result} ->
         case Async.settle_host_reply(execution, operation, result) do
-          {:ok, execution} -> await_final_promise(final_promise, execution)
-          :stale -> receive_host_reply(final_promise, execution)
+          {:ok, execution} -> await_final_promise(final_promise, execution, finish)
+          :stale -> receive_host_reply(final_promise, execution, finish)
         end
     end
   end
 
-  defp await_legacy_promise(%Continuation{} = continuation) do
+  defp await_legacy_promise(%Continuation{} = continuation, finish) do
     receive do
       {:quickbeam_vm_host_reply, operation, result} ->
         case Async.settle_host_reply(continuation.execution, operation, result) do
@@ -182,15 +216,19 @@ defmodule QuickBEAM.VM.Runtime do
             continuation = %{continuation | execution: execution}
 
             if Promise.state(execution, continuation.awaiting) == :pending do
-              await_legacy_promise(continuation)
+              await_legacy_promise(continuation, finish)
             else
               result = settled_result(continuation.awaiting, execution)
               execution = %{execution | jobs: :queue.in(result, execution.jobs)}
-              drive({:suspended, %{continuation | execution: execution, awaiting: :microtask}})
+
+              drive_with(
+                {:suspended, %{continuation | execution: execution, awaiting: :microtask}},
+                finish
+              )
             end
 
           :stale ->
-            await_legacy_promise(continuation)
+            await_legacy_promise(continuation, finish)
         end
     end
   end
@@ -202,10 +240,21 @@ defmodule QuickBEAM.VM.Runtime do
     end
   end
 
-  defp then_resume(result, continuation) do
+  defp then_resume(result, continuation, finish) do
     continuation
     |> Interpreter.resume_raw(result)
-    |> drive()
+    |> drive_with(finish)
+  end
+
+  defp measured(fun, opts) do
+    ref = make_ref()
+    result = fun.(Keyword.put(opts, :measurement_target, {self(), ref}))
+
+    receive do
+      {:quickbeam_vm_measurement, ^ref, metrics} -> {result, metrics}
+    after
+      0 -> {result, nil}
+    end
   end
 
   defp finish_final({status, _value, %State{} = execution} = result)

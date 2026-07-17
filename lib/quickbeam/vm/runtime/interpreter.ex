@@ -91,6 +91,27 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
     run(frame, execution)
   end
 
+  @doc "Invokes a named global after program initialization in the same owner-local state."
+  @spec invoke_global(Program.t(), String.t(), [term()], State.t()) :: term()
+  def invoke_global(%Program{} = program, name, arguments, %State{} = execution)
+      when is_binary(name) and is_list(arguments) do
+    caller = Invocation.new_frame(program.root, program.root, [], :undefined, {})
+    execution = Memory.charge(execution, Memory.estimate(arguments))
+
+    if execution.memory_exceeded do
+      {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
+    else
+      case LocalOpcodes.read_global(execution, name) do
+        {:ok, callable} ->
+          this = Map.get(execution.globals, "globalThis", :undefined)
+          dispatch_call(callable, arguments, this, caller, execution, true)
+
+        :error ->
+          raise_js_from_caller({:reference_error, name}, caller, execution)
+      end
+    end
+  end
+
   @doc "Runs one canonical frame and execution state through the machine loop."
   @spec run_frame(Frame.t(), State.t()) :: term()
   def run_frame(%Frame{} = frame, %State{} = execution), do: run(frame, execution)

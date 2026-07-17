@@ -29,11 +29,47 @@ defmodule QuickBEAM.VM.Runtime.Engine do
 
   @doc "Evaluates through an explicitly selected internal engine."
   @spec eval(Program.t() | Pinned.t(), [option()]) :: QuickBEAM.VM.result(term())
-  def eval(program, opts \\ [])
+  def eval(program, opts \\ []), do: execute(program, opts, :eval)
 
-  def eval(%Pinned{} = pinned, opts) when is_list(opts) do
+  @doc "Calls a named global through an explicitly selected internal engine."
+  @spec call(Program.t() | Pinned.t(), String.t(), [term()], [option()]) ::
+          QuickBEAM.VM.result(term())
+  def call(program, name, arguments \\ [], opts \\ [])
+
+  def call(program, name, arguments, opts)
+      when is_binary(name) and is_list(arguments),
+      do: execute(program, opts, {:call, name, arguments})
+
+  def call(_program, name, _arguments, _opts) when not is_binary(name),
+    do: {:error, :invalid_function_name}
+
+  def call(_program, _name, arguments, _opts) when not is_list(arguments),
+    do: {:error, :invalid_arguments}
+
+  @doc "Measures an explicitly selected internal engine evaluation."
+  @spec measure(Program.t() | Pinned.t(), [option()]) :: QuickBEAM.VM.result(Measurement.t())
+  def measure(program, opts \\ []), do: measure_request(program, opts, :eval)
+
+  @doc "Measures a named global call through an explicitly selected internal engine."
+  @spec measure_call(Program.t() | Pinned.t(), String.t(), [term()], [option()]) ::
+          QuickBEAM.VM.result(Measurement.t())
+  def measure_call(program, name, arguments \\ [], opts \\ [])
+
+  def measure_call(program, name, arguments, opts)
+      when is_binary(name) and is_list(arguments),
+      do: measure_request(program, opts, {:call, name, arguments})
+
+  def measure_call(_program, name, _arguments, _opts) when not is_binary(name),
+    do: {:error, :invalid_function_name}
+
+  def measure_call(_program, _name, arguments, _opts) when not is_list(arguments),
+    do: {:error, :invalid_arguments}
+
+  defp execute(%Pinned{} = pinned, opts, request) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
          {:ok, lease} <- pinned_lease(pinned) do
+      options = Map.put(options, :request, request)
+
       try do
         case options.isolation do
           :caller -> evaluate_pinned_caller(lease, options)
@@ -45,9 +81,11 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  def eval(%Program{} = program, opts) when is_list(opts) do
+  defp execute(%Program{} = program, opts, request) when is_list(opts) do
     with :ok <- Verifier.verify(program),
          {:ok, options} <- evaluation_options(opts) do
+      options = Map.put(options, :request, request)
+
       case options.isolation do
         :caller -> evaluate(program, options)
         :process -> eval_isolated(program, options)
@@ -55,19 +93,16 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  def eval(program, _opts)
-      when not is_struct(program, Program) and not is_struct(program, Pinned),
-      do: {:error, :invalid_program}
+  defp execute(program, _opts, _request)
+       when not is_struct(program, Program) and not is_struct(program, Pinned),
+       do: {:error, :invalid_program}
 
-  def eval(_program, opts), do: {:error, {:invalid_options, opts}}
+  defp execute(_program, opts, _request), do: {:error, {:invalid_options, opts}}
 
-  @doc "Measures an explicitly selected internal engine evaluation."
-  @spec measure(Program.t() | Pinned.t(), [option()]) :: QuickBEAM.VM.result(Measurement.t())
-  def measure(program, opts \\ [])
-
-  def measure(%Pinned{} = pinned, opts) when is_list(opts) do
+  defp measure_request(%Pinned{} = pinned, opts, request) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
          {:ok, lease} <- pinned_lease(pinned) do
+      options = Map.put(options, :request, request)
       started = System.monotonic_time()
 
       payload =
@@ -86,9 +121,10 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  def measure(%Program{} = program, opts) when is_list(opts) do
+  defp measure_request(%Program{} = program, opts, request) when is_list(opts) do
     with :ok <- Verifier.verify(program),
          {:ok, options} <- evaluation_options(opts) do
+      options = Map.put(options, :request, request)
       started = System.monotonic_time()
 
       payload =
@@ -103,11 +139,11 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  def measure(program, _opts)
-      when not is_struct(program, Program) and not is_struct(program, Pinned),
-      do: {:error, :invalid_program}
+  defp measure_request(program, _opts, _request)
+       when not is_struct(program, Program) and not is_struct(program, Pinned),
+       do: {:error, :invalid_program}
 
-  def measure(_program, opts), do: {:error, {:invalid_options, opts}}
+  defp measure_request(_program, opts, _request), do: {:error, {:invalid_options, opts}}
 
   defp evaluation_options(opts) do
     allowed = [
@@ -260,11 +296,20 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     await_evaluation(pid, monitor_ref, reply_ref, options.timeout, options.memory_limit)
   end
 
-  defp evaluate(program, %{engine: :interpreter, interpreter: options}),
+  defp evaluate(program, %{engine: :interpreter, interpreter: options, request: :eval}),
     do: Runtime.eval(program, Map.to_list(options))
 
-  defp evaluate(program, %{engine: :compiler, interpreter: options}),
+  defp evaluate(
+         program,
+         %{engine: :interpreter, interpreter: options, request: {:call, name, arguments}}
+       ),
+       do: Runtime.call(program, name, arguments, Map.to_list(options))
+
+  defp evaluate(program, %{engine: :compiler, interpreter: options, request: :eval}),
     do: Compiler.eval(program, Map.to_list(options))
+
+  defp evaluate(_program, %{engine: :compiler, request: {:call, _name, _arguments}}),
+    do: {:error, {:unsupported, :compiler_call}}
 
   defp safe_evaluate(program, options) do
     case evaluate(program, options) do
@@ -307,8 +352,8 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  defp safe_measure(program, %{engine: engine, interpreter: options}) do
-    {result, metrics} = measure_engine(engine, program, Map.to_list(options))
+  defp safe_measure(program, %{engine: engine, interpreter: options, request: request}) do
+    {result, metrics} = measure_engine(engine, program, Map.to_list(options), request)
 
     result =
       if match?({:suspended, _continuation}, result),
@@ -323,11 +368,17 @@ defmodule QuickBEAM.VM.Runtime.Engine do
       {:measured, {:error, {engine_crash(engine), {kind, reason}, __STACKTRACE__}}, nil}
   end
 
-  defp measure_engine(:interpreter, program, options),
+  defp measure_engine(:interpreter, program, options, :eval),
     do: Runtime.eval_with_metrics(program, options)
 
-  defp measure_engine(:compiler, program, options),
+  defp measure_engine(:interpreter, program, options, {:call, name, arguments}),
+    do: Runtime.call_with_metrics(program, name, arguments, options)
+
+  defp measure_engine(:compiler, program, options, :eval),
     do: Compiler.eval_with_metrics(program, options)
+
+  defp measure_engine(:compiler, _program, _options, {:call, _name, _arguments}),
+    do: {{:error, {:unsupported, :compiler_call}}, nil}
 
   defp engine_crash(:interpreter), do: :interpreter_crash
   defp engine_crash(:compiler), do: :compiler_crash

@@ -4,10 +4,11 @@ defmodule QuickBEAM.Bench.VMSSRCompare do
 
   Native warm mode loads the framework bundle once and calls its render function
   repeatedly. Native isolated mode starts a bare runtime, loads precompiled
-  request bytecode, renders, and stops the runtime for every sample. The BEAM
-  modes execute the same request bytecode with a fresh owner-local JavaScript
-  heap for every sample. Source compilation and compiler-service startup are
-  excluded; all returned values must match exactly.
+  request bytecode, renders, and stops the runtime for every sample. The public
+  interpreter initializes pinned setup bytecode and calls the same named render
+  function in a fresh owner-local heap. Internal compiler modes execute the
+  equivalent precompiled request wrapper. Source compilation and compiler-service
+  startup are excluded; all returned values must match exactly.
   """
 
   alias QuickBEAM.VM.Compiler
@@ -60,8 +61,10 @@ defmodule QuickBEAM.Bench.VMSSRCompare do
     {:ok, request_bytecode} = QuickBEAM.compile(compile_runtime, request_source)
     :ok = QuickBEAM.stop(compile_runtime)
 
-    {:ok, program} = QuickBEAM.VM.decode(request_bytecode)
-    {:ok, pinned} = QuickBEAM.VM.pin(program)
+    {:ok, call_program} = QuickBEAM.VM.decode(setup_bytecode)
+    {:ok, request_program} = QuickBEAM.VM.decode(request_bytecode)
+    {:ok, pinned_call} = QuickBEAM.VM.pin(call_program)
+    {:ok, pinned_request} = QuickBEAM.VM.pin(request_program)
 
     vm_opts = [
       handlers: handlers,
@@ -79,9 +82,11 @@ defmodule QuickBEAM.Bench.VMSSRCompare do
         QuickBEAM.call(warm_runtime, "__quickbeamRender", [], timeout: 10_000)
       end,
       native_isolated: fn -> native_isolated(request_bytecode, handlers) end,
-      interpreter: fn -> QuickBEAM.VM.eval(pinned, vm_opts) end,
-      compiler_pure: fn -> compiler_eval(pinned, :pure_v1, vm_opts) end,
-      compiler_scalar: fn -> compiler_eval(pinned, :scalar_v1, vm_opts) end
+      interpreter: fn ->
+        QuickBEAM.VM.call(pinned_call, "__quickbeamRender", [], vm_opts)
+      end,
+      compiler_pure: fn -> compiler_eval(pinned_request, :pure_v1, vm_opts) end,
+      compiler_scalar: fn -> compiler_eval(pinned_request, :scalar_v1, vm_opts) end
     ]
 
     try do
@@ -91,7 +96,8 @@ defmodule QuickBEAM.Bench.VMSSRCompare do
       report(spec.name, samples)
     after
       QuickBEAM.stop(warm_runtime)
-      QuickBEAM.VM.unpin(pinned)
+      QuickBEAM.VM.unpin(pinned_call)
+      QuickBEAM.VM.unpin(pinned_request)
     end
   end
 

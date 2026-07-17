@@ -40,8 +40,9 @@ The VM runners accept explicit interpreter or compiler profiles. Compiler
 execution remains release-quarantined; the interpreter is the default. The SSR
 comparison reports both a persistent native runtime and a bare native runtime
 created per request, because only the latter shares the BEAM VM's isolated-heap
-lifecycle. Compilation and service initialization are excluded from warm
-latency.
+lifecycle. The interpreter runner uses the public `QuickBEAM.VM.call/4` shape;
+internal compiler runners use an equivalent request wrapper. Compilation and
+service initialization are excluded from warm latency.
 
 ## Results
 

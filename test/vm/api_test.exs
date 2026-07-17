@@ -8,7 +8,13 @@ defmodule QuickBEAM.VM.APITest do
     assert {:error, :invalid_bytecode} = VM.decode(:not_bytecode)
     assert {:error, :invalid_program} = VM.pin(:not_program)
     assert {:error, :invalid_program} = VM.eval(:not_program)
+    assert {:error, :invalid_program} = VM.call(:not_program, "run")
     assert {:error, :invalid_program} = VM.measure(:not_program)
+    assert {:error, :invalid_program} = VM.measure_call(:not_program, "run")
+    assert {:error, :invalid_function_name} = VM.call(:not_program, :run)
+    assert {:error, :invalid_arguments} = VM.call(:not_program, "run", :not_arguments)
+    assert {:error, :invalid_function_name} = VM.measure_call(:not_program, :run)
+    assert {:error, :invalid_arguments} = VM.measure_call(:not_program, "run", :not_arguments)
     assert {:error, :invalid_pinned_program} = VM.unpin(:not_pinned)
   end
 
@@ -28,6 +34,11 @@ defmodule QuickBEAM.VM.APITest do
              VM.eval(program, compiler_profile: :scalar_v1)
 
     assert {:error, {:unknown_option, :unknown}} = VM.measure(program, unknown: true)
+    assert {:error, {:invalid_options, [:invalid]}} = VM.call(program, "run", [], [:invalid])
+    assert {:error, {:unknown_option, :engine}} = VM.call(program, "run", [], engine: :compiler)
+
+    assert {:error, {:unknown_option, :compiler_profile}} =
+             VM.measure_call(program, "run", [], compiler_profile: :scalar_v1)
   end
 
   test "public verifier limits can only tighten built-in bounds" do
@@ -51,6 +62,8 @@ defmodule QuickBEAM.VM.APITest do
     assert {:ok, program} = VM.compile("1")
     assert {:ok, pinned} = VM.pin(program)
     assert :ok = VM.unpin(pinned)
+    assert {:error, :pinned_program_unavailable} = VM.call(pinned, "run")
+    assert {:error, :pinned_program_unavailable} = VM.measure_call(pinned, "run")
     assert {:error, :pinned_program_unavailable} = VM.unpin(pinned)
   end
 

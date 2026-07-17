@@ -44,7 +44,7 @@ request processes copy only a lightweight handle:
 {:ok, pinned} = QuickBEAM.VM.pin(program)
 
 try do
-  QuickBEAM.VM.eval(pinned,
+  QuickBEAM.VM.call(pinned, "render", [%{title: "Catalog"}],
     profile: :ssr,
     handlers: %{"load_props" => fn [] -> %{title: "Catalog"} end},
     max_steps: 20_000_000,
@@ -59,6 +59,30 @@ end
 The program store is fixed-capacity and has no implicit eviction or fallback.
 Applications should have one supervised lifecycle owner pin each bundle during
 startup and unpin it during replacement or normal shutdown.
+
+`QuickBEAM.VM.call/4` deliberately mirrors `QuickBEAM.call/4`, but their
+lifecycles differ: native calls reuse persistent JavaScript state, while every
+VM call initializes a fresh heap from the immutable program before invoking the
+global function.
+
+### Isolated VM limitations
+
+- Programs and serialized bytecode are locked to the exact vendored QuickJS
+  bytecode version and ABI fingerprint. Recompile programs when upgrading.
+- Source compilation uses a short-lived native QuickJS compiler; execution is
+  performed by the BEAM interpreter.
+- Each `eval` or `call` owns fresh globals, heap objects, jobs, and handlers.
+  Mutations never persist into another evaluation.
+- The BEAM interpreter implements a bounded, tested JavaScript subset rather
+  than every native QuickJS feature. Unsupported bytecode and semantics fail
+  explicitly without falling back to native execution.
+- `memory_limit` bounds deterministic logical VM allocation. It is distinct
+  from endpoint BEAM process memory, which is reported by `measure/2` and
+  `measure_call/4`.
+- `:core` and `:ssr` select fixed builtin profiles. They do not expose the full
+  browser, Node.js, DOM, WASM, or native-addon surfaces of a native runtime.
+- Pinned storage has fixed capacity and residency budgets, no implicit eviction,
+  and no stale-handle fallback.
 
 The bounded BEAM compiler remains an internal, release-quarantined benchmark
 and conformance tier. It is not selectable through the public `QuickBEAM.VM`
