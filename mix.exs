@@ -195,6 +195,7 @@ defmodule QuickBEAM.MixProject do
       QuickBEAM.VM.Variable
     ]
 
-    not String.starts_with?(inspect(module), "QuickBEAM.VM.") or module in public_vm_modules
+    module != QuickBEAM.Application and
+      (not String.starts_with?(inspect(module), "QuickBEAM.VM.") or module in public_vm_modules)
   end
 end

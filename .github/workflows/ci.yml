@@ -61,6 +61,20 @@ jobs:
           if [ $rc -ne 0 ] && grep -q "0 failures" /tmp/ci.log; then exit 0; fi
           exit $rc
 
+      - name: Checkout pinned Test262 corpus
+        run: |
+          git clone --filter=blob:none --sparse https://github.com/tc39/test262.git /tmp/quickbeam-test262
+          git -C /tmp/quickbeam-test262 checkout d1d583db95a521218f3eb8341a887fd63eda8ff1
+          git -C /tmp/quickbeam-test262 sparse-checkout set harness test
+
+      - name: BEAM VM copied and pinned conformance gates
+        env:
+          TEST262_PATH: /tmp/quickbeam-test262
+        run: mix test test/vm/test262_test.exs --include test262
+
+      - name: Supervised pinned SSR example
+        run: mix run examples/vm_ssr.exs
+
   ubsan:
     name: UBSan + Zig Debug
     runs-on: ubuntu-latest

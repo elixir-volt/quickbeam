@@ -31,8 +31,8 @@ defmodule QuickBEAM.VM do
   Compiles JavaScript with the vendored QuickJS compiler and returns a verified
   immutable program.
 
-  A bare temporary native runtime is used until the dedicated compiler pool is
-  introduced. Use `decode/2` when bytecode has already been compiled.
+  Compilation uses a short-lived bare native runtime. Use `decode/2` when
+  bytecode has already been compiled by this exact QuickJS build.
   """
   @spec compile(String.t(), keyword()) :: {:ok, program()} | {:error, term()}
   def compile(source, opts \\ []) when is_binary(source) and is_list(opts) do
@@ -59,7 +59,14 @@ defmodule QuickBEAM.VM do
     end
   end
 
-  @doc "Pins a verified program in bounded storage and returns a lightweight handle."
+  @doc """
+  Pins a verified program in bounded immutable storage.
+
+  The default store has eight fixed slots. Serialized bytecode is limited to
+  2 MiB, decoded external-term residency to 32 MiB per program, and total
+  residency to 128 MiB. Concurrent pins of the same program identity are
+  idempotent and return the same lightweight handle.
+  """
   @spec pin(Program.t()) :: {:ok, PinnedProgram.t()} | {:error, term()}
   def pin(%Program{} = program) do
     program = Program.put_pin_key(program)
@@ -438,11 +445,15 @@ defmodule QuickBEAM.VM do
     }
   end
 
-  @doc "Unpins a bounded program slot after its current evaluations finish."
-  @spec unpin(Program.t() | PinnedProgram.t()) :: :ok | :not_pinned
-  def unpin(program)
-      when is_struct(program, Program) or is_struct(program, PinnedProgram),
-      do: ProgramStore.unpin(program)
+  @doc """
+  Unpins a handle after its current evaluations finish.
+
+  Returns `:not_pinned` when the handle is already stale. Because pins are
+  idempotent by program identity rather than ownership-counted, one lifecycle
+  owner should coordinate pinning and unpinning.
+  """
+  @spec unpin(PinnedProgram.t()) :: :ok | :not_pinned
+  def unpin(%PinnedProgram{} = pinned), do: ProgramStore.unpin(pinned)
 
   @doc "Returns the monitored worker spawn options for an evaluation memory limit."
   def worker_spawn_options(:infinity), do: [:monitor]

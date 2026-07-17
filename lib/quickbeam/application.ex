@@ -1,5 +1,10 @@
 defmodule QuickBEAM.Application do
-  @moduledoc false
+  @moduledoc """
+  Starts QuickBEAM's shared OTP services.
+
+  This includes the bounded immutable VM program store and the task supervisor
+  used by asynchronous host operations.
+  """
 
   use Application
 

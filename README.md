@@ -31,6 +31,40 @@ QuickBEAM.eval(rt, "function greet(name) { return 'hi ' + name }")
 QuickBEAM.stop(rt)
 ```
 
+## Isolated BEAM execution
+
+`QuickBEAM.VM` decodes QuickJS bytecode and evaluates it with an isolated BEAM
+interpreter. Each evaluation owns its JavaScript heap, globals, jobs, handlers,
+and resource accounting. Long-lived SSR bundles can be pinned explicitly so
+request processes copy only a lightweight handle:
+
+```elixir
+{:ok, source} = File.read("priv/server.js")
+{:ok, program} = QuickBEAM.VM.compile(source, filename: "server.js")
+{:ok, pinned} = QuickBEAM.VM.pin(program)
+
+try do
+  QuickBEAM.VM.eval(pinned,
+    profile: :ssr,
+    handlers: %{"load_props" => fn [] -> %{title: "Catalog"} end},
+    max_steps: 20_000_000,
+    memory_limit: 64 * 1024 * 1024,
+    timeout: 2_000
+  )
+after
+  QuickBEAM.VM.unpin(pinned)
+end
+```
+
+The program store is fixed-capacity and has no implicit eviction or fallback.
+Applications should have one supervised lifecycle owner pin each bundle during
+startup and unpin it during replacement or normal shutdown. See the runnable
+[`examples/vm_ssr.exs`](examples/vm_ssr.exs) and the
+[BEAM interpreter architecture](docs/beam-interpreter-architecture.md).
+
+The optional `engine: :compiler` tiers remain explicitly supervised and
+release-quarantined; the interpreter is the production default.
+
 ## BEAM integration
 
 JS can call Elixir functions and access OTP libraries:
