@@ -23,6 +23,9 @@ MIX_ENV=bench mix run bench/concurrent.exs
 # Isolated BEAM VM SSR and resource gates
 MIX_ENV=bench mix run bench/vm_ssr.exs --pinned-programs
 
+# Native QuickJS versus pinned interpreter/compiler SSR latency
+MIX_ENV=bench mix run bench/vm_ssr_compare.exs --samples 50 --warmup 10
+
 # Single-scheduler fairness and timeout containment
 ERL_FLAGS='+S 1:1' MIX_ENV=bench \
   mix run bench/vm_scheduler_probe.exs --pinned-programs
@@ -34,7 +37,11 @@ MIX_ENV=bench mix run bench/vm_compiler_perf.exs
 ```
 
 The VM runners accept explicit interpreter or compiler profiles. Compiler
-execution remains release-quarantined; the interpreter is the default.
+execution remains release-quarantined; the interpreter is the default. The SSR
+comparison reports both a persistent native runtime and a bare native runtime
+created per request, because only the latter shares the BEAM VM's isolated-heap
+lifecycle. Compilation and service initialization are excluded from warm
+latency.
 
 ## Results
 
