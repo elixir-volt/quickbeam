@@ -128,6 +128,7 @@ defmodule QuickBEAM.MixProject do
       "QuickBEAM.VM.Bytecode",
       "QuickBEAM.VM.Compiler",
       "QuickBEAM.VM.Fuzz",
+      "QuickBEAM.VM.Program.Identity",
       "QuickBEAM.VM.Program.Store",
       "QuickBEAM.VM.Runtime"
     ]

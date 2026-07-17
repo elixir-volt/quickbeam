@@ -4,6 +4,7 @@ defmodule QuickBEAM.Bench.VMSSR do
   """
 
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Runtime.Engine
 
   @default_samples 30
   @default_warmup 3
@@ -282,7 +283,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       |> Keyword.put(:handlers, %{"load_props" => handler})
       |> Keyword.put(:timeout, timeout_ms)
 
-    {:ok, measurement} = QuickBEAM.VM.measure(fixture.program, opts)
+    {:ok, measurement} = Engine.measure(fixture.program, opts)
 
     handler_pid =
       receive do
@@ -323,7 +324,7 @@ defmodule QuickBEAM.Bench.VMSSR do
       |> Keyword.merge(Keyword.drop(overrides, [:handler_delay]))
       |> Keyword.put(:handlers, %{"load_props" => handler})
 
-    {:ok, measurement} = QuickBEAM.VM.measure(fixture.program, eval_opts)
+    {:ok, measurement} = Engine.measure(fixture.program, eval_opts)
     measurement
   end
 

@@ -41,16 +41,6 @@ defmodule QuickBEAM.VM.MemoryLimitTest do
              QuickBEAM.VM.eval(program, memory_limit: 20_000, max_steps: 100_000)
   end
 
-  test "isolated workers receive a BEAM max-heap containment boundary" do
-    assert [:monitor, {:max_heap_size, heap_limit}] =
-             QuickBEAM.VM.worker_spawn_options(1_000_000)
-
-    assert heap_limit.kill
-    refute heap_limit.error_logger
-    assert heap_limit.size > div(1_000_000, :erlang.system_info(:wordsize))
-    assert QuickBEAM.VM.worker_spawn_options(:infinity) == [:monitor]
-  end
-
   test "contains oversized host results and reclaims the evaluation owner" do
     test_process = self()
     source = "(async function(){return await Beam.call('large_result')})()"

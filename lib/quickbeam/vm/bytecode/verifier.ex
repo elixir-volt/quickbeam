@@ -46,12 +46,12 @@ defmodule QuickBEAM.VM.Bytecode.Verifier do
 
   defp limits(opts) do
     Enum.reduce_while(opts, {:ok, @default_limits}, fn
-      {key, value}, {:ok, limits}
-      when is_map_key(@default_limits, key) and is_integer(value) and value > 0 ->
-        {:cont, {:ok, Map.put(limits, key, value)}}
+      {key, value}, {:ok, limits} when is_map_key(@default_limits, key) ->
+        maximum = Map.fetch!(@default_limits, key)
 
-      {key, _value}, _acc when is_map_key(@default_limits, key) ->
-        {:halt, {:error, {:invalid_limit, key}}}
+        if is_integer(value) and value > 0 and value <= maximum,
+          do: {:cont, {:ok, Map.put(limits, key, value)}},
+          else: {:halt, {:error, {:invalid_limit, key}}}
 
       {key, _value}, _acc ->
         {:halt, {:error, {:unknown_option, key}}}

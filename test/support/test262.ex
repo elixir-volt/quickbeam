@@ -38,6 +38,8 @@ defmodule QuickBEAM.Test262 do
   than silently falling back to the native engine.
   """
 
+  alias QuickBEAM.VM.Runtime.Engine
+
   @minimal_harness """
   function Test262Error(message) {
     this.name = "Test262Error";
@@ -198,13 +200,20 @@ defmodule QuickBEAM.Test262 do
   end
 
   defp eval_program(program, engine, compiler_profile, false),
-    do: QuickBEAM.VM.eval(program, engine: engine, compiler_profile: compiler_profile)
+    do:
+      Engine.eval(program,
+        engine: engine,
+        compiler_profile: compiler_profile
+      )
 
   defp eval_program(program, engine, compiler_profile, true) do
     case QuickBEAM.VM.pin(program) do
       {:ok, pinned} ->
         try do
-          QuickBEAM.VM.eval(pinned, engine: engine, compiler_profile: compiler_profile)
+          Engine.eval(pinned,
+            engine: engine,
+            compiler_profile: compiler_profile
+          )
         after
           QuickBEAM.VM.unpin(pinned)
         end

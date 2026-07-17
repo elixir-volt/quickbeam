@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Runtime.Engine
 
   @fixture "test/fixtures/vm/svelte_ssr.js"
   @eval_opts [
@@ -42,13 +43,17 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
       assert {:ok, native_rendered} =
                QuickBEAM.eval(runtime, "await globalThis.__quickbeamSSRResult", timeout: 5_000)
 
-      assert {:ok, beam_rendered} = QuickBEAM.VM.eval(program, [handlers: handlers] ++ @eval_opts)
+      assert {:ok, beam_rendered} =
+               Engine.eval(program, [handlers: handlers] ++ @eval_opts)
 
       assert {:ok, compiler_rendered} =
-               QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
+               Engine.eval(
+                 program,
+                 [engine: :compiler, handlers: handlers] ++ @eval_opts
+               )
 
       assert {:ok, scalar_rendered} =
-               QuickBEAM.VM.eval(
+               Engine.eval(
                  program,
                  [engine: :compiler, compiler_profile: :scalar_v1, handlers: handlers] ++
                    @eval_opts
@@ -82,7 +87,10 @@ defmodule QuickBEAM.VM.SvelteSSRTest do
       props
     end
 
-    QuickBEAM.VM.eval(program, [handlers: %{"load_props" => handler}] ++ @eval_opts)
+    Engine.eval(
+      program,
+      [handlers: %{"load_props" => handler}] ++ @eval_opts
+    )
   end
 
   defp props(title, id) do

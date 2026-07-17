@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Program.StoreTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Identity
   alias QuickBEAM.VM.Program.Store
 
   test "coalesces concurrent first pin admission by program identity" do
@@ -53,6 +54,8 @@ defmodule QuickBEAM.VM.Program.StoreTest do
     assert Enum.all?(leases, fn lease -> Store.fetch(lease) == {:ok, program} end)
     assert :ok = Store.unpin(pinned)
     assert Enum.all?(leases, fn lease -> Store.fetch(lease) == {:ok, program} end)
+    assert :unavailable = Store.checkout(pinned)
+    assert :retiring = Store.pin(program)
 
     Enum.each(tasks, &send(&1.pid, :finish))
     Enum.each(tasks, &Task.await/1)
@@ -167,13 +170,13 @@ defmodule QuickBEAM.VM.Program.StoreTest do
       source_digest: :crypto.strong_rand_bytes(32)
     }
 
-    first = Program.put_pin_key(base)
+    first = Identity.put(base)
 
     second =
-      base |> put_in([Access.key(:root), :filename], "second.js") |> Program.put_pin_key()
+      base |> put_in([Access.key(:root), :filename], "second.js") |> Identity.put()
 
     changed_source =
-      %{base | source_digest: :crypto.strong_rand_bytes(32)} |> Program.put_pin_key()
+      %{base | source_digest: :crypto.strong_rand_bytes(32)} |> Identity.put()
 
     refute first.pin_key == second.pin_key
     refute first.pin_key == changed_source.pin_key

@@ -2,6 +2,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
   @moduledoc "Single-scheduler fairness and timeout probe for the BEAM VM."
 
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Runtime.Engine
 
   @fixture "test/fixtures/vm/vue_ssr.js"
   @bundle_opts [
@@ -70,7 +71,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     timeout_wall =
       Enum.map(1..samples, fn _iteration ->
         {:ok, measurement} =
-          QuickBEAM.VM.measure(timeout_program,
+          Engine.measure(timeout_program,
             engine: engine,
             compiler_profile: compiler_profile,
             max_steps: 1_000_000_000,
@@ -132,7 +133,7 @@ defmodule QuickBEAM.Bench.VMSchedulerProbe do
     handler = fn [] -> fixture.props end
 
     {:ok, measurement} =
-      QuickBEAM.VM.measure(
+      Engine.measure(
         fixture.program,
         [
           engine: engine,

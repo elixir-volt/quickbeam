@@ -2,14 +2,15 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.VM.Compiler
-  alias QuickBEAM.VM.Measurement
   alias QuickBEAM.VM.Compiler.Pool
+  alias QuickBEAM.VM.Runtime.Engine
+  alias QuickBEAM.VM.Runtime.Engine.Measurement
 
   test "requires an explicitly supervised compiler service" do
     assert {:ok, program} = QuickBEAM.VM.compile("40 + 2")
 
     assert {:error, {:compiler_error, {:compiler_pool_unavailable, Pool}}} =
-             QuickBEAM.VM.eval(program, engine: :compiler)
+             Engine.eval(program, engine: :compiler)
   end
 
   test "matches interpreter and native QuickJS for decoded pure fixtures" do
@@ -20,8 +21,8 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
       for source <- ["40 + 2", "6 * 7", "10 > 3", "true ? 11 : 22", "(5 << 2) | 1"] do
         assert {:ok, program} = QuickBEAM.VM.compile(source)
         assert {:ok, expected} = QuickBEAM.eval(runtime, source)
-        assert QuickBEAM.VM.eval(program) == {:ok, expected}
-        assert QuickBEAM.VM.eval(program, engine: :compiler) == {:ok, expected}
+        assert Engine.eval(program) == {:ok, expected}
+        assert Engine.eval(program, engine: :compiler) == {:ok, expected}
       end
     after
       QuickBEAM.stop(runtime)
@@ -36,8 +37,10 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
 
     try do
       assert {:error, native_error} = QuickBEAM.eval(runtime, source)
-      assert {:error, interpreted_error} = QuickBEAM.VM.eval(program)
-      assert {:error, compiled_error} = QuickBEAM.VM.eval(program, engine: :compiler)
+      assert {:error, interpreted_error} = Engine.eval(program)
+
+      assert {:error, compiled_error} =
+               Engine.eval(program, engine: :compiler)
 
       assert %QuickBEAM.JSError{name: "TypeError", message: "boom"} = native_error
       assert %QuickBEAM.JSError{name: "TypeError", message: "boom"} = interpreted_error
@@ -52,7 +55,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     expression = Enum.join(List.duplicate("value", 40), " + ")
     source = "(function add(value) { return #{expression} })(1)"
     assert {:ok, program} = QuickBEAM.VM.compile(source)
-    assert {:ok, 40} = QuickBEAM.VM.eval(program, engine: :compiler)
+    assert {:ok, 40} = Engine.eval(program, engine: :compiler)
 
     stats = Pool.stats(Pool)
     assert stats.counts.ready >= 1
@@ -103,8 +106,10 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
              QuickBEAM.VM.compile("(function recurse(n){return 1+recurse(n+1)})(0)")
 
     expected = {:error, {:limit_exceeded, :stack_depth, 6}}
-    assert QuickBEAM.VM.eval(recursive, max_stack_depth: 5) == expected
-    assert QuickBEAM.VM.eval(recursive, engine: :compiler, max_stack_depth: 5) == expected
+    assert Engine.eval(recursive, max_stack_depth: 5) == expected
+
+    assert Engine.eval(recursive, engine: :compiler, max_stack_depth: 5) ==
+             expected
 
     assert {:ok, tail_recursive} =
              QuickBEAM.VM.compile(
@@ -112,7 +117,10 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
              )
 
     assert {:ok, 0} =
-             QuickBEAM.VM.eval(tail_recursive, engine: :compiler, max_stack_depth: 2)
+             Engine.eval(tail_recursive,
+               engine: :compiler,
+               max_stack_depth: 2
+             )
   end
 
   test "deoptimizes into asynchronous handlers without duplicating effects" do
@@ -126,7 +134,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     end
 
     assert {:ok, 42} =
-             QuickBEAM.VM.eval(program,
+             Engine.eval(program,
                engine: :compiler,
                handlers: %{"double" => handler}
              )
@@ -140,7 +148,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     assert {:ok, program} = QuickBEAM.VM.compile("Beam.call('wait')")
 
     assert {:ok, 1} =
-             QuickBEAM.VM.eval(program,
+             Engine.eval(program,
                engine: :compiler,
                handlers: %{"wait" => fn [] -> 1 end},
                timeout: 1_000
@@ -154,7 +162,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     end
 
     assert {:error, {:limit_exceeded, :timeout, 200}} =
-             QuickBEAM.VM.eval(program,
+             Engine.eval(program,
                engine: :compiler,
                handlers: %{"wait" => handler},
                timeout: 200
@@ -169,10 +177,10 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     start_compiler()
     assert {:ok, program} = QuickBEAM.VM.compile("({answer: 40 + 2})")
 
-    assert {:ok, %Measurement{} = interpreted} = QuickBEAM.VM.measure(program)
+    assert {:ok, %Measurement{} = interpreted} = Engine.measure(program)
 
     assert {:ok, %Measurement{} = compiled} =
-             QuickBEAM.VM.measure(program, engine: :compiler)
+             Engine.measure(program, engine: :compiler)
 
     assert compiled.result == interpreted.result
     assert compiled.steps == interpreted.steps
@@ -190,17 +198,19 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     assert {:ok, finite} = QuickBEAM.VM.compile("40 + 2")
 
     expected = {:error, {:limit_exceeded, :steps, 2}}
-    assert QuickBEAM.VM.eval(finite, max_steps: 2) == expected
-    assert QuickBEAM.VM.eval(finite, engine: :compiler, max_steps: 2) == expected
+    assert Engine.eval(finite, max_steps: 2) == expected
+    assert Engine.eval(finite, engine: :compiler, max_steps: 2) == expected
 
     memory_error = {:error, {:limit_exceeded, :memory_bytes, 1}}
-    assert QuickBEAM.VM.eval(finite, memory_limit: 1) == memory_error
-    assert QuickBEAM.VM.eval(finite, engine: :compiler, memory_limit: 1) == memory_error
+    assert Engine.eval(finite, memory_limit: 1) == memory_error
+
+    assert Engine.eval(finite, engine: :compiler, memory_limit: 1) ==
+             memory_error
 
     assert {:ok, loop} = QuickBEAM.VM.compile("while (true) {}")
 
     assert {:error, {:limit_exceeded, :timeout, 50}} =
-             QuickBEAM.VM.eval(loop,
+             Engine.eval(loop,
                engine: :compiler,
                max_steps: 100_000_000,
                timeout: 50
@@ -231,10 +241,10 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
       timeout: 2_000
     ]
 
-    expected = QuickBEAM.VM.eval(program, options)
-    assert QuickBEAM.VM.eval(program, [engine: :compiler] ++ options) == expected
+    expected = Engine.eval(program, options)
+    assert Engine.eval(program, [engine: :compiler] ++ options) == expected
 
-    assert QuickBEAM.VM.eval(
+    assert Engine.eval(
              program,
              [engine: :compiler, compiler_profile: :scalar_v1] ++ options
            ) == expected
@@ -248,7 +258,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
              QuickBEAM.VM.compile("(function(){let value=0;#{body}return value})()")
 
     assert {:ok, 100} =
-             QuickBEAM.VM.eval(program,
+             Engine.eval(program,
                engine: :compiler,
                compiler_profile: :scalar_v1,
                max_steps: 10_000
@@ -261,18 +271,18 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
       max_steps: 10_000
     ]
 
-    assert {:ok, 100} = QuickBEAM.VM.eval(program, opts)
-    assert {:ok, 100} = QuickBEAM.VM.eval(program, opts)
+    assert {:ok, 100} = Engine.eval(program, opts)
+    assert {:ok, 100} = Engine.eval(program, opts)
 
-    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
-    assert {:ok, admitted} = QuickBEAM.VM.measure(program, opts)
+    assert {:ok, interpreted} = Engine.measure(program, max_steps: 10_000)
+    assert {:ok, admitted} = Engine.measure(program, opts)
     assert admitted.result == interpreted.result
     assert admitted.steps == interpreted.steps
     assert admitted.logical_memory_bytes == interpreted.logical_memory_bytes
     assert admitted.compiler_counters.generated_steps == 32
     assert admitted.compiler_counters.region_compiled == 1
 
-    assert {:ok, cached} = QuickBEAM.VM.measure(program, opts)
+    assert {:ok, cached} = Engine.measure(program, opts)
     assert cached.result == interpreted.result
     assert cached.steps == interpreted.steps
     assert cached.logical_memory_bytes == interpreted.logical_memory_bytes
@@ -282,8 +292,11 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     assert Pool.stats(Pool).region_admissions == 2
 
     Enum.each([1, 16, 32, 33, interpreted.steps - 1], fn step_limit ->
-      interpreter_result = QuickBEAM.VM.eval(program, max_steps: step_limit)
-      compiler_result = QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, step_limit))
+      interpreter_result = Engine.eval(program, max_steps: step_limit)
+
+      compiler_result =
+        Engine.eval(program, Keyword.put(opts, :max_steps, step_limit))
+
       assert compiler_result == interpreter_result
     end)
   end
@@ -294,7 +307,7 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
 
     tasks =
       for _ <- 1..40 do
-        Task.async(fn -> QuickBEAM.VM.eval(program, engine: :compiler) end)
+        Task.async(fn -> Engine.eval(program, engine: :compiler) end)
       end
 
     assert Task.await_many(tasks, 5_000) == List.duplicate({:ok, 42}, 40)
@@ -309,19 +322,28 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     assert {:ok, program} = QuickBEAM.VM.compile("42")
 
     assert {:error, {:invalid_option, :engine, :native}} =
-             QuickBEAM.VM.eval(program, engine: :native)
+             Engine.eval(program, engine: :native)
 
     assert {:error, {:invalid_option, :compiler_pool, "pool"}} =
-             QuickBEAM.VM.eval(program, engine: :compiler, compiler_pool: "pool")
+             Engine.eval(program, engine: :compiler, compiler_pool: "pool")
 
     assert {:error, {:invalid_option, :compiler_profile, :unbounded}} =
-             QuickBEAM.VM.eval(program, engine: :compiler, compiler_profile: :unbounded)
+             Engine.eval(program,
+               engine: :compiler,
+               compiler_profile: :unbounded
+             )
 
     assert {:error, {:invalid_option, :compiler_region_probe, :always}} =
-             QuickBEAM.VM.eval(program, engine: :compiler, compiler_region_probe: :always)
+             Engine.eval(program,
+               engine: :compiler,
+               compiler_region_probe: :always
+             )
 
     assert {:error, {:invalid_option, :compiler_regions, :always}} =
-             QuickBEAM.VM.eval(program, engine: :compiler, compiler_regions: :always)
+             Engine.eval(program,
+               engine: :compiler,
+               compiler_regions: :always
+             )
   end
 
   defp start_compiler do

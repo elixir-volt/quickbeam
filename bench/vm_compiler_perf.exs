@@ -1,6 +1,7 @@
 Mix.Task.run("app.start")
 
 alias QuickBEAM.VM.Compiler
+alias QuickBEAM.VM.Runtime.Engine
 
 iterations =
   case Integer.parse(System.get_env("COMPILER_PERF_ITERATIONS", "500")) do
@@ -32,7 +33,7 @@ end
 
 {runtime_init_us, {:ok, 0}} =
   :timer.tc(fn ->
-    QuickBEAM.VM.eval(initialization_program, isolation: :caller, max_steps: 1_000_000)
+    Engine.eval(initialization_program, isolation: :caller, max_steps: 1_000_000)
   end)
 
 IO.puts("COMPILER_PERF runtime_initialization_us=#{runtime_init_us} profile=core")
@@ -49,8 +50,8 @@ try do
       max_steps: 1_000_000
     ]
 
-    {cold_us, compiled_result} = :timer.tc(fn -> QuickBEAM.VM.eval(program, compiler_opts) end)
-    interpreted_result = QuickBEAM.VM.eval(program, interpreter_opts)
+    {cold_us, compiled_result} = :timer.tc(fn -> Engine.eval(program, compiler_opts) end)
+    interpreted_result = Engine.eval(program, interpreter_opts)
 
     {:ok, _raw_value, raw_execution} =
       Compiler.start(program, compiler_profile: :scalar_v1, max_steps: 1_000_000)
@@ -65,10 +66,10 @@ try do
     end
 
     compiler_us =
-      average_us.(fn -> ^compiled_result = QuickBEAM.VM.eval(program, compiler_opts) end)
+      average_us.(fn -> ^compiled_result = Engine.eval(program, compiler_opts) end)
 
     interpreter_us =
-      average_us.(fn -> ^interpreted_result = QuickBEAM.VM.eval(program, interpreter_opts) end)
+      average_us.(fn -> ^interpreted_result = Engine.eval(program, interpreter_opts) end)
 
     speedup = interpreter_us / compiler_us
 

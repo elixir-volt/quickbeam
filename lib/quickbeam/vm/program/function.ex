@@ -1,8 +1,6 @@
 defmodule QuickBEAM.VM.Program.Function do
   @moduledoc "JavaScript function metadata and pre-resolved VM instructions used by the interpreter and BEAM compiler."
 
-  @type t :: %__MODULE__{}
-
   defstruct [
     :id,
     :name,
@@ -21,7 +19,6 @@ defmodule QuickBEAM.VM.Program.Function do
     closure_vars: [],
     constants: [],
     atoms: nil,
-    extra_atoms: [],
     instructions: nil,
     has_prototype: false,
     has_simple_parameter_list: false,
@@ -35,4 +32,36 @@ defmodule QuickBEAM.VM.Program.Function do
     is_strict_mode: false,
     has_debug_info: false
   ]
+
+  @type t :: %__MODULE__{
+          id: non_neg_integer(),
+          name: String.t(),
+          filename: String.t() | nil,
+          line_num: pos_integer(),
+          col_num: pos_integer(),
+          pc2line: binary(),
+          source: binary(),
+          source_positions: tuple(),
+          arg_count: non_neg_integer(),
+          var_count: non_neg_integer(),
+          defined_arg_count: non_neg_integer(),
+          stack_size: non_neg_integer(),
+          var_ref_count: non_neg_integer(),
+          locals: [QuickBEAM.VM.Program.Variable.t()],
+          closure_vars: [QuickBEAM.VM.Program.Variable.Closure.t()],
+          constants: [term()],
+          atoms: tuple(),
+          instructions: tuple(),
+          has_prototype: boolean(),
+          has_simple_parameter_list: boolean(),
+          is_derived_class_constructor: boolean(),
+          need_home_object: boolean(),
+          func_kind: non_neg_integer(),
+          new_target_allowed: boolean(),
+          super_call_allowed: boolean(),
+          super_allowed: boolean(),
+          arguments_allowed: boolean(),
+          is_strict_mode: boolean(),
+          has_debug_info: boolean()
+        }
 end

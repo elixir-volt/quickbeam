@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
   alias QuickBEAM.VM.Compiler.Code.Emitter
   alias QuickBEAM.VM.Compiler.Code.Import
   alias QuickBEAM.VM.Compiler.Profile.Pure
+  alias QuickBEAM.VM.Runtime.Engine
   alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
@@ -289,15 +290,18 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert Enum.any?(local_template.forms, &match?({:function, _, :block, 7, _}, &1))
 
     start_pool()
-    assert {:ok, interpreter} = QuickBEAM.VM.measure(program, max_steps: 10_000)
-    assert {:ok, compiler} = QuickBEAM.VM.measure(program, engine: :compiler, max_steps: 10_000)
+    assert {:ok, interpreter} = Engine.measure(program, max_steps: 10_000)
+
+    assert {:ok, compiler} =
+             Engine.measure(program, engine: :compiler, max_steps: 10_000)
+
     assert compiler.result == interpreter.result
     assert compiler.steps == interpreter.steps
     assert compiler.logical_memory_bytes == interpreter.logical_memory_bytes
 
     for limit <- [1, 7, 50, interpreter.steps - 1] do
-      assert QuickBEAM.VM.eval(program, engine: :compiler, max_steps: limit) ==
-               QuickBEAM.VM.eval(program, max_steps: limit)
+      assert Engine.eval(program, engine: :compiler, max_steps: limit) ==
+               Engine.eval(program, max_steps: limit)
     end
   end
 
@@ -314,10 +318,10 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
 
     for source <- sources do
       assert {:ok, program} = QuickBEAM.VM.compile(source)
-      assert {:ok, interpreted} = QuickBEAM.VM.measure(program)
+      assert {:ok, interpreted} = Engine.measure(program)
 
       assert {:ok, compiled} =
-               QuickBEAM.VM.measure(program,
+               Engine.measure(program,
                  engine: :compiler,
                  compiler_profile: :scalar_v1
                )
@@ -327,11 +331,11 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
       assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
 
       for limit <- [1, max(interpreted.steps - 1, 1)] do
-        assert QuickBEAM.VM.eval(program,
+        assert Engine.eval(program,
                  engine: :compiler,
                  compiler_profile: :scalar_v1,
                  max_steps: limit
-               ) == QuickBEAM.VM.eval(program, max_steps: limit)
+               ) == Engine.eval(program, max_steps: limit)
       end
     end
   end
@@ -344,8 +348,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
 
     assert {:ok, program} = QuickBEAM.VM.compile(source)
     opts = [engine: :compiler, compiler_profile: :scalar_v1, max_steps: 10_000]
-    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
-    assert {:ok, compiled} = QuickBEAM.VM.measure(program, opts)
+    assert {:ok, interpreted} = Engine.measure(program, max_steps: 10_000)
+    assert {:ok, compiled} = Engine.measure(program, opts)
     assert compiled.result == interpreted.result
     assert compiled.steps == interpreted.steps
     assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
@@ -355,8 +359,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert compiled.compiler_counters.invocation_actions > 0
 
     for limit <- [1, 10, div(interpreted.steps, 2), interpreted.steps - 1] do
-      assert QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, limit)) ==
-               QuickBEAM.VM.eval(program, max_steps: limit)
+      assert Engine.eval(program, Keyword.put(opts, :max_steps, limit)) ==
+               Engine.eval(program, max_steps: limit)
     end
   end
 
@@ -368,8 +372,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
 
     assert {:ok, program} = QuickBEAM.VM.compile(source)
     opts = [engine: :compiler, compiler_profile: :scalar_v1, max_steps: 10_000]
-    assert {:ok, interpreted} = QuickBEAM.VM.measure(program, max_steps: 10_000)
-    assert {:ok, compiled} = QuickBEAM.VM.measure(program, opts)
+    assert {:ok, interpreted} = Engine.measure(program, max_steps: 10_000)
+    assert {:ok, compiled} = Engine.measure(program, opts)
     assert compiled.result == interpreted.result
     assert compiled.steps == interpreted.steps
     assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
@@ -378,14 +382,14 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert compiled.compiler_counters.interpreted_opcodes[:put_var] == 1
 
     for limit <- [1, 20, div(interpreted.steps, 2), interpreted.steps - 1] do
-      assert QuickBEAM.VM.eval(program, Keyword.put(opts, :max_steps, limit)) ==
-               QuickBEAM.VM.eval(program, max_steps: limit)
+      assert Engine.eval(program, Keyword.put(opts, :max_steps, limit)) ==
+               Engine.eval(program, max_steps: limit)
     end
 
     missing = "(function(n){for(let i=0;i<n;i++)missing;return 0})(1)"
     assert {:ok, missing_program} = QuickBEAM.VM.compile(missing)
-    assert {:ok, missing_interpreted} = QuickBEAM.VM.measure(missing_program)
-    assert {:ok, missing_compiled} = QuickBEAM.VM.measure(missing_program, opts)
+    assert {:ok, missing_interpreted} = Engine.measure(missing_program)
+    assert {:ok, missing_compiled} = Engine.measure(missing_program, opts)
     assert missing_compiled.result == missing_interpreted.result
     assert missing_compiled.steps == missing_interpreted.steps
     assert missing_compiled.logical_memory_bytes == missing_interpreted.logical_memory_bytes
@@ -395,8 +399,11 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     source = "(function(n){let s=''; for(let i=0;i<n;i++) s=s+'x'; return s})(5)"
     assert {:ok, program} = QuickBEAM.VM.compile(source)
     start_pool()
-    assert QuickBEAM.VM.eval(program, engine: :compiler) == QuickBEAM.VM.eval(program)
-    assert QuickBEAM.VM.eval(program) == {:ok, "xxxxx"}
+
+    assert Engine.eval(program, engine: :compiler) ==
+             Engine.eval(program)
+
+    assert Engine.eval(program) == {:ok, "xxxxx"}
   end
 
   test "matches the interpreter across decoded v26 pure expressions" do
@@ -416,7 +423,9 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
 
       assert deopt.frame.pc > 0
       assert :ok = Pool.checkin(pool, lease)
-      assert Interpreter.resume_deopt(deopt) == QuickBEAM.VM.eval(program, max_steps: 100)
+
+      assert Interpreter.resume_deopt(deopt) ==
+               Engine.eval(program, max_steps: 100)
     end
   end
 

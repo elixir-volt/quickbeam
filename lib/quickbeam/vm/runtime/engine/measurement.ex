@@ -1,11 +1,7 @@
-defmodule QuickBEAM.VM.Measurement do
+defmodule QuickBEAM.VM.Runtime.Engine.Measurement do
   @moduledoc """
-  Resource and timing observations for one isolated VM evaluation.
-
-  `steps` and `logical_memory_bytes` come from deterministic VM accounting.
-  `process_memory_bytes` and `reductions` are endpoint observations from the
-  evaluation process, not sampled peaks. `wall_time_us` includes isolated
-  process startup, host waits, result conversion, and reply delivery.
+  Carries interpreter and release-quarantined compiler observations for internal
+  tests and benchmarks.
   """
 
   @enforce_keys [:result, :wall_time_us]
@@ -14,6 +10,8 @@ defmodule QuickBEAM.VM.Measurement do
     :wall_time_us,
     :steps,
     :logical_memory_bytes,
+    :compiler_counters,
+    :compiler_regions,
     :process_memory_bytes,
     :reductions
   ]
@@ -23,6 +21,8 @@ defmodule QuickBEAM.VM.Measurement do
           wall_time_us: non_neg_integer(),
           steps: non_neg_integer() | nil,
           logical_memory_bytes: non_neg_integer() | nil,
+          compiler_counters: map() | nil,
+          compiler_regions: map() | nil,
           process_memory_bytes: non_neg_integer() | nil,
           reductions: non_neg_integer() | nil
         }

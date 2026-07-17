@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.VueSSRTest do
 
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.Pool
+  alias QuickBEAM.VM.Runtime.Engine
 
   @fixture "test/fixtures/vm/vue_ssr.js"
   @bundle_opts [
@@ -53,20 +54,24 @@ defmodule QuickBEAM.VM.VueSSRTest do
       assert {:ok, native_html} =
                QuickBEAM.eval(runtime, "await globalThis.__quickbeamSSRResult", timeout: 5_000)
 
-      assert {:ok, beam_html} = QuickBEAM.VM.eval(program, [handlers: handlers] ++ @eval_opts)
+      assert {:ok, beam_html} =
+               Engine.eval(program, [handlers: handlers] ++ @eval_opts)
 
       assert {:ok, compiler_html} =
-               QuickBEAM.VM.eval(program, [engine: :compiler, handlers: handlers] ++ @eval_opts)
+               Engine.eval(
+                 program,
+                 [engine: :compiler, handlers: handlers] ++ @eval_opts
+               )
 
       assert {:ok, scalar_html} =
-               QuickBEAM.VM.eval(
+               Engine.eval(
                  program,
                  [engine: :compiler, compiler_profile: :scalar_v1, handlers: handlers] ++
                    @eval_opts
                )
 
       assert {:ok, pinned_compiler_html} =
-               QuickBEAM.VM.eval(
+               Engine.eval(
                  pinned_program,
                  [engine: :compiler, handlers: handlers] ++ @eval_opts
                )
@@ -104,7 +109,10 @@ defmodule QuickBEAM.VM.VueSSRTest do
       props
     end
 
-    QuickBEAM.VM.eval(program, [handlers: %{"load_props" => handler}] ++ @eval_opts)
+    Engine.eval(
+      program,
+      [handlers: %{"load_props" => handler}] ++ @eval_opts
+    )
   end
 
   defp props(title, id) do

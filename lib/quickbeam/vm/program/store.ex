@@ -35,6 +35,7 @@ defmodule QuickBEAM.VM.Program.Store do
   @spec pin(Program.t(), GenServer.server()) ::
           {:ok, Pinned.t()}
           | :unavailable
+          | :retiring
           | {:error, :program_too_large | :residency_budget}
   def pin(program, server \\ __MODULE__)
 
@@ -130,6 +131,9 @@ defmodule QuickBEAM.VM.Program.Store do
   @impl true
   def handle_call({:checkout_existing, key}, from, state) do
     case state.entries do
+      %{^key => %{unpin?: true}} ->
+        {:reply, :unavailable, state}
+
       %{^key => entry} ->
         {lease, entry} = grant_lease(key, entry, from)
         {:reply, {:ok, lease}, put_in(state.entries[key], entry)}
@@ -141,6 +145,9 @@ defmodule QuickBEAM.VM.Program.Store do
 
   def handle_call({:reserve, key, residency_bytes}, from, state) do
     case state.entries do
+      %{^key => %{unpin?: true}} ->
+        {:reply, :retiring, state}
+
       %{^key => entry} ->
         {lease, entry} = grant_lease(key, entry, from)
         {:reply, {:ok, lease}, put_in(state.entries[key], entry)}
