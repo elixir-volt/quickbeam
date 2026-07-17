@@ -1,7 +1,7 @@
 defmodule QuickBEAM.MixProject do
   use Mix.Project
 
-  @version "0.10.19"
+  @version "0.10.20"
 
   @source_url "https://github.com/elixir-volt/quickbeam"
 
@@ -92,7 +92,7 @@ defmodule QuickBEAM.MixProject do
         "GitHub" => @source_url
       },
       files: ~w[
-        lib priv/c_src priv/ts
+        lib priv/c_src priv/ts priv/vendor
         mix.exs README.md LICENSE CHANGELOG.md
         checksum-QuickBEAM.Native.exs
         .formatter.exs

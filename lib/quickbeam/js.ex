@@ -12,10 +12,15 @@ defmodule QuickBEAM.JS do
   # ── Polyfill compilation (compile-time only) ──
 
   @ts_dir Application.app_dir(:quickbeam, "priv/ts")
+  @vendor_dir Application.app_dir(:quickbeam, "priv/vendor")
 
   for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
       not String.ends_with?(ts, ".d.ts") do
     @external_resource ts
+  end
+
+  for asset <- Path.wildcard(Path.join(@vendor_dir, "**/*")), File.regular?(asset) do
+    @external_resource asset
   end
 
   defmodule Compiler do
@@ -61,6 +66,16 @@ defmodule QuickBEAM.JS do
       barrel = {"_barrel.ts", exports_barrel}
       OXC.bundle!([barrel | files], entry: "_barrel.ts")
     end
+
+    def bundle_tree(dir, entry) do
+      files =
+        dir
+        |> Path.join("**/*.{js,ts}")
+        |> Path.wildcard()
+        |> Enum.map(fn path -> {Path.relative_to(path, dir), File.read!(path)} end)
+
+      OXC.bundle!(files, entry: entry)
+    end
   end
 
   # ── Granular API groups ──
@@ -87,6 +102,10 @@ defmodule QuickBEAM.JS do
   ]
 
   @process_js Compiler.standalone(@ts_dir, ~w[process])
+
+  @intl_js [
+    Compiler.bundle_tree(Path.join(@vendor_dir, "unicode-segmenter"), "quickbeam.js")
+  ]
 
   # Groups that need core events — loaded automatically
   @needs_core ~w[fetch websocket worker channel eventsource console locks dom]a
@@ -155,6 +174,7 @@ defmodule QuickBEAM.JS do
         """
       )
     ],
+    intl: @intl_js,
     url: Compiler.standalone(@ts_dir, ~w[url]),
     crypto: Compiler.standalone(@ts_dir, ~w[crypto-subtle]),
     compression: Compiler.standalone(@ts_dir, ~w[compression]),
@@ -184,14 +204,15 @@ defmodule QuickBEAM.JS do
     ]
   }
 
-  @browser_groups ~w[fetch websocket worker channel eventsource url crypto compression buffer dom console storage locks]a
+  @browser_groups ~w[fetch websocket worker channel eventsource intl url crypto compression buffer dom console storage locks]a
 
   @browser_js Compiler.standalone(
                 @ts_dir,
                 ~w[url crypto-subtle compression buffer process class-list style]
               ) ++
                 [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
-                Compiler.standalone(@ts_dir, ~w[dom-events performance mutation-observer])
+                Compiler.standalone(@ts_dir, ~w[dom-events performance mutation-observer]) ++
+                @intl_js
 
   @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
 

@@ -958,6 +958,11 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
 
     is_compat = n_type >> 1;
 
+    if (src_len == 0) {
+        *pdst = NULL;
+        return 0;
+    }
+
     dbuf_init2(dbuf, opaque, realloc_func);
     if (dbuf_claim(dbuf, sizeof(int) * src_len))
         goto fail;

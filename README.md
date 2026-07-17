@@ -216,7 +216,7 @@ QuickBEAM.Context.start_link(pool: pool)                         # 429 KB (all b
 ```
 
 Available groups: `:fetch`, `:websocket`, `:worker`, `:channel`,
-`:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
+`:eventsource`, `:intl`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
 `:console`, `:storage`, `:locks`. Dependencies auto-resolve.
 
 ### Per-context resource limits
@@ -388,6 +388,7 @@ Standard browser APIs backed by BEAM primitives, not JS polyfills:
 | `BroadcastChannel` | `:pg` (distributed) |
 | `navigator.locks` | GenServer + monitors |
 | `localStorage` | ETS |
+| `Intl.Segmenter` (`grapheme` granularity) | `unicode-segmenter` 0.17.0 |
 | `crypto.subtle` | `:crypto` |
 | `crypto.getRandomValues`, `randomUUID` | Zig `std.crypto.random` |
 | `ReadableStream`, `WritableStream`, `TransformStream` | Pure TS with `pipeThrough`/`pipeTo` |
@@ -541,6 +542,14 @@ See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for d
 | Sandboxed user code | `QuickBEAM` or `Context` with `apis: false` | Memory limits, reduction limits, timeouts |
 
 ## Development
+
+Update the vendored `unicode-segmenter` implementation without Node.js:
+
+```sh
+elixir dev/update_unicode_segmenter.exs VERSION
+```
+
+Run the project quality gate:
 
 ```sh
 mix ci

@@ -13,6 +13,11 @@
 - Add `QuickBEAM.VM.measure/2` with deterministic step/logical-memory counters, fixed owner-local OTP compiler counters, and endpoint process observations, plus reproducible pinned SSR concurrency, timeout, cancellation, reclamation, and single-scheduler reports.
 - Serialize native addon initialization, reuse cached exports for aliases in one runtime, and reject implicit cross-runtime or post-reset reinitialization with a typed error. Add `allow_reinitialization: true` as an explicit compatibility escape hatch for addons that support multiple environments.
 
+## 0.10.20
+
+- Add grapheme-only `Intl.Segmenter` support through `unicode-segmenter` 0.17.0.
+- Fix a native crash when normalizing an empty string with `String.prototype.normalize("NFC")`.
+
 ## 0.10.19
 
 - Update QuickJS-NG to 0.15.1.
