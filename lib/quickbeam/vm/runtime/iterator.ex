@@ -20,7 +20,9 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   alias QuickBEAM.VM.Runtime.Symbol
   alias QuickBEAM.VM.Runtime.Value
 
-  @type action :: Invocation.action()
+  @type action ::
+          Invocation.action()
+          | {:initialize_set, Reference.t(), [term()], term(), State.t(), boolean()}
 
   @doc "Collects values from an iterable whose protocol requires no JavaScript calls."
   @spec values(term(), State.t()) :: {:ok, [term()]} | {:resumable} | {:error, :not_iterable}
@@ -208,15 +210,8 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp finish(%Boundary.Iterator{consumer: :set} = boundary, execution) do
-    values = Enum.reverse(boundary.values)
-
-    case QuickBEAM.VM.Builtin.Set.initialize(boundary.target, values, execution) do
-      {:ok, execution} ->
-        {:complete, boundary.target, boundary.caller, execution, boundary.tail?}
-
-      {:error, reason} ->
-        {:error, reason, boundary.caller, execution}
-    end
+    {:initialize_set, boundary.target, Enum.reverse(boundary.values), boundary.caller, execution,
+     boundary.tail?}
   end
 
   defp read_value(boundary, execution) do

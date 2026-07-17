@@ -11,13 +11,13 @@ defmodule QuickBEAM.VM.Runtime.Invocation do
   alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
   alias QuickBEAM.VM.Runtime.Boundary
+  alias QuickBEAM.VM.Runtime.Callable
   alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
-  alias QuickBEAM.VM.Runtime.Value
 
   alias QuickBEAM.VM.Builtin.Action
   alias QuickBEAM.VM.Builtin.Call
@@ -184,27 +184,11 @@ defmodule QuickBEAM.VM.Runtime.Invocation do
 
   @doc "Returns whether a VM value is callable by JavaScript."
   @spec callable?(term(), State.t()) :: boolean()
-  def callable?(value, execution), do: typeof(value, execution) == "function"
+  defdelegate callable?(value, execution), to: Callable
 
   @doc "Returns the JavaScript `typeof` classification for a VM value."
   @spec typeof(term(), State.t()) :: String.t()
-  def typeof(%Reference{} = reference, execution) do
-    if BuiltinRuntime.callable(execution, reference), do: "function", else: "object"
-  end
-
-  def typeof(value, _execution)
-      when is_tuple(value) and
-             elem(value, 0) in [
-               :builtin,
-               :declared_builtin,
-               :bound_function,
-               :host_function,
-               :primitive_method,
-               :promise_resolver
-             ],
-      do: "function"
-
-  def typeof(value, _execution), do: Value.typeof(value)
+  defdelegate typeof(value, execution), to: Callable
 
   @doc "Builds a fresh explicit frame for an ordinary bytecode function call."
   @spec new_frame(Function.t(), term(), [term()], term(), tuple()) :: Frame.t()

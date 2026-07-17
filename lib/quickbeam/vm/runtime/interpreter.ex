@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   alias QuickBEAM.VM.Runtime.Async
 
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
+  alias QuickBEAM.VM.Builtin.Set, as: SetBuiltin
 
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Coroutine
@@ -39,10 +40,7 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   alias QuickBEAM.VM.Runtime.Value
 
   alias QuickBEAM.VM.Builtin.Registry
-  alias QuickBEAM.VM.Compiler, as: VMCompiler
-  alias QuickBEAM.VM.Compiler.Counter
-  alias QuickBEAM.VM.Compiler.Deopt
-  alias QuickBEAM.VM.Compiler.Region.Probe
+  alias QuickBEAM.VM.Runtime.Optimization
   alias QuickBEAM.VM.Runtime.Opcode.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Invocation, as: InvocationOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Local, as: LocalOpcodes
@@ -122,14 +120,15 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
     do: continuation |> resume_raw(result) |> finish()
 
   @doc "Resumes a validated owner-local compiler deoptimization."
-  @spec resume_deopt(Deopt.t()) :: result()
-  def resume_deopt(%Deopt{} = deopt), do: deopt |> resume_deopt_raw() |> finish()
+  @spec resume_deopt(struct()) :: result()
+  def resume_deopt(%{frame: %Frame{}, execution: %State{}} = deopt),
+    do: deopt |> resume_deopt_raw() |> finish()
 
   @doc "Resumes compiler deoptimization without exporting the resulting value."
-  @spec resume_deopt_raw(Deopt.t()) ::
+  @spec resume_deopt_raw(struct()) ::
           {:ok, term(), State.t()} | {:error, term(), State.t()} | {:suspended, term()}
-  def resume_deopt_raw(%Deopt{} = deopt) do
-    case Deopt.validate(deopt) do
+  def resume_deopt_raw(%{frame: %Frame{}, execution: %State{}} = deopt) do
+    case Optimization.validate_deopt(deopt) do
       :ok ->
         frame =
           if deopt.frame.compiler_allow_reentry,
@@ -289,7 +288,7 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
          %State{} = execution
        ) do
     frame = %{frame | compiler_entered: false, compiler_reentry_after_instruction: false}
-    execution = Counter.increment(execution, :reentries)
+    execution = Optimization.increment(execution, :reentries)
     execute_current(frame, execution)
   end
 
@@ -300,9 +299,11 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
        when not is_nil(compiler_context) do
     frame = %{frame | compiler_entered: true}
 
-    case VMCompiler.execute_frame(frame, execution) do
-      {:deopt, %Deopt{} = deopt} ->
-        resume_deopt_raw(deopt)
+    case Optimization.execute_frame(frame, execution) do
+      {:deopt, deopt} = action ->
+        if Optimization.deopt?(deopt, execution),
+          do: resume_deopt_raw(deopt),
+          else: {:error, {:compiler_error, {:invalid_generated_action, action}}, execution}
 
       {:invoke, callable, arguments, this, caller, execution, false} ->
         dispatch_call(callable, arguments, this, caller, execution, false)
@@ -320,22 +321,15 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
 
   defp run(%Frame{} = frame, %State{} = execution), do: execute_current(frame, execution)
 
-  defp execute_current(
-         frame,
-         %State{compiler_context: %{region_probe: %Probe{}}} = execution
-       ) do
+  defp execute_current(frame, %State{compiler_context: context} = execution)
+       when not is_nil(context) do
     {opcode, operands} = elem(frame.function.instructions, frame.pc)
-    execution = Probe.observe(execution, frame)
-    execution = Counter.interpreted_opcode(execution, opcode)
-    execute_current_opcode(opcode, operands, frame, execution)
-  end
 
-  defp execute_current(
-         frame,
-         %State{compiler_context: %{counters: %Counter{}}} = execution
-       ) do
-    {opcode, operands} = elem(frame.function.instructions, frame.pc)
-    execution = Counter.interpreted_opcode(execution, opcode)
+    execution =
+      execution
+      |> Optimization.observe(frame)
+      |> Optimization.interpreted_opcode(opcode)
+
     execute_current_opcode(opcode, operands, frame, execution)
   end
 
@@ -431,6 +425,16 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
 
   defp execute_invocation({:set_iterate, target, iterable, caller, execution, tail?}),
     do: target |> Iterator.start_set(iterable, caller, execution, tail?) |> execute_invocation()
+
+  defp execute_invocation({:initialize_set, target, values, caller, execution, tail?}) do
+    case SetBuiltin.initialize(target, values, execution) do
+      {:ok, execution} ->
+        execute_invocation({:complete, target, caller, execution, tail?})
+
+      {:error, reason} ->
+        execute_invocation({:error, reason, caller, execution})
+    end
+  end
 
   defp execute_invocation(
          {:iterator_value, value, %Boundary.Iterator{consumer: :promise} = boundary, execution}

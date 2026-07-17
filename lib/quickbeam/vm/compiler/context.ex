@@ -11,6 +11,9 @@ defmodule QuickBEAM.VM.Compiler.Context do
 
   @enforce_keys [:pool, :program]
   defstruct [
+    :deopt_module,
+    :executor,
+    :instrumentation,
     :pool,
     :program,
     artifact_namespace: nil,
@@ -24,6 +27,9 @@ defmodule QuickBEAM.VM.Compiler.Context do
   ]
 
   @type t :: %__MODULE__{
+          deopt_module: module() | nil,
+          executor: module() | nil,
+          instrumentation: module() | nil,
           pool: QuickBEAM.VM.Compiler.Pool.server(),
           program: QuickBEAM.VM.Program.t(),
           artifact_namespace: binary() | nil,

@@ -6,9 +6,9 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   transforms that explicit state and never starts independent processes.
   """
 
+  alias QuickBEAM.VM.Runtime.Callable
   alias QuickBEAM.VM.Runtime.Coroutine
   alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Memory
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
@@ -309,7 +309,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
         {:getter, getter, receiver}
 
       {:ok, %Reference{} = callable} ->
-        if Invocation.callable?(callable, execution), do: {:ok, callable}, else: :none
+        if Callable.callable?(callable, execution), do: {:ok, callable}, else: :none
 
       {:ok, callable}
       when is_tuple(callable) and

@@ -52,7 +52,14 @@ defmodule QuickBEAM.VM.Runtime.State do
             | QuickBEAM.VM.Runtime.Boundary.ThenGetter.t()
           ],
           cells: %{optional(non_neg_integer()) => term()},
-          compiler_context: QuickBEAM.VM.Compiler.Context.t() | nil,
+          compiler_context:
+            %{
+              required(:deopt_module) => module(),
+              required(:executor) => module(),
+              required(:instrumentation) => module(),
+              optional(atom()) => term()
+            }
+            | nil,
           depth: non_neg_integer(),
           default_prototypes: %{
             optional(QuickBEAM.VM.Runtime.Object.kind()) => QuickBEAM.VM.Runtime.Reference.t()

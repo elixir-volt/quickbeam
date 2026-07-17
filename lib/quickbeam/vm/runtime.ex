@@ -6,15 +6,13 @@ defmodule QuickBEAM.VM.Runtime do
   coroutines, and waits for the final Promise without polling.
   """
 
-  alias QuickBEAM.VM.Compiler.Counter
-  alias QuickBEAM.VM.Compiler.Region.Probe
-
   alias QuickBEAM.VM.Runtime.Async
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Coroutine
   alias QuickBEAM.VM.Runtime.Exception
   alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Interpreter
+  alias QuickBEAM.VM.Runtime.Optimization
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
@@ -230,18 +228,18 @@ defmodule QuickBEAM.VM.Runtime do
     process_memory = process_stat(:memory)
     reductions = process_stat(:reductions)
 
-    send(
-      pid,
-      {:quickbeam_vm_measurement, ref,
-       %{
-         steps: execution.step_limit - execution.remaining_steps,
-         logical_memory_bytes: execution.memory_used,
-         compiler_counters: Counter.snapshot(execution),
-         compiler_regions: Probe.snapshot(execution),
-         process_memory_bytes: process_memory,
-         reductions: reductions
-       }}
-    )
+    metrics =
+      Map.merge(
+        %{
+          steps: execution.step_limit - execution.remaining_steps,
+          logical_memory_bytes: execution.memory_used,
+          process_memory_bytes: process_memory,
+          reductions: reductions
+        },
+        Optimization.snapshot(execution)
+      )
+
+    send(pid, {:quickbeam_vm_measurement, ref, metrics})
 
     :ok
   end

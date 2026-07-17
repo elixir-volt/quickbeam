@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Compiler do
   alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Counter
   alias QuickBEAM.VM.Compiler.Deopt
+  alias QuickBEAM.VM.Compiler.Instrumentation
   alias QuickBEAM.VM.Compiler.Code
   alias QuickBEAM.VM.Compiler.Pool
   alias QuickBEAM.VM.Compiler.Region.Probe
@@ -90,6 +91,9 @@ defmodule QuickBEAM.VM.Compiler do
     context = %Context{
       artifact_namespace: artifact_namespace,
       counters: if(execution.measurement_target, do: Counter.new()),
+      deopt_module: Deopt,
+      executor: __MODULE__,
+      instrumentation: Instrumentation,
       pool: pool,
       profile: Keyword.get(opts, :compiler_profile, :pure_v1),
       program: program,

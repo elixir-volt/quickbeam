@@ -15,7 +15,6 @@ defmodule QuickBEAM.VM.Runtime.Exception do
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Heap
-  alias QuickBEAM.VM.Runtime.Iterator
 
   alias QuickBEAM.VM.Runtime.Frame.Native
   alias QuickBEAM.VM.Runtime.Object
@@ -151,8 +150,11 @@ defmodule QuickBEAM.VM.Runtime.Exception do
          %Boundary.Iterator{consumer: :promise} = boundary,
          execution,
          trace
-       ),
-       do: Iterator.fail(boundary, thrown(reason, trace), execution)
+       ) do
+    {reason, execution} = materialize(thrown(reason, trace), execution)
+    execution = Promise.settle(execution, boundary.promise, {:error, reason})
+    {:complete, boundary.promise, boundary.caller, execution, boundary.tail?}
+  end
 
   defp throw_from_boundary(
          reason,
