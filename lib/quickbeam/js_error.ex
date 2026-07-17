@@ -70,7 +70,7 @@ defmodule QuickBEAM.JSError do
 
   @doc "Builds an exception from an uncaught VM value and JavaScript stack frames."
   @spec from_vm(term(), [frame()]) :: t()
-  def from_vm(%QuickBEAM.VM.Thrown{value: value, frames: async_frames}, frames),
+  def from_vm(%QuickBEAM.VM.Runtime.Thrown{value: value, frames: async_frames}, frames),
     do: from_vm(value, async_frames ++ frames)
 
   def from_vm(reason, frames) do

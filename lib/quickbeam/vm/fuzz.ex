@@ -1,53 +1,3 @@
-defmodule QuickBEAM.VM.Fuzz.Mutation do
-  @moduledoc """
-  Describes one reproducible decoder or verifier mutation.
-
-  The original corpus value is intentionally not retained. Replaying the same
-  corpus entry with `seed` and `iteration` reconstructs `value` exactly.
-  """
-
-  @enforce_keys [:domain, :corpus, :seed, :iteration, :operation, :value]
-  defstruct [:domain, :corpus, :seed, :iteration, :operation, :value, details: %{}]
-
-  @type t :: %__MODULE__{
-          domain: :bytecode | :program,
-          corpus: String.t(),
-          seed: non_neg_integer(),
-          iteration: non_neg_integer(),
-          operation: atom(),
-          value: binary() | QuickBEAM.VM.Program.t(),
-          details: map()
-        }
-end
-
-defmodule QuickBEAM.VM.Fuzz.Finding do
-  @moduledoc "A reproducible crash, timeout, nondeterminism, or verifier acceptance."
-
-  @enforce_keys [:mutation, :outcome]
-  defstruct [:mutation, :outcome]
-
-  @type t :: %__MODULE__{
-          mutation: QuickBEAM.VM.Fuzz.Mutation.t(),
-          outcome: term()
-        }
-end
-
-defmodule QuickBEAM.VM.Fuzz.Summary do
-  @moduledoc "Aggregated result of a bounded mutation-fuzzing run."
-
-  @enforce_keys [:domain, :seed, :iterations, :counts, :operation_counts, :findings]
-  defstruct [:domain, :seed, :iterations, :counts, :operation_counts, :findings]
-
-  @type t :: %__MODULE__{
-          domain: :bytecode | :program,
-          seed: non_neg_integer(),
-          iterations: non_neg_integer(),
-          counts: %{optional(atom()) => non_neg_integer()},
-          operation_counts: %{optional(atom()) => non_neg_integer()},
-          findings: [QuickBEAM.VM.Fuzz.Finding.t()]
-        }
-end
-
 defmodule QuickBEAM.VM.Fuzz do
   @moduledoc """
   Deterministic, bounded mutation fuzzing for the VM decoder and verifier.
@@ -65,13 +15,13 @@ defmodule QuickBEAM.VM.Fuzz do
 
   import Bitwise
 
-  alias QuickBEAM.VM.Checksum
+  alias QuickBEAM.VM.Bytecode.Checksum
   alias QuickBEAM.VM.Fuzz.Finding
   alias QuickBEAM.VM.Fuzz.Mutation
   alias QuickBEAM.VM.Fuzz.Summary
-  alias QuickBEAM.VM.Opcodes
+  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.Program
-  alias QuickBEAM.VM.Verifier
+  alias QuickBEAM.VM.Bytecode.Verifier
 
   @mask 0xFFFFFFFFFFFFFFFF
   @default_iterations 1_000
@@ -576,30 +526,30 @@ defmodule QuickBEAM.VM.Fuzz do
     do: replace_instruction(function, :not_an_instruction)
 
   defp mutate_function(function, :invalid_operand_type, _atoms, _state),
-    do: replace_instruction(function, {Opcodes.num(:push_i32), [:not_an_integer]})
+    do: replace_instruction(function, {Opcode.num(:push_i32), [:not_an_integer]})
 
   defp mutate_function(function, :invalid_constant, _atoms, _state) do
-    instruction = {Opcodes.num(:push_const), [length(function.constants)]}
+    instruction = {Opcode.num(:push_const), [length(function.constants)]}
     replace_instruction(function, instruction)
   end
 
   defp mutate_function(function, :invalid_atom, atoms, _state) do
-    instruction = {Opcodes.num(:get_var), [tuple_size(atoms)]}
+    instruction = {Opcode.num(:get_var), [tuple_size(atoms)]}
     replace_instruction(function, instruction)
   end
 
   defp mutate_function(function, :invalid_jump, _atoms, _state) do
-    instruction = {Opcodes.num(:goto), [tuple_size(function.instructions)]}
+    instruction = {Opcode.num(:goto), [tuple_size(function.instructions)]}
     replace_instruction(function, instruction)
   end
 
   defp mutate_function(function, :invalid_exception_target, _atoms, _state) do
-    instruction = {Opcodes.num(:catch), [tuple_size(function.instructions)]}
+    instruction = {Opcode.num(:catch), [tuple_size(function.instructions)]}
     replace_instruction(function, instruction)
   end
 
   defp mutate_function(function, :stack_underflow, _atoms, _state),
-    do: replace_instruction(function, {Opcodes.num(:drop), []})
+    do: replace_instruction(function, {Opcode.num(:drop), []})
 
   defp mutate_function(function, :stack_size_mismatch, _atoms, _state),
     do: %{function | stack_size: function.stack_size + 1}
@@ -613,7 +563,7 @@ defmodule QuickBEAM.VM.Fuzz do
       [] ->
         replace_instruction(
           function,
-          {Opcodes.num(:get_var_ref), [length(function.closure_vars)]}
+          {Opcode.num(:get_var_ref), [length(function.closure_vars)]}
         )
     end
   end

@@ -17,7 +17,7 @@ defmodule QuickBEAM.Application do
       },
       QuickBEAM.LockManager,
       QuickBEAM.WasmAPI,
-      QuickBEAM.VM.ProgramStore,
+      QuickBEAM.VM.Program.Store,
       {Task.Supervisor, name: QuickBEAM.VM.TaskSupervisor}
     ]
 

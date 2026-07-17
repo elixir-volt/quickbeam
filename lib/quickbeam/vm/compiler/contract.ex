@@ -7,7 +7,8 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   table. Compiler implementations must not construct additional module names.
   """
 
-  alias QuickBEAM.VM.{Function, Program}
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Program
 
   @contract_version 1
   @runtime_abi_version 5

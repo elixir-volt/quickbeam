@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Builtin.Call do
   and owner-local execution state. They must not fetch mutable state elsewhere.
   """
 
-  alias QuickBEAM.VM.Execution
+  alias QuickBEAM.VM.Runtime.State
 
   @enforce_keys [:arguments, :this, :caller, :tail?, :execution]
   defstruct [:arguments, :this, :caller, :tail?, :execution]
@@ -16,6 +16,6 @@ defmodule QuickBEAM.VM.Builtin.Call do
           this: term(),
           caller: term(),
           tail?: boolean(),
-          execution: Execution.t()
+          execution: State.t()
         }
 end

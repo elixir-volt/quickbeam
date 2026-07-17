@@ -1,7 +1,8 @@
 defmodule QuickBEAM.VM.MemoryLimitTest do
   use ExUnit.Case, async: false
 
-  alias QuickBEAM.VM.{Memory, Object}
+  alias QuickBEAM.VM.Runtime.Memory
+  alias QuickBEAM.VM.Runtime.Object
 
   test "specialized fresh-object accounting preserves the canonical estimate" do
     assert Memory.estimate(%Object{}) == 520

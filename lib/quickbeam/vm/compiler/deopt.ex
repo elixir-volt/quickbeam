@@ -8,7 +8,8 @@ defmodule QuickBEAM.VM.Compiler.Deopt do
   """
 
   alias QuickBEAM.VM.Compiler.Contract
-  alias QuickBEAM.VM.{Execution, Frame}
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Frame
 
   @contract_version Contract.version()
   @artifact_key_bytes Contract.artifact_key_bytes()
@@ -48,13 +49,13 @@ defmodule QuickBEAM.VM.Compiler.Deopt do
           reason: reason(),
           owner: pid(),
           frame: Frame.t(),
-          execution: Execution.t(),
+          execution: State.t(),
           contract_version: pos_integer(),
           phase: :before_instruction
         }
 
   @doc "Builds owner-local deoptimization state and validates its boundary."
-  @spec new(reason(), binary(), non_neg_integer(), non_neg_integer(), Frame.t(), Execution.t()) ::
+  @spec new(reason(), binary(), non_neg_integer(), non_neg_integer(), Frame.t(), State.t()) ::
           {:ok, t()} | {:error, term()}
   def new(
         reason,
@@ -62,7 +63,7 @@ defmodule QuickBEAM.VM.Compiler.Deopt do
         pool_epoch,
         generation,
         %Frame{} = frame,
-        %Execution{} = execution
+        %State{} = execution
       ) do
     deopt = %__MODULE__{
       artifact_key: artifact_key,
@@ -139,6 +140,6 @@ defmodule QuickBEAM.VM.Compiler.Deopt do
 
   defp validate_boundary(frame), do: {:error, {:invalid_deopt_boundary, frame}}
 
-  defp validate_execution(%Execution{}), do: :ok
+  defp validate_execution(%State{}), do: :ok
   defp validate_execution(execution), do: {:error, {:invalid_deopt_execution, execution}}
 end

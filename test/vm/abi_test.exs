@@ -1,16 +1,17 @@
 defmodule QuickBEAM.VM.ABITest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.{ABI, Opcodes}
+  alias QuickBEAM.VM.ABI
+  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.ABI.Source
 
   test "metadata is generated from the current vendored QuickJS sources" do
     assert ABI.bytecode_version() == 26
     assert byte_size(ABI.fingerprint()) == 64
-    assert Opcodes.bc_version() == ABI.bytecode_version()
-    assert Opcodes.num(:check_object) != nil
-    assert Opcodes.num(:using_dispose) != nil
-    assert Opcodes.info(Opcodes.num(:await)) == {:await, 1, 1, 1, :none}
+    assert Opcode.bc_version() == ABI.bytecode_version()
+    assert Opcode.num(:check_object) != nil
+    assert Opcode.num(:using_dispose) != nil
+    assert Opcode.info(Opcode.num(:await)) == {:await, 1, 1, 1, :none}
   end
 
   test "parses exact C declarations with the bounded source parser" do
@@ -44,6 +45,6 @@ defmodule QuickBEAM.VM.ABITest do
 
     assert "using" in Map.values(atoms)
     assert "Symbol.dispose" in Map.values(atoms)
-    assert Opcodes.js_atom_end() == map_size(atoms) + 1
+    assert Opcode.js_atom_end() == map_size(atoms) + 1
   end
 end

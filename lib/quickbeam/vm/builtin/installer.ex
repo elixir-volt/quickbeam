@@ -2,24 +2,25 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   @moduledoc """
   Installs declarative builtin specs into one owner-local VM execution.
 
-  Installation is deterministic and threads `%QuickBEAM.VM.Execution{}` through
+  Installation is deterministic and threads `%QuickBEAM.VM.Runtime.State{}` through
   the canonical heap and property layers. Installed function objects carry
   stable module/handler tokens rather than captured closures.
   """
 
-  alias QuickBEAM.VM.Builtin.{
-    AccessorSpec,
-    AliasSpec,
-    FunctionSpec,
-    PropertySpec,
-    PrototypeSpec,
-    Spec
-  }
+  alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
+  alias QuickBEAM.VM.Builtin.Spec.Alias, as: AliasSpec
+  alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
+  alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
+  alias QuickBEAM.VM.Builtin.Spec.Prototype, as: PrototypeSpec
+  alias QuickBEAM.VM.Builtin.Spec
 
-  alias QuickBEAM.VM.{Execution, Heap, Properties, Reference}
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Heap
+  alias QuickBEAM.VM.Runtime.Property
+  alias QuickBEAM.VM.Runtime.Reference
 
   @doc "Installs registered builtin modules for the selected profile."
-  @spec install_all(Execution.t(), [module()], atom()) :: Execution.t()
+  @spec install_all(State.t(), [module()], atom()) :: State.t()
   def install_all(execution, modules, profile \\ :core) do
     specs =
       modules
@@ -31,7 +32,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   end
 
   @doc "Installs one immutable builtin specification."
-  @spec install(Execution.t(), Spec.t()) :: Execution.t()
+  @spec install(State.t(), Spec.t()) :: State.t()
   def install(execution, %Spec{kind: :namespace} = spec) do
     {target, execution} = Heap.allocate(execution)
     execution = install_entries(execution, target, spec.module, spec.statics)
@@ -76,14 +77,14 @@ defmodule QuickBEAM.VM.Builtin.Installer do
       )
 
     {:ok, execution} =
-      Properties.define(prototype, "constructor", constructor, execution,
+      Property.define(prototype, "constructor", constructor, execution,
         writable: true,
         enumerable: false,
         configurable: true
       )
 
     {:ok, execution} =
-      Properties.define(constructor, "prototype", prototype, execution,
+      Property.define(constructor, "prototype", prototype, execution,
         writable: false,
         enumerable: false,
         configurable: false
@@ -98,7 +99,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   defp install_prototype_entries(execution, _target, %Spec{prototype: []}), do: execution
 
   defp install_prototype_entries(execution, %Reference{} = constructor, spec) do
-    case Properties.get(constructor, "prototype", execution) do
+    case Property.get(constructor, "prototype", execution) do
       {:ok, %Reference{} = prototype} ->
         install_entries(execution, prototype, spec.module, spec.prototype)
 
@@ -118,7 +119,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     {function, execution} = allocate_function(execution, to_string(spec.key), spec.length, token)
 
     {:ok, execution} =
-      Properties.define(target, spec.key, function, execution,
+      Property.define(target, spec.key, function, execution,
         writable: spec.writable,
         enumerable: spec.enumerable,
         configurable: spec.configurable
@@ -132,13 +133,13 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     {setter, execution} = allocate_optional_function(execution, module, spec.setter, spec.key)
 
     {:ok, execution} =
-      Properties.define_accessor(target, spec.key, :getter, getter, execution,
+      Property.define_accessor(target, spec.key, :getter, getter, execution,
         enumerable: spec.enumerable,
         configurable: spec.configurable
       )
 
     {:ok, execution} =
-      Properties.define_accessor(target, spec.key, :setter, setter, execution,
+      Property.define_accessor(target, spec.key, :setter, setter, execution,
         enumerable: spec.enumerable,
         configurable: spec.configurable
       )
@@ -147,7 +148,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   end
 
   defp install_entry(execution, target, _module, %AliasSpec{} = spec) do
-    {:ok, value} = Properties.get(target, spec.target, execution)
+    {:ok, value} = Property.get(target, spec.target, execution)
 
     if value == :undefined do
       raise ArgumentError,
@@ -155,7 +156,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     end
 
     {:ok, execution} =
-      Properties.define(target, spec.key, value, execution,
+      Property.define(target, spec.key, value, execution,
         writable: spec.writable,
         enumerable: spec.enumerable,
         configurable: spec.configurable
@@ -166,7 +167,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   defp install_entry(execution, target, _module, %PropertySpec{} = spec) do
     {:ok, execution} =
-      Properties.define(target, spec.key, spec.value, execution,
+      Property.define(target, spec.key, spec.value, execution,
         writable: spec.writable,
         enumerable: spec.enumerable,
         configurable: spec.configurable
@@ -179,14 +180,14 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     {function, execution} = Heap.allocate(execution, :function, callable: callable)
 
     {:ok, execution} =
-      Properties.define(function, "name", name, execution,
+      Property.define(function, "name", name, execution,
         writable: false,
         enumerable: false,
         configurable: true
       )
 
     {:ok, execution} =
-      Properties.define(function, "length", length, execution,
+      Property.define(function, "length", length, execution,
         writable: false,
         enumerable: false,
         configurable: true
@@ -210,7 +211,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   defp resolve_prototype_parent(execution, parent_name) do
     constructor = Map.fetch!(execution.globals, parent_name)
-    {:ok, %Reference{} = prototype} = Properties.get(constructor, "prototype", execution)
+    {:ok, %Reference{} = prototype} = Property.get(constructor, "prototype", execution)
     prototype
   end
 
@@ -236,7 +237,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     Enum.reduce(execution.heap, execution, fn
       {id, %{kind: :function, prototype: nil}}, execution ->
         {:ok, execution} =
-          Properties.set_prototype(%Reference{id: id}, prototype, execution)
+          Property.set_prototype(%Reference{id: id}, prototype, execution)
 
         execution
 

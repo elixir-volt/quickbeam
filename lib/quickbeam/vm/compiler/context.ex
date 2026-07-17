@@ -3,10 +3,11 @@ defmodule QuickBEAM.VM.Compiler.Context do
   Carries immutable compiler identity through one owner-local evaluation.
 
   The shared program remains immutable. Mutable frames, heaps, jobs, and
-  continuations stay in the owning `%QuickBEAM.VM.Execution{}`.
+  continuations stay in the owning `%QuickBEAM.VM.Runtime.State{}`.
   """
 
-  alias QuickBEAM.VM.Compiler.{Counters, RegionProbe}
+  alias QuickBEAM.VM.Compiler.Counter
+  alias QuickBEAM.VM.Compiler.Region.Probe
 
   @enforce_keys [:pool, :program]
   defstruct [
@@ -23,7 +24,7 @@ defmodule QuickBEAM.VM.Compiler.Context do
   ]
 
   @type t :: %__MODULE__{
-          pool: QuickBEAM.VM.Compiler.ModulePool.server(),
+          pool: QuickBEAM.VM.Compiler.Pool.server(),
           program: QuickBEAM.VM.Program.t(),
           artifact_namespace: binary() | nil,
           decisions: %{
@@ -33,8 +34,8 @@ defmodule QuickBEAM.VM.Compiler.Context do
           max_decisions: pos_integer(),
           min_nested_instructions: non_neg_integer(),
           profile: :pure_v1 | :scalar_v1,
-          counters: Counters.t() | nil,
-          region_probe: RegionProbe.t() | nil,
+          counters: Counter.t() | nil,
+          region_probe: Probe.t() | nil,
           regions: boolean()
         }
 end

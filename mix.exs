@@ -123,35 +123,28 @@ defmodule QuickBEAM.MixProject do
 
   defp skip_doc_warning?(reference) do
     internal_vm_modules = [
-      "QuickBEAM.VM.Async",
+      "QuickBEAM.VM.ABI",
       "QuickBEAM.VM.Builtin",
+      "QuickBEAM.VM.Bytecode",
       "QuickBEAM.VM.Compiler",
-      "QuickBEAM.VM.Exceptions",
       "QuickBEAM.VM.Fuzz",
-      "QuickBEAM.VM.Invocation",
-      "QuickBEAM.VM.Iterator",
-      "QuickBEAM.VM.Opcodes",
-      "QuickBEAM.VM.ProgramStore",
-      "QuickBEAM.VM.Properties",
-      "QuickBEAM.VM.Value"
+      "QuickBEAM.VM.Program.Store",
+      "QuickBEAM.VM.Runtime"
     ]
 
     String.starts_with?(reference, "QuickBEAM.Runtime") or
-      Enum.any?(internal_vm_modules, &String.starts_with?(reference, &1)) or
-      String.ends_with?(reference, "beam-interpreter-architecture.md")
+      Enum.any?(internal_vm_modules, &String.starts_with?(reference, &1))
   end
 
   defp documented_module?(module, _metadata) do
     public_vm_modules = [
-      QuickBEAM.VM.ABI,
-      QuickBEAM.VM.ClosureVariable,
-      QuickBEAM.VM.Compiler,
-      QuickBEAM.VM.Function,
+      QuickBEAM.VM.Program.Variable.Closure,
+      QuickBEAM.VM.Program.Function,
       QuickBEAM.VM.Measurement,
       QuickBEAM.VM.Program,
-      QuickBEAM.VM.PinnedProgram,
-      QuickBEAM.VM.SourcePosition,
-      QuickBEAM.VM.Variable
+      QuickBEAM.VM.Program.Pinned,
+      QuickBEAM.VM.Program.Source,
+      QuickBEAM.VM.Program.Variable
     ]
 
     module != QuickBEAM.Application and

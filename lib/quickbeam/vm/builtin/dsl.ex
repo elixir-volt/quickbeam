@@ -1,7 +1,11 @@
 defmodule QuickBEAM.VM.Builtin.DSL do
   @moduledoc "Compiles the declarative builtin syntax into immutable validated specs."
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PrototypeSpec, Spec, Validator}
+  alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
+  alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
+  alias QuickBEAM.VM.Builtin.Spec.Prototype, as: PrototypeSpec
+  alias QuickBEAM.VM.Builtin.Spec
+  alias QuickBEAM.VM.Builtin.Validator
 
   @doc "Installs builtin declaration attributes and macros."
   defmacro __using__(_opts) do
@@ -68,7 +72,7 @@ defmodule QuickBEAM.VM.Builtin.DSL do
   @doc "Declares a static data property and evaluates its value in the declaring module."
   defmacro static_value(key, value, opts \\ []) do
     quote bind_quoted: [key: key, value: value, opts: opts] do
-      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.PropertySpec{
+      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.Spec.Property{
         key: key,
         value: value,
         writable: Keyword.get(opts, :writable, false),
@@ -81,7 +85,7 @@ defmodule QuickBEAM.VM.Builtin.DSL do
   @doc "Declares an immutable static constant."
   defmacro constant(key, value) do
     quote bind_quoted: [key: key, value: value] do
-      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.PropertySpec{
+      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.Spec.Property{
         key: key,
         value: value,
         writable: false,
@@ -94,7 +98,7 @@ defmodule QuickBEAM.VM.Builtin.DSL do
   @doc "Declares a prototype data property and evaluates its value in the declaring module."
   defmacro prototype_value(key, value, opts \\ []) do
     quote bind_quoted: [key: key, value: value, opts: opts] do
-      @quickbeam_builtin_prototype %QuickBEAM.VM.Builtin.PropertySpec{
+      @quickbeam_builtin_prototype %QuickBEAM.VM.Builtin.Spec.Property{
         key: key,
         value: value,
         writable: Keyword.get(opts, :writable, false),
@@ -107,7 +111,7 @@ defmodule QuickBEAM.VM.Builtin.DSL do
   @doc "Declares a prototype property alias with an evaluated property key."
   defmacro prototype_alias(key, opts) do
     quote bind_quoted: [key: key, opts: opts] do
-      @quickbeam_builtin_prototype %QuickBEAM.VM.Builtin.AliasSpec{
+      @quickbeam_builtin_prototype %QuickBEAM.VM.Builtin.Spec.Alias{
         key: key,
         target: Keyword.fetch!(opts, :to),
         writable: Keyword.get(opts, :writable, true),
@@ -120,7 +124,7 @@ defmodule QuickBEAM.VM.Builtin.DSL do
   @doc "Declares a static property alias with an evaluated property key."
   defmacro static_alias(key, opts) do
     quote bind_quoted: [key: key, opts: opts] do
-      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.AliasSpec{
+      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.Spec.Alias{
         key: key,
         target: Keyword.fetch!(opts, :to),
         writable: Keyword.get(opts, :writable, true),

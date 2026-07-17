@@ -8,12 +8,18 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   JavaScript semantics.
   """
 
-  alias QuickBEAM.VM.Compiler.{Contract, Deopt}
-  alias QuickBEAM.VM.Compiler.ModulePool.Lease
-  alias QuickBEAM.VM.Execution
-  alias QuickBEAM.VM.Frame
-  alias QuickBEAM.VM.Opcodes.{Control, Locals, Stack, Values}
-  alias QuickBEAM.VM.{Properties, StackState, Value}
+  alias QuickBEAM.VM.Compiler.Contract
+  alias QuickBEAM.VM.Compiler.Deopt
+  alias QuickBEAM.VM.Compiler.Pool.Lease
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.Opcode.Control
+  alias QuickBEAM.VM.Runtime.Opcode.Local, as: Locals
+  alias QuickBEAM.VM.Runtime.Opcode.Stack
+  alias QuickBEAM.VM.Runtime.Opcode.Value, as: Values
+  alias QuickBEAM.VM.Runtime.Property
+  alias QuickBEAM.VM.Runtime.Stack, as: OperandStack
+  alias QuickBEAM.VM.Runtime.Value
 
   @stack_operations Stack.opcodes()
   @local_operations [
@@ -70,10 +76,10 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   @type plan :: %{optional(non_neg_integer()) => {[operation()], block_boundary()}}
 
   @type action ::
-          {:ok, Frame.t(), Execution.t()}
+          {:ok, Frame.t(), State.t()}
           | {:deopt, Deopt.t()}
-          | {:invoke, term(), [term()], term(), Frame.t(), Execution.t(), false}
-          | {:error, term(), Execution.t()}
+          | {:invoke, term(), [term()], term(), Frame.t(), State.t(), false}
+          | {:error, term(), State.t()}
           | {:error, term()}
 
   @doc "Returns the generated-code runtime ABI version."
@@ -105,8 +111,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   def operation_family(_name), do: :error
 
   @doc "Executes one bounded lowered block and deoptimizes at its next boundary."
-  @spec execute_plan(Lease.t(), Frame.t(), Execution.t(), plan()) :: action()
-  def execute_plan(%Lease{} = lease, %Frame{} = frame, %Execution{} = execution, plan)
+  @spec execute_plan(Lease.t(), Frame.t(), State.t(), plan()) :: action()
+  def execute_plan(%Lease{} = lease, %Frame{} = frame, %State{} = execution, plan)
       when is_map(plan) do
     case Map.fetch(plan, frame.pc) do
       {:ok, {[], reason}} ->
@@ -138,25 +144,25 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: deopt(reason, lease, frame, execution)
 
   @doc "Charges a scalar block or deoptimizes with its reconstructed before-block state."
-  @spec charge_state(Lease.t(), tuple(), Execution.t(), pos_integer()) ::
-          {:ok, Execution.t()} | action()
+  @spec charge_state(Lease.t(), tuple(), State.t(), pos_integer()) ::
+          {:ok, State.t()} | action()
   def charge_state(%Lease{owner: owner}, _state, _execution, _count) when owner != self(),
     do: {:error, :compiler_lease_owner_mismatch}
 
-  def charge_state(_lease, _state, %Execution{memory_exceeded: true} = execution, _count),
+  def charge_state(_lease, _state, %State{memory_exceeded: true} = execution, _count),
     do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
 
   def charge_state(
         %Lease{},
         {%Frame{}, pc, args, locals, stack},
-        %Execution{remaining_steps: remaining} = execution,
+        %State{remaining_steps: remaining} = execution,
         count
       )
       when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) and
              is_integer(count) and count > 0 and remaining >= count,
       do: {:ok, %{execution | remaining_steps: remaining - count}}
 
-  def charge_state(%Lease{} = lease, state, %Execution{} = execution, count)
+  def charge_state(%Lease{} = lease, state, %State{} = execution, count)
       when is_integer(count) and count > 0,
       do: deopt_state(:step_boundary, lease, state, execution)
 
@@ -164,24 +170,24 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:invalid_compiler_scalar_charge, count, state}}
 
   @doc "Charges a guaranteed straight-line block or deoptimizes before it."
-  @spec charge_block(Lease.t(), Frame.t(), Execution.t(), pos_integer()) :: action()
+  @spec charge_block(Lease.t(), Frame.t(), State.t(), pos_integer()) :: action()
   def charge_block(%Lease{owner: owner}, _frame, _execution, _count) when owner != self(),
     do: {:error, :compiler_lease_owner_mismatch}
 
-  def charge_block(_lease, _frame, %Execution{memory_exceeded: true} = execution, _count),
+  def charge_block(_lease, _frame, %State{memory_exceeded: true} = execution, _count),
     do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
 
   def charge_block(
         %Lease{},
         %Frame{} = frame,
-        %Execution{remaining_steps: remaining} = execution,
+        %State{remaining_steps: remaining} = execution,
         count
       )
       when is_integer(count) and count > 0 and remaining >= count do
     {:ok, frame, %{execution | remaining_steps: remaining - count}}
   end
 
-  def charge_block(%Lease{} = lease, %Frame{} = frame, %Execution{} = execution, count)
+  def charge_block(%Lease{} = lease, %Frame{} = frame, %State{} = execution, count)
       when is_integer(count) and count > 0,
       do: deopt(:step_boundary, lease, frame, execution)
 
@@ -189,11 +195,11 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:invalid_compiler_step_charge, count}}
 
   @doc "Constructs a validated owner-local before-instruction deoptimization action."
-  @spec deopt(Deopt.reason(), Lease.t(), Frame.t(), Execution.t()) :: action()
+  @spec deopt(Deopt.reason(), Lease.t(), Frame.t(), State.t()) :: action()
   def deopt(_reason, %Lease{owner: owner}, _frame, _execution) when owner != self(),
     do: {:error, :compiler_lease_owner_mismatch}
 
-  def deopt(reason, %Lease{} = lease, %Frame{} = frame, %Execution{} = execution) do
+  def deopt(reason, %Lease{} = lease, %Frame{} = frame, %State{} = execution) do
     case Deopt.new(reason, lease.key, lease.epoch, lease.generation, frame, execution) do
       {:ok, deopt} -> {:deopt, deopt}
       {:error, error} -> {:error, {:invalid_compiler_deopt, error}}
@@ -201,12 +207,12 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   end
 
   @doc "Deoptimizes after rebuilding a canonical frame from bounded scalar state."
-  @spec deopt_state(Deopt.reason(), Lease.t(), tuple(), Execution.t()) :: action()
+  @spec deopt_state(Deopt.reason(), Lease.t(), tuple(), State.t()) :: action()
   def deopt_state(
         reason,
         %Lease{} = lease,
         {%Frame{} = frame, pc, args, locals, stack},
-        %Execution{} = execution
+        %State{} = execution
       )
       when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) do
     frame = %{
@@ -225,8 +231,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:invalid_compiler_scalar_state, state}}
 
   @doc "Executes one compact stack/value/branch block with a single frame rebuild."
-  @spec execute_fast_block(Lease.t(), Frame.t(), Execution.t(), [operation()]) :: action()
-  def execute_fast_block(%Lease{} = lease, %Frame{} = frame, %Execution{} = execution, operations)
+  @spec execute_fast_block(Lease.t(), Frame.t(), State.t(), [operation()]) :: action()
+  def execute_fast_block(%Lease{} = lease, %Frame{} = frame, %State{} = execution, operations)
       when is_list(operations) and length(operations) <= @max_block_instruction_count do
     with {:ok, frame, execution} <- charge_block(lease, frame, execution, length(operations)),
          {:ok, pc, args, locals, stack, execution} <-
@@ -248,8 +254,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:invalid_compiler_fast_block, operations}}
 
   @doc "Executes one verified pure operand-stack instruction and advances the PC."
-  @spec execute_stack(atom(), [term()], Frame.t(), Execution.t()) :: action()
-  def execute_stack(name, operands, %Frame{} = frame, %Execution{} = execution)
+  @spec execute_stack(atom(), [term()], Frame.t(), State.t()) :: action()
+  def execute_stack(name, operands, %Frame{} = frame, %State{} = execution)
       when name in @stack_operations and is_list(operands),
       do: name |> Stack.execute(operands, frame, execution) |> advance_action()
 
@@ -262,8 +268,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: put_elem(tuple, index, value)
 
   @doc "Executes one verified pure local or argument instruction and advances the PC."
-  @spec execute_local(atom(), [term()], Frame.t(), Execution.t()) :: action()
-  def execute_local(name, operands, %Frame{} = frame, %Execution{} = execution)
+  @spec execute_local(atom(), [term()], Frame.t(), State.t()) :: action()
+  def execute_local(name, operands, %Frame{} = frame, %State{} = execution)
       when name in @local_operations and is_list(operands),
       do: name |> Locals.execute(operands, frame, execution) |> advance_action()
 
@@ -271,8 +277,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:unsupported_compiler_local_operation, name, operands}}
 
   @doc "Executes one verified primitive value instruction and advances the PC."
-  @spec execute_value(atom(), [term()], Frame.t(), Execution.t()) :: action()
-  def execute_value(name, operands, %Frame{} = frame, %Execution{} = execution)
+  @spec execute_value(atom(), [term()], Frame.t(), State.t()) :: action()
+  def execute_value(name, operands, %Frame{} = frame, %State{} = execution)
       when name in @value_operations and is_list(operands),
       do: name |> Values.execute(operands, frame, execution) |> advance_action()
 
@@ -280,8 +286,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:unsupported_compiler_value_operation, name, operands}}
 
   @doc "Executes one verified conditional or unconditional branch instruction."
-  @spec execute_branch(atom(), [term()], Frame.t(), Execution.t()) :: action()
-  def execute_branch(name, operands, %Frame{} = frame, %Execution{} = execution)
+  @spec execute_branch(atom(), [term()], Frame.t(), State.t()) :: action()
+  def execute_branch(name, operands, %Frame{} = frame, %State{} = execution)
       when name in @branch_operations and is_list(operands),
       do: name |> Control.execute(operands, frame, execution) |> branch_action()
 
@@ -310,7 +316,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
          function,
          execution
        ) do
-    with {:ok, stack} <- StackState.execute(name, operands, stack, this, function.constants) do
+    with {:ok, stack} <- OperandStack.execute(name, operands, stack, this, function.constants) do
       execute_fast_operations(
         operations,
         pc + 1,
@@ -560,8 +566,8 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:unsupported_compiler_operation, family, name, operands}}
 
   @doc "Reads one global through the canonical local/global layer."
-  @spec global_get(:get_var | :get_var_undef, term(), Execution.t()) :: {:ok, term()} | :deopt
-  def global_get(mode, atom, %Execution{} = execution) when mode in [:get_var, :get_var_undef] do
+  @spec global_get(:get_var | :get_var_undef, term(), State.t()) :: {:ok, term()} | :deopt
+  def global_get(mode, atom, %State{} = execution) when mode in [:get_var, :get_var_undef] do
     name = Locals.resolve_atom(atom, execution)
 
     case Locals.read_global(execution, name) do
@@ -572,20 +578,20 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   end
 
   @doc "Writes one global through the canonical local/global layer."
-  @spec global_put(term(), term(), Execution.t()) :: Execution.t()
-  def global_put(atom, value, %Execution{} = execution) do
+  @spec global_put(term(), term(), State.t()) :: State.t()
+  def global_put(atom, value, %State{} = execution) do
     name = Locals.resolve_atom(atom, execution)
     Locals.write_global(execution, name, value)
   end
 
   @doc "Resolves one decoded atom operand through the canonical local layer."
-  @spec resolve_atom(term(), Execution.t()) :: term()
-  def resolve_atom(atom, %Execution{} = execution), do: Locals.resolve_atom(atom, execution)
+  @spec resolve_atom(term(), State.t()) :: term()
+  def resolve_atom(atom, %State{} = execution), do: Locals.resolve_atom(atom, execution)
 
   @doc "Reads a non-accessor property or requests before-instruction deoptimization."
-  @spec property_get(term(), term(), Execution.t()) :: {:ok, term()} | :deopt
-  def property_get(object, key, %Execution{} = execution) do
-    case Properties.get(object, key, execution) do
+  @spec property_get(term(), term(), State.t()) :: {:ok, term()} | :deopt
+  def property_get(object, key, %State{} = execution) do
+    case Property.get(object, key, execution) do
       {:ok, {:accessor, _getter, _receiver}} -> :deopt
       {:ok, value} -> {:ok, value}
       {:error, _reason} -> :deopt
@@ -593,13 +599,13 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   end
 
   @doc "Returns an explicit interpreter-owned invocation from bounded scalar state."
-  @spec invoke_state(term(), [term()], term(), tuple(), Execution.t()) :: action()
+  @spec invoke_state(term(), [term()], term(), tuple(), State.t()) :: action()
   def invoke_state(
         callable,
         arguments,
         this,
         {%Frame{} = frame, pc, args, locals, stack},
-        %Execution{} = execution
+        %State{} = execution
       )
       when is_list(arguments) and is_integer(pc) and pc >= 0 and is_tuple(args) and
              is_tuple(locals) and is_list(stack) do
@@ -619,7 +625,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   def invoke_state(_callable, _arguments, _this, state, _execution),
     do: {:error, {:invalid_compiler_invocation_state, state}}
 
-  defp scalar_profile?(%Execution{compiler_context: %{profile: :scalar_v1}}), do: true
+  defp scalar_profile?(%State{compiler_context: %{profile: :scalar_v1}}), do: true
   defp scalar_profile?(_execution), do: false
 
   @doc "Returns canonical JavaScript truthiness for a represented value."

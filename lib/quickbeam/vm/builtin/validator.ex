@@ -1,14 +1,12 @@
 defmodule QuickBEAM.VM.Builtin.Validator do
   @moduledoc "Validates builtin declarations and handler contracts at compile time."
 
-  alias QuickBEAM.VM.Builtin.{
-    AccessorSpec,
-    AliasSpec,
-    FunctionSpec,
-    PropertySpec,
-    PrototypeSpec,
-    Spec
-  }
+  alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
+  alias QuickBEAM.VM.Builtin.Spec.Alias, as: AliasSpec
+  alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
+  alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
+  alias QuickBEAM.VM.Builtin.Spec.Prototype, as: PrototypeSpec
+  alias QuickBEAM.VM.Builtin.Spec
 
   @doc "Validates a compiled builtin spec against its declaring module."
   @spec validate!(Spec.t(), Macro.Env.t()) :: :ok

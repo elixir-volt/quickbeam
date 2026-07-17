@@ -13,18 +13,21 @@ defmodule QuickBEAM.VM.Compiler do
   as typed compiler errors and never invoke native QuickJS.
   """
 
-  alias QuickBEAM.VM.Compiler.{
-    Context,
-    Contract,
-    Counters,
-    Deopt,
-    GeneratedModule,
-    ModulePool,
-    RegionProbe
-  }
+  alias QuickBEAM.VM.Compiler.Context
+  alias QuickBEAM.VM.Compiler.Contract
+  alias QuickBEAM.VM.Compiler.Counter
+  alias QuickBEAM.VM.Compiler.Deopt
+  alias QuickBEAM.VM.Compiler.Code
+  alias QuickBEAM.VM.Compiler.Pool
+  alias QuickBEAM.VM.Compiler.Region.Probe
 
-  alias QuickBEAM.VM.Compiler.Lowering.PureV1
-  alias QuickBEAM.VM.{Evaluator, Execution, Frame, Function, Interpreter, Program}
+  alias QuickBEAM.VM.Compiler.Profile.Pure
+  alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Interpreter
+  alias QuickBEAM.VM.Program
 
   @type result :: {:ok, term()} | {:error, term()} | {:suspended, term()}
   @type frame_action ::
@@ -37,7 +40,7 @@ defmodule QuickBEAM.VM.Compiler do
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
-      id: ModulePool,
+      id: Pool,
       start: {__MODULE__, :start_link, [opts]},
       type: :worker,
       restart: :permanent,
@@ -50,10 +53,10 @@ defmodule QuickBEAM.VM.Compiler do
   def start_link(opts \\ []) when is_list(opts) do
     opts =
       opts
-      |> Keyword.put_new(:backend, GeneratedModule)
+      |> Keyword.put_new(:backend, Code)
       |> Keyword.put_new(:task_supervisor, QuickBEAM.VM.TaskSupervisor)
 
-    ModulePool.start_link(opts)
+    Pool.start_link(opts)
   end
 
   @doc "Evaluates a verified program through the selected bounded compiler profile."
@@ -61,7 +64,7 @@ defmodule QuickBEAM.VM.Compiler do
   def eval(%Program{} = program, opts \\ []) when is_list(opts) do
     program
     |> start(opts)
-    |> Evaluator.drive()
+    |> Runtime.drive()
   end
 
   @doc "Evaluates through the compiler while collecting the standard deterministic counters."
@@ -81,16 +84,16 @@ defmodule QuickBEAM.VM.Compiler do
   @spec start(Program.t(), keyword()) :: term()
   def start(%Program{root: %Function{}} = program, opts \\ []) when is_list(opts) do
     {frame, execution} = Interpreter.initialize(program, opts)
-    pool = Keyword.get(opts, :compiler_pool, ModulePool)
+    pool = Keyword.get(opts, :compiler_pool, Pool)
     {:ok, artifact_namespace} = Contract.program_identity(program)
 
     context = %Context{
       artifact_namespace: artifact_namespace,
-      counters: if(execution.measurement_target, do: Counters.new()),
+      counters: if(execution.measurement_target, do: Counter.new()),
       pool: pool,
       profile: Keyword.get(opts, :compiler_profile, :pure_v1),
       program: program,
-      region_probe: if(Keyword.get(opts, :compiler_region_probe) == true, do: RegionProbe.new()),
+      region_probe: if(Keyword.get(opts, :compiler_region_probe) == true, do: Probe.new()),
       regions: Keyword.get(opts, :compiler_regions, false)
     }
 
@@ -106,9 +109,9 @@ defmodule QuickBEAM.VM.Compiler do
   @spec execute_frame(struct(), struct()) :: frame_action()
   def execute_frame(
         %Frame{function: %Function{id: function_id} = function} = frame,
-        %Execution{compiler_context: %Context{pool: pool}} = execution
+        %State{compiler_context: %Context{pool: pool}} = execution
       ) do
-    execution = Counters.increment(execution, :frame_attempts)
+    execution = Counter.increment(execution, :frame_attempts)
     context = execution.compiler_context
 
     action =
@@ -134,7 +137,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp prepare_frame(
          %Function{} = function,
          frame,
-         %Execution{
+         %State{
            compiler_context: %Context{
              program: %Program{root: %Function{} = root} = program,
              min_nested_instructions: nested_minimum,
@@ -144,10 +147,10 @@ defmodule QuickBEAM.VM.Compiler do
        ) do
     minimum = if function.id == root.id, do: 1, else: nested_minimum
 
-    if PureV1.candidate?(function, minimum, profile) do
+    if Pure.candidate?(function, minimum, profile) do
       prepare_keyed_frame(program, function, minimum, profile, frame, execution)
     else
-      execution = Counters.increment(execution, :skipped_functions)
+      execution = Counter.increment(execution, :skipped_functions)
       execution = cache_decision(execution, function.id, :skip)
       prepare_region_frame(function, frame, execution)
     end
@@ -155,14 +158,14 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp prepare_keyed_frame(program, function, minimum, profile, frame, execution) do
     with {:ok, key} <- artifact_key(execution.compiler_context, program, function, profile) do
-      case ModulePool.checkout_cached(execution.compiler_context.pool, key) do
+      case Pool.checkout_cached(execution.compiler_context.pool, key) do
         {:ok, lease} ->
-          execution = Counters.increment(execution, :cached_functions)
+          execution = Counter.increment(execution, :cached_functions)
           execution = cache_decision(execution, function.id, {:cached, key})
           invoke_lease(execution.compiler_context.pool, lease, frame, execution)
 
         :skip ->
-          execution = Counters.increment(execution, :skipped_functions)
+          execution = Counter.increment(execution, :skipped_functions)
           execution = cache_decision(execution, function.id, :skip)
           prepare_region_frame(function, frame, execution)
 
@@ -196,7 +199,7 @@ defmodule QuickBEAM.VM.Compiler do
       )
 
   defp prepare_uncached_frame(function, minimum, profile, key, frame, execution) do
-    case PureV1.prepare(function, minimum, profile) do
+    case Pure.prepare(function, minimum, profile) do
       {:ok, template, _count} ->
         prepare_template(function, profile, key, template, frame, execution)
 
@@ -209,7 +212,7 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp prepare_template(function, :scalar_v1, key, template, frame, execution) do
-    if PureV1.scalar_template?(template) or not execution.compiler_context.regions do
+    if Pure.scalar_template?(template) or not execution.compiler_context.regions do
       prepare_compiled_template(function, key, template, frame, execution)
     else
       skip_uncached_frame(function, key, frame, execution)
@@ -220,26 +223,26 @@ defmodule QuickBEAM.VM.Compiler do
     do: prepare_compiled_template(function, key, template, frame, execution)
 
   defp prepare_compiled_template(function, key, template, frame, execution) do
-    execution = Counters.increment(execution, :compiled_functions)
+    execution = Counter.increment(execution, :compiled_functions)
     execution = cache_decision(execution, function.id, {:compile, key, template})
     invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
   end
 
   defp skip_uncached_frame(function, key, frame, execution) do
-    with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
-      execution = Counters.increment(execution, :skipped_functions)
+    with :ok <- Pool.remember_skip(execution.compiler_context.pool, key) do
+      execution = Counter.increment(execution, :skipped_functions)
       execution = cache_decision(execution, function.id, :skip)
       prepare_region_frame(function, frame, execution)
     end
   end
 
   defp invoke_cached(pool, key, function, frame, execution) do
-    case ModulePool.checkout_cached(pool, key) do
+    case Pool.checkout_cached(pool, key) do
       {:ok, lease} ->
         invoke_lease(pool, lease, frame, execution)
 
       :skip ->
-        execution = Counters.increment(execution, :skipped_functions)
+        execution = Counter.increment(execution, :skipped_functions)
         execution = cache_decision(execution, function.id, :skip)
         prepare_region_frame(function, frame, execution)
 
@@ -254,11 +257,11 @@ defmodule QuickBEAM.VM.Compiler do
   defp prepare_region_frame(
          %Function{id: function_id} = function,
          %Frame{pc: 0} = frame,
-         %Execution{compiler_context: %Context{profile: :scalar_v1, regions: true} = context} =
+         %State{compiler_context: %Context{profile: :scalar_v1, regions: true} = context} =
            execution
        ) do
     decision_key = {:region, function_id, 0}
-    execution = Counters.increment(execution, :region_attempts)
+    execution = Counter.increment(execution, :region_attempts)
 
     case Map.fetch(context.decisions, decision_key) do
       {:ok, :skip} ->
@@ -281,7 +284,7 @@ defmodule QuickBEAM.VM.Compiler do
          decision_key,
          %Function{id: function_id} = function,
          frame,
-         %Execution{
+         %State{
            compiler_context: %Context{
              artifact_namespace: namespace,
              pool: pool,
@@ -291,12 +294,12 @@ defmodule QuickBEAM.VM.Compiler do
        ) do
     with {:ok, admission_key} <-
            Contract.region_admission_key(namespace, function_id, frame.pc, profile) do
-      case ModulePool.admit_region(pool, admission_key) do
+      case Pool.admit_region(pool, admission_key) do
         :cold ->
-          {:skip, frame, Counters.increment(execution, :region_cold)}
+          {:skip, frame, Counter.increment(execution, :region_cold)}
 
         :hot ->
-          execution = Counters.increment(execution, :region_hot)
+          execution = Counter.increment(execution, :region_hot)
           prepare_region_keyed(decision_key, function, frame, execution)
 
         {:error, reason} ->
@@ -309,7 +312,7 @@ defmodule QuickBEAM.VM.Compiler do
          decision_key,
          function,
          frame,
-         %Execution{
+         %State{
            compiler_context: %Context{
              artifact_namespace: namespace,
              pool: pool,
@@ -322,9 +325,9 @@ defmodule QuickBEAM.VM.Compiler do
              profile: profile,
              region_entry: frame.pc
            ) do
-      case ModulePool.checkout_cached(pool, key) do
+      case Pool.checkout_cached(pool, key) do
         {:ok, lease} ->
-          execution = Counters.increment(execution, :cached_functions)
+          execution = Counter.increment(execution, :cached_functions)
           execution = cache_decision(execution, decision_key, {:cached, key})
           invoke_lease(pool, lease, frame, execution)
 
@@ -344,10 +347,10 @@ defmodule QuickBEAM.VM.Compiler do
   defp prepare_uncached_region(decision_key, key, function, frame, execution) do
     profile = execution.compiler_context.profile
 
-    case PureV1.prepare_region(function, frame.pc, profile) do
+    case Pure.prepare_region(function, frame.pc, profile) do
       {:ok, template, _count} ->
-        execution = Counters.increment(execution, :compiled_functions)
-        execution = Counters.increment(execution, :region_compiled)
+        execution = Counter.increment(execution, :compiled_functions)
+        execution = Counter.increment(execution, :region_compiled)
         execution = cache_decision(execution, decision_key, {:compile, key, template})
 
         case invoke_frame(execution.compiler_context.pool, key, template, frame, execution) do
@@ -356,7 +359,7 @@ defmodule QuickBEAM.VM.Compiler do
         end
 
       {:skip, _count} ->
-        with :ok <- ModulePool.remember_skip(execution.compiler_context.pool, key) do
+        with :ok <- Pool.remember_skip(execution.compiler_context.pool, key) do
           {:skip, frame, cache_decision(execution, decision_key, :skip)}
         end
 
@@ -368,7 +371,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp invoke_cached_region(key, decision_key, function, frame, execution) do
     pool = execution.compiler_context.pool
 
-    case ModulePool.checkout_cached(pool, key) do
+    case Pool.checkout_cached(pool, key) do
       {:ok, lease} -> invoke_lease(pool, lease, frame, execution)
       :skip -> {:skip, frame, cache_decision(execution, decision_key, :skip)}
       :miss -> prepare_region_keyed(decision_key, function, frame, execution)
@@ -377,22 +380,22 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp invoke_frame(pool, key, template, frame, execution) do
-    with {:ok, lease} <- ModulePool.checkout(pool, key, template),
+    with {:ok, lease} <- Pool.checkout(pool, key, template),
          do: invoke_lease(pool, lease, frame, execution)
   end
 
   defp invoke_lease(pool, lease, frame, execution) do
-    execution = Counters.increment(execution, :generated_entries)
+    execution = Counter.increment(execution, :generated_entries)
     remaining_steps = execution.remaining_steps
 
     pool
-    |> GeneratedModule.invoke(lease, frame, execution)
+    |> Code.invoke(lease, frame, execution)
     |> add_generated_steps(remaining_steps)
   after
     safe_checkin(pool, lease)
   end
 
-  defp cache_decision(%Execution{compiler_context: context} = execution, function_id, decision) do
+  defp cache_decision(%State{compiler_context: context} = execution, function_id, decision) do
     if map_size(context.decisions) < context.max_decisions do
       context = %{context | decisions: Map.put(context.decisions, function_id, decision)}
       %{execution | compiler_context: context}
@@ -402,24 +405,24 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp observe_action({:deopt, %Deopt{} = deopt}) do
-    execution = Counters.deopt(deopt.execution, deopt.reason, deopt.frame)
+    execution = Counter.deopt(deopt.execution, deopt.reason, deopt.frame)
     {:deopt, %{deopt | execution: execution}}
   end
 
   defp observe_action({:invoke, callable, arguments, this, caller, execution, false}) do
-    execution = Counters.increment(execution, :invocation_actions)
+    execution = Counter.increment(execution, :invocation_actions)
     {:invoke, callable, arguments, this, caller, execution, false}
   end
 
   defp observe_action({:skip, frame, execution}) do
-    {:skip, frame, Counters.increment(execution, :skipped_frames)}
+    {:skip, frame, Counter.increment(execution, :skipped_frames)}
   end
 
   defp observe_action(action), do: action
 
   defp add_generated_steps(action, before) do
     update_action_execution(action, fn execution ->
-      Counters.add_generated_steps(execution, max(before - execution.remaining_steps, 0))
+      Counter.add_generated_steps(execution, max(before - execution.remaining_steps, 0))
     end)
   end
 
@@ -434,7 +437,7 @@ defmodule QuickBEAM.VM.Compiler do
     {:invoke, callable, arguments, this, caller, update.(execution), false}
   end
 
-  defp update_action_execution({status, value, %Execution{} = execution}, update)
+  defp update_action_execution({status, value, %State{} = execution}, update)
        when status in [:ok, :error],
        do: {status, value, update.(execution)}
 
@@ -451,7 +454,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp resume_action({:skip, frame, execution}, _initial),
     do: Interpreter.run_frame(frame, execution)
 
-  defp resume_action({status, _value, %Execution{}} = result, _execution)
+  defp resume_action({status, _value, %State{}} = result, _execution)
        when status in [:ok, :error], do: result
 
   defp resume_action({:suspended, _continuation} = result, _execution), do: result
@@ -473,7 +476,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp ensure_pool_available(pool), do: {:error, {:compiler_pool_unavailable, pool}}
 
   defp safe_checkin(pool, lease) do
-    ModulePool.checkin_active(pool, lease)
+    Pool.checkin_active(pool, lease)
   catch
     :exit, _reason -> :ok
   end

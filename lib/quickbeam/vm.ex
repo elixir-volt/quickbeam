@@ -6,21 +6,19 @@ defmodule QuickBEAM.VM do
   heap, Promise state, host operations, and resource limits.
   """
 
-  alias QuickBEAM.VM.{
-    ABI,
-    Compiler,
-    Decoder,
-    Evaluator,
-    Function,
-    Measurement,
-    Program,
-    ProgramStore,
-    PinnedProgram,
-    Verifier
-  }
+  alias QuickBEAM.VM.ABI
+  alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Bytecode.Decoder
+  alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Measurement
+  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Store
+  alias QuickBEAM.VM.Program.Pinned
+  alias QuickBEAM.VM.Bytecode.Verifier
 
   @type program :: QuickBEAM.VM.Program.t()
-  @type pinned_program :: QuickBEAM.VM.PinnedProgram.t()
+  @type pinned_program :: QuickBEAM.VM.Program.Pinned.t()
 
   @max_bytecode_bytes 16 * 1024 * 1024
   @default_timeout 5_000
@@ -67,12 +65,12 @@ defmodule QuickBEAM.VM do
   residency to 128 MiB. Concurrent pins of the same program identity are
   idempotent and return the same lightweight handle.
   """
-  @spec pin(Program.t()) :: {:ok, PinnedProgram.t()} | {:error, term()}
+  @spec pin(Program.t()) :: {:ok, Pinned.t()} | {:error, term()}
   def pin(%Program{} = program) do
     program = Program.put_pin_key(program)
 
     with :ok <- Verifier.verify(program) do
-      case ProgramStore.pin(program) do
+      case Store.pin(program) do
         {:ok, pinned} -> {:ok, pinned}
         {:error, reason} -> {:error, reason}
         :unavailable -> {:error, :pinned_program_capacity}
@@ -137,10 +135,10 @@ defmodule QuickBEAM.VM do
   BEAM process heap ceiling. `isolation: :caller` is available for trusted
   diagnostics. The compiler engine requires a supervised `QuickBEAM.VM.Compiler`.
   """
-  @spec eval(Program.t() | PinnedProgram.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  @spec eval(Program.t() | Pinned.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def eval(program, opts \\ [])
 
-  def eval(%PinnedProgram{} = pinned, opts) when is_list(opts) do
+  def eval(%Pinned{} = pinned, opts) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
          {:ok, lease} <- pinned_lease(pinned) do
       try do
@@ -149,7 +147,7 @@ defmodule QuickBEAM.VM do
           :process -> eval_isolated_pinned(lease, options)
         end
       after
-        ProgramStore.checkin(lease)
+        Store.checkin(lease)
       end
     end
   end
@@ -173,11 +171,11 @@ defmodule QuickBEAM.VM do
   `measurement.result`. Invalid programs or options are returned directly as
   `{:error, reason}` because no evaluation was started.
   """
-  @spec measure(Program.t() | PinnedProgram.t(), keyword()) ::
+  @spec measure(Program.t() | Pinned.t(), keyword()) ::
           {:ok, Measurement.t()} | {:error, term()}
   def measure(program, opts \\ [])
 
-  def measure(%PinnedProgram{} = pinned, opts) when is_list(opts) do
+  def measure(%Pinned{} = pinned, opts) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
          {:ok, lease} <- pinned_lease(pinned) do
       started = System.monotonic_time()
@@ -189,7 +187,7 @@ defmodule QuickBEAM.VM do
             :process -> measure_isolated_pinned(lease, options)
           end
         after
-          ProgramStore.checkin(lease)
+          Store.checkin(lease)
         end
 
       elapsed = System.monotonic_time() - started
@@ -241,7 +239,7 @@ defmodule QuickBEAM.VM do
   defp validate_evaluation_options(opts) do
     isolation = Keyword.get(opts, :isolation, :process)
     engine = Keyword.get(opts, :engine, :interpreter)
-    compiler_pool = Keyword.get(opts, :compiler_pool, QuickBEAM.VM.Compiler.ModulePool)
+    compiler_pool = Keyword.get(opts, :compiler_pool, QuickBEAM.VM.Compiler.Pool)
     compiler_profile = Keyword.get(opts, :compiler_profile, :pure_v1)
     compiler_region_probe = Keyword.get(opts, :compiler_region_probe, false)
     compiler_regions = Keyword.get(opts, :compiler_regions, false)
@@ -320,14 +318,14 @@ defmodule QuickBEAM.VM do
   end
 
   defp pinned_lease(pinned) do
-    case ProgramStore.checkout(pinned) do
+    case Store.checkout(pinned) do
       {:ok, lease} -> {:ok, lease}
       :unavailable -> {:error, :pinned_program_unavailable}
     end
   end
 
   defp evaluate_pinned_caller(lease, options) do
-    with {:ok, program} <- ProgramStore.fetch(lease),
+    with {:ok, program} <- Store.fetch(lease),
          :ok <- Verifier.verify_identity(program) do
       evaluate(program, options)
     end
@@ -343,7 +341,7 @@ defmodule QuickBEAM.VM do
   defp eval_isolated(program, options), do: eval_isolated_program(program, options)
 
   defp eval_isolated_pinned(lease, options) do
-    with {:ok, program} <- ProgramStore.fetch(lease),
+    with {:ok, program} <- Store.fetch(lease),
          :ok <- Verifier.verify_identity(program) do
       eval_isolated_program(program, options)
     end
@@ -359,7 +357,7 @@ defmodule QuickBEAM.VM do
   end
 
   defp evaluate(program, %{engine: :interpreter, interpreter: options}),
-    do: Evaluator.eval(program, Map.to_list(options))
+    do: Runtime.eval(program, Map.to_list(options))
 
   defp evaluate(program, %{engine: :compiler, interpreter: options}),
     do: Compiler.eval(program, Map.to_list(options))
@@ -385,7 +383,7 @@ defmodule QuickBEAM.VM do
   end
 
   defp fetch_verified_pinned(lease) do
-    with {:ok, program} <- ProgramStore.fetch(lease),
+    with {:ok, program} <- Store.fetch(lease),
          :ok <- Verifier.verify_identity(program),
          do: {:ok, program}
   end
@@ -422,7 +420,7 @@ defmodule QuickBEAM.VM do
   end
 
   defp measure_engine(:interpreter, program, options),
-    do: Evaluator.eval_with_metrics(program, options)
+    do: Runtime.eval_with_metrics(program, options)
 
   defp measure_engine(:compiler, program, options),
     do: Compiler.eval_with_metrics(program, options)
@@ -452,8 +450,8 @@ defmodule QuickBEAM.VM do
   idempotent by program identity rather than ownership-counted, one lifecycle
   owner should coordinate pinning and unpinning.
   """
-  @spec unpin(PinnedProgram.t()) :: :ok | :not_pinned
-  def unpin(%PinnedProgram{} = pinned), do: ProgramStore.unpin(pinned)
+  @spec unpin(Pinned.t()) :: :ok | :not_pinned
+  def unpin(%Pinned{} = pinned), do: Store.unpin(pinned)
 
   @doc "Returns the monitored worker spawn options for an evaluation memory limit."
   def worker_spawn_options(:infinity), do: [:monitor]

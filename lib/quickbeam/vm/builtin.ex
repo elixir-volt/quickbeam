@@ -9,12 +9,14 @@ defmodule QuickBEAM.VM.Builtin do
   immediate result, JavaScript error, or typed resumable action.
   """
 
-  alias QuickBEAM.VM.Builtin.{Action, Call, ContractError}
-  alias QuickBEAM.VM.Execution
+  alias QuickBEAM.VM.Builtin.Action
+  alias QuickBEAM.VM.Builtin.Call
+  alias QuickBEAM.VM.Builtin.Contract.Error, as: ContractError
+  alias QuickBEAM.VM.Runtime.State
 
   @type handler_result ::
-          {:ok, term(), Execution.t()}
-          | {:error, term(), Execution.t()}
+          {:ok, term(), State.t()}
+          | {:error, term(), State.t()}
           | Action.t()
 
   @doc "Installs the declarative builtin DSL in a module."
@@ -41,8 +43,8 @@ defmodule QuickBEAM.VM.Builtin do
     result = apply(module, handler, [call])
 
     case result do
-      {:ok, _value, %Execution{}} -> result
-      {:error, _reason, %Execution{}} -> result
+      {:ok, _value, %State{}} -> result
+      {:error, _reason, %State{}} -> result
       %Action{} -> result
       invalid -> raise ContractError, module: module, handler: handler, result: invalid
     end
