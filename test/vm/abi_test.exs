@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.ABITest do
   use ExUnit.Case, async: true
 
   alias QuickBEAM.VM.ABI
+  alias QuickBEAM.VM.ABI.Generator
   alias QuickBEAM.VM.ABI.Source
   alias QuickBEAM.VM.Bytecode.Opcode
 
@@ -38,6 +39,20 @@ defmodule QuickBEAM.VM.ABITest do
   test "rejects unterminated C declarations" do
     assert_raise ArgumentError, fn -> Source.enum_entries!("typedef enum Broken {", "Broken") end
     assert_raise ArgumentError, fn -> Source.macro_arguments("DEF(name, value", "DEF") end
+  end
+
+  test "rejects unknown ABI identifiers without creating atoms" do
+    source = """
+    typedef enum BCTagEnum {
+      BC_TAG_QUICKBEAM_UNKNOWN_IDENTIFIER = 1,
+    } BCTagEnum;
+    """
+
+    identifier = "quickbeam_unknown_identifier"
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(identifier) end
+    assert_raise ArgumentError, ~r/unknown tag identifier/, fn -> Generator.tags!(source) end
+    assert_raise ArgumentError, fn -> String.to_existing_atom(identifier) end
   end
 
   test "predefined atom indexes include QuickJS v26 additions" do

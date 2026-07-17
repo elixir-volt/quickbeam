@@ -7,6 +7,10 @@ defmodule QuickBEAM.VM.ABI.Generator do
   """
 
   alias QuickBEAM.VM.ABI.Source
+  alias QuickBEAM.VM.ABI.Vocabulary
+
+  require Vocabulary
+  Vocabulary.ensure_loaded()
 
   @doc "Returns the vendored QuickJS bytecode version."
   @spec version!(String.t()) :: pos_integer()
@@ -70,18 +74,21 @@ defmodule QuickBEAM.VM.ABI.Generator do
 
   defp tag_name!(name) do
     case String.trim(name) do
-      "BC_TAG_" <> suffix -> suffix |> identifier!(:tag) |> String.downcase() |> String.to_atom()
-      _other -> raise ArgumentError, "unsupported bytecode tag definition: #{inspect(name)}"
+      "BC_TAG_" <> suffix ->
+        suffix |> identifier!(:tag) |> String.downcase() |> Vocabulary.fetch!(:tag)
+
+      _other ->
+        raise ArgumentError, "unsupported bytecode tag definition: #{inspect(name)}"
     end
   end
 
   defp opcode!([name, size, pops, pushes, format]) do
     {
-      name |> identifier!(:opcode) |> String.to_atom(),
+      name |> identifier!(:opcode) |> Vocabulary.fetch!(:opcode),
       unsigned_integer!(size, name),
       unsigned_integer!(pops, name),
       unsigned_integer!(pushes, name),
-      format |> identifier!(:opcode_format) |> String.to_atom()
+      format |> identifier!(:opcode_format) |> Vocabulary.fetch!(:opcode_format)
     }
   end
 
