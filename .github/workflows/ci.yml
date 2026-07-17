@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        otp: ['27.0']
+        otp: ['27.3']
         elixir: ['1.18']
     env:
       MIX_ENV: test
@@ -85,7 +85,7 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27.0'
+          otp-version: '27.3'
           elixir-version: '1.18'
 
       - uses: goto-bus-stop/setup-zig@v2
@@ -98,8 +98,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-ubsan-27.0-1.18-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
-          restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
+          key: ${{ runner.os }}-ubsan-27.3-1.18-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
+          restore-keys: ${{ runner.os }}-ubsan-27.3-1.18-
 
       - run: mix deps.get
       - run: mix npm.get
