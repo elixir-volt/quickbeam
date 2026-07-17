@@ -10,16 +10,16 @@ defmodule QuickBEAM.Bench.VMInterpreterPerf do
     if positional != [] or invalid != [],
       do: raise(ArgumentError, "invalid arguments: #{inspect(positional ++ invalid)}")
 
-    mode = mode!(Keyword.get(opts, :mode, "shared"))
+    mode = mode!(Keyword.get(opts, :mode, "pinned"))
     iterations = positive!(Keyword.get(opts, :iterations, 500), :iterations)
     warmup = non_negative!(Keyword.get(opts, :warmup, 10), :warmup)
     {:ok, source} = bundle()
     {:ok, decoded_program} = QuickBEAM.VM.compile(source, filename: fixture())
 
     program =
-      if mode == :shared do
-        {:ok, shared_program} = QuickBEAM.VM.share_program(decoded_program)
-        shared_program
+      if mode == :pinned do
+        {:ok, pinned_program} = QuickBEAM.VM.pin(decoded_program)
+        pinned_program
       else
         decoded_program
       end
@@ -42,7 +42,7 @@ defmodule QuickBEAM.Bench.VMInterpreterPerf do
 
     IO.puts("mode=#{mode} iterations=#{iterations} elapsed_ms=#{elapsed_ms}")
 
-    if mode == :shared, do: QuickBEAM.VM.release_program(program)
+    if mode == :pinned, do: QuickBEAM.VM.unpin(program)
   end
 
   defp operation(:caller, program, options),
@@ -80,7 +80,7 @@ defmodule QuickBEAM.Bench.VMInterpreterPerf do
 
   defp mode!("caller"), do: :caller
   defp mode!("copied"), do: :copied
-  defp mode!("shared"), do: :shared
+  defp mode!("pinned"), do: :pinned
   defp mode!(mode), do: raise(ArgumentError, "invalid mode: #{inspect(mode)}")
 
   defp positive!(value, _name) when is_integer(value) and value > 0, do: value

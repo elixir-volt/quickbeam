@@ -4,16 +4,16 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.ProgramStore
 
-  test "shares one immutable program under concurrent bounded leases" do
+  test "pins one immutable program under concurrent bounded leases" do
     program = program(:crypto.strong_rand_bytes(32))
 
-    assert {:ok, shared} = ProgramStore.share(program)
+    assert {:ok, pinned} = ProgramStore.pin(program)
     parent = self()
 
     tasks =
       Enum.map(1..20, fn _index ->
         Task.async(fn ->
-          {:ok, lease} = ProgramStore.checkout(shared)
+          {:ok, lease} = ProgramStore.checkout(pinned)
           send(parent, {:lease, lease})
 
           receive do
@@ -31,18 +31,18 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
 
     assert Enum.uniq_by(leases, &{&1.slot, &1.token}) |> length() == 1
     assert Enum.all?(leases, fn lease -> ProgramStore.fetch(lease) == {:ok, program} end)
-    assert :ok = ProgramStore.release(shared)
+    assert :ok = ProgramStore.unpin(pinned)
     assert Enum.all?(leases, fn lease -> ProgramStore.fetch(lease) == {:ok, program} end)
 
     Enum.each(tasks, &send(&1.pid, :finish))
     Enum.each(tasks, &Task.await/1)
-    assert eventually(fn -> ProgramStore.release(shared) == :not_shared end)
+    assert eventually(fn -> ProgramStore.unpin(pinned) == :not_pinned end)
     assert Enum.all?(leases, fn lease -> ProgramStore.fetch(lease) == {:error, :stale_lease} end)
   end
 
   test "restores fixed persistent slots after the store restarts" do
     program = program(:crypto.strong_rand_bytes(32))
-    assert {:ok, shared} = ProgramStore.share(program)
+    assert {:ok, pinned} = ProgramStore.pin(program)
 
     old_store = Process.whereis(ProgramStore)
     monitor = Process.monitor(old_store)
@@ -50,26 +50,26 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
     assert_receive {:DOWN, ^monitor, :process, ^old_store, :killed}
     assert eventually(fn -> is_pid(Process.whereis(ProgramStore)) end)
 
-    assert {:ok, lease} = ProgramStore.checkout(shared)
+    assert {:ok, lease} = ProgramStore.checkout(pinned)
     assert {:ok, ^program} = ProgramStore.fetch(lease)
     ProgramStore.checkin(lease)
-    assert :ok = ProgramStore.release(shared)
+    assert :ok = ProgramStore.unpin(pinned)
   end
 
-  test "rejects programs above the bounded shared bytecode size" do
+  test "rejects programs above the bounded pinned bytecode size" do
     program = %{program(:crypto.strong_rand_bytes(32)) | bytecode_size: 2 * 1024 * 1024 + 1}
-    assert {:error, :program_too_large} = ProgramStore.share(program)
-    assert :not_shared = ProgramStore.release(program)
+    assert {:error, :program_too_large} = ProgramStore.pin(program)
+    assert :not_pinned = ProgramStore.unpin(program)
   end
 
-  test "released handles fail explicitly instead of copying or falling back" do
+  test "unpinned handles fail explicitly instead of copying or falling back" do
     assert {:ok, program} = QuickBEAM.VM.compile("1 + 1")
-    assert {:ok, shared} = QuickBEAM.VM.share_program(program)
-    assert :ok = QuickBEAM.VM.release_program(shared)
-    assert {:error, :shared_program_unavailable} = QuickBEAM.VM.eval(shared)
+    assert {:ok, pinned} = QuickBEAM.VM.pin(program)
+    assert :ok = QuickBEAM.VM.unpin(pinned)
+    assert {:error, :pinned_program_unavailable} = QuickBEAM.VM.eval(pinned)
   end
 
-  test "share identity includes source and filename identity" do
+  test "pin identity includes source and filename identity" do
     base = %Program{
       version: 26,
       fingerprint: "abi",
@@ -80,16 +80,16 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
       source_digest: :crypto.strong_rand_bytes(32)
     }
 
-    first = Program.put_share_key(base)
+    first = Program.put_pin_key(base)
 
     second =
-      base |> put_in([Access.key(:root), :filename], "second.js") |> Program.put_share_key()
+      base |> put_in([Access.key(:root), :filename], "second.js") |> Program.put_pin_key()
 
     changed_source =
-      %{base | source_digest: :crypto.strong_rand_bytes(32)} |> Program.put_share_key()
+      %{base | source_digest: :crypto.strong_rand_bytes(32)} |> Program.put_pin_key()
 
-    refute first.share_key == second.share_key
-    refute first.share_key == changed_source.share_key
+    refute first.pin_key == second.pin_key
+    refute first.pin_key == changed_source.pin_key
   end
 
   defp eventually(fun, attempts \\ 20)
@@ -113,7 +113,7 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
       root: %{filename: "test.js"},
       bytecode_digest: key,
       bytecode_size: 100_000,
-      share_key: key
+      pin_key: key
     }
   end
 end

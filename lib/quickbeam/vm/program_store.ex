@@ -1,6 +1,6 @@
 defmodule QuickBEAM.VM.ProgramStore.Lease do
   @moduledoc """
-  Identifies one bounded lease on an immutable shared VM program.
+  Identifies one bounded lease on an immutable pinned VM program.
 
   Leases contain only fixed-slot metadata. Program terms remain in
   `:persistent_term`; evaluation callers fetch a shared literal reference before
@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.ProgramStore do
   Keeps a bounded set of large immutable VM programs in fixed persistent slots.
 
   The store exists to avoid copying a decoded program into every isolated
-  evaluation process. Programs enter only through explicit `share_program/1`
+  evaluation process. Programs enter only through explicit `pin/1`
   calls. The store never derives atoms from input, holds at most `capacity`
   persistent terms, and does not evict programs implicitly. Programs can be
   explicitly released; active leases defer erasure until their workers finish.
@@ -31,50 +31,50 @@ defmodule QuickBEAM.VM.ProgramStore do
 
   use GenServer
 
-  alias QuickBEAM.VM.{Program, SharedProgram, Verifier}
+  alias QuickBEAM.VM.{PinnedProgram, Program, Verifier}
   alias QuickBEAM.VM.ProgramStore.Lease
 
   @default_capacity 8
   @maximum_capacity 32
-  @maximum_shared_bytecode_bytes 2 * 1024 * 1024
+  @maximum_pinned_bytecode_bytes 2 * 1024 * 1024
   @type checkout_result :: {:ok, Lease.t()} | :unavailable
 
-  @doc "Starts the bounded shared-program store."
+  @doc "Starts the bounded pinned-program store."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     {name, opts} = Keyword.pop(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @doc "Stores a verified program explicitly and returns its lightweight handle."
-  @spec share(Program.t(), GenServer.server()) ::
-          {:ok, SharedProgram.t()} | :unavailable | {:error, :program_too_large}
-  def share(program, server \\ __MODULE__)
+  @doc "Pins a verified program explicitly and returns its lightweight handle."
+  @spec pin(Program.t(), GenServer.server()) ::
+          {:ok, PinnedProgram.t()} | :unavailable | {:error, :program_too_large}
+  def pin(program, server \\ __MODULE__)
 
-  def share(
-        %Program{share_key: key, bytecode_size: size} = program,
+  def pin(
+        %Program{pin_key: key, bytecode_size: size} = program,
         server
       )
-      when is_binary(key) and is_integer(size) and size <= @maximum_shared_bytecode_bytes do
+      when is_binary(key) and is_integer(size) and size <= @maximum_pinned_bytecode_bytes do
     case reserve_and_install(key, program, server) do
       {:ok, lease} ->
         checkin(lease, server)
-        {:ok, %SharedProgram{key: key}}
+        {:ok, %PinnedProgram{key: key}}
 
       :unavailable ->
         :unavailable
     end
   end
 
-  def share(%Program{bytecode_size: size}, _server)
-      when is_integer(size) and size > @maximum_shared_bytecode_bytes,
+  def pin(%Program{bytecode_size: size}, _server)
+      when is_integer(size) and size > @maximum_pinned_bytecode_bytes,
       do: {:error, :program_too_large}
 
-  def share(%Program{}, _server), do: :unavailable
+  def pin(%Program{}, _server), do: :unavailable
 
-  @doc "Checks out an explicitly shared immutable program."
-  @spec checkout(SharedProgram.t(), GenServer.server()) :: checkout_result()
-  def checkout(%SharedProgram{key: key}, server \\ __MODULE__) do
+  @doc "Checks out an explicitly pinned immutable program."
+  @spec checkout(PinnedProgram.t(), GenServer.server()) :: checkout_result()
+  def checkout(%PinnedProgram{key: key}, server \\ __MODULE__) do
     if GenServer.whereis(server),
       do: safe_store_call(server, {:checkout_existing, key}),
       else: :unavailable
@@ -96,21 +96,21 @@ defmodule QuickBEAM.VM.ProgramStore do
     :ok
   end
 
-  @doc "Releases a program slot, deferring erasure while leases remain active."
-  @spec release(Program.t() | SharedProgram.t(), GenServer.server()) :: :ok | :not_shared
-  def release(program, server \\ __MODULE__)
+  @doc "Unpins a program slot, deferring erasure while leases remain active."
+  @spec unpin(Program.t() | PinnedProgram.t(), GenServer.server()) :: :ok | :not_pinned
+  def unpin(program, server \\ __MODULE__)
 
-  def release(%SharedProgram{key: key}, server), do: release_key(key, server)
+  def unpin(%PinnedProgram{key: key}, server), do: unpin_key(key, server)
 
-  def release(%Program{share_key: key}, server) when is_binary(key),
-    do: release_key(key, server)
+  def unpin(%Program{pin_key: key}, server) when is_binary(key),
+    do: unpin_key(key, server)
 
-  def release(%Program{}, _server), do: :not_shared
+  def unpin(%Program{}, _server), do: :not_pinned
 
-  defp release_key(key, server) do
-    case GenServer.whereis(server) && safe_store_call(server, {:release, key}) do
+  defp unpin_key(key, server) do
+    case GenServer.whereis(server) && safe_store_call(server, {:unpin, key}) do
       :ok -> :ok
-      _unavailable -> :not_shared
+      _unavailable -> :not_pinned
     end
   end
 
@@ -178,17 +178,17 @@ defmodule QuickBEAM.VM.ProgramStore do
     end
   end
 
-  def handle_call({:release, key}, _from, state) do
+  def handle_call({:unpin, key}, _from, state) do
     case state.entries do
       %{^key => %{leases: leases} = entry} when map_size(leases) == 0 ->
         :persistent_term.erase(storage_key(entry.slot))
         {:reply, :ok, remove_entry(state, key, entry.slot)}
 
       %{^key => entry} ->
-        {:reply, :ok, put_in(state.entries[key], %{entry | release?: true})}
+        {:reply, :ok, put_in(state.entries[key], %{entry | unpin?: true})}
 
       _entries ->
-        {:reply, :not_shared, state}
+        {:reply, :not_pinned, state}
     end
   end
 
@@ -288,7 +288,7 @@ defmodule QuickBEAM.VM.ProgramStore do
 
   defp restore_program_slot(program, key, token, slot, entries, slots) do
     if Verifier.verify_identity(program) == :ok do
-      entry = %{key: key, slot: slot, token: token, leases: %{}, release?: false}
+      entry = %{key: key, slot: slot, token: token, leases: %{}, unpin?: false}
       {Map.put(entries, key, entry), Map.put(slots, slot, key)}
     else
       :persistent_term.erase(storage_key(slot))
@@ -304,7 +304,7 @@ defmodule QuickBEAM.VM.ProgramStore do
       slot: pending.slot,
       token: token,
       leases: %{},
-      release?: false
+      unpin?: false
     }
 
     {lease, entry} = grant_lease(key, entry, {owner, nil})
@@ -397,7 +397,7 @@ defmodule QuickBEAM.VM.ProgramStore do
   end
 
   defp maybe_release_entry(state, key, entry) do
-    if map_size(entry.leases) == 0 and entry.release? do
+    if map_size(entry.leases) == 0 and entry.unpin? do
       :persistent_term.erase(storage_key(entry.slot))
       remove_entry(state, key, entry.slot)
     else

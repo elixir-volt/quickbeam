@@ -6,7 +6,7 @@ time, allowing the same ticker to run without interpreter work.
 
 - Engine: interpreter
 - Compiler profile: pure_v1
-- Shared program handles: true
+- Pinned program handles: true
 - Git base: `8f498a5a`
 - Working tree at measurement: modified
 - Generated: 2026-07-16T22:01:33Z

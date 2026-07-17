@@ -15,12 +15,12 @@ defmodule QuickBEAM.VM do
     Measurement,
     Program,
     ProgramStore,
-    SharedProgram,
+    PinnedProgram,
     Verifier
   }
 
   @type program :: QuickBEAM.VM.Program.t()
-  @type shared_program :: QuickBEAM.VM.SharedProgram.t()
+  @type pinned_program :: QuickBEAM.VM.PinnedProgram.t()
 
   @max_bytecode_bytes 16 * 1024 * 1024
   @default_timeout 5_000
@@ -49,7 +49,7 @@ defmodule QuickBEAM.VM do
             program
             |> maybe_put_filename(filename)
             |> Map.put(:source_digest, :crypto.hash(:sha256, source))
-            |> Program.put_share_key()
+            |> Program.put_pin_key()
 
           {:ok, program}
         end
@@ -59,16 +59,16 @@ defmodule QuickBEAM.VM do
     end
   end
 
-  @doc "Places a verified program in bounded shared storage and returns a lightweight handle."
-  @spec share_program(Program.t()) :: {:ok, SharedProgram.t()} | {:error, term()}
-  def share_program(%Program{} = program) do
-    program = Program.put_share_key(program)
+  @doc "Pins a verified program in bounded storage and returns a lightweight handle."
+  @spec pin(Program.t()) :: {:ok, PinnedProgram.t()} | {:error, term()}
+  def pin(%Program{} = program) do
+    program = Program.put_pin_key(program)
 
     with :ok <- Verifier.verify(program) do
-      case ProgramStore.share(program) do
-        {:ok, shared} -> {:ok, shared}
+      case ProgramStore.pin(program) do
+        {:ok, pinned} -> {:ok, pinned}
         {:error, reason} -> {:error, reason}
-        :unavailable -> {:error, :shared_program_capacity}
+        :unavailable -> {:error, :pinned_program_capacity}
       end
     end
   end
@@ -83,7 +83,7 @@ defmodule QuickBEAM.VM do
          :ok <- within_bytecode_limit(bytecode, max_bytecode_bytes),
          {:ok, program} <- Decoder.decode(bytecode),
          :ok <- Verifier.verify(program, verifier_options) do
-      {:ok, Program.put_share_key(program)}
+      {:ok, Program.put_pin_key(program)}
     end
   end
 
@@ -130,16 +130,16 @@ defmodule QuickBEAM.VM do
   BEAM process heap ceiling. `isolation: :caller` is available for trusted
   diagnostics. The compiler engine requires a supervised `QuickBEAM.VM.Compiler`.
   """
-  @spec eval(Program.t() | SharedProgram.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  @spec eval(Program.t() | PinnedProgram.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def eval(program, opts \\ [])
 
-  def eval(%SharedProgram{} = shared, opts) when is_list(opts) do
+  def eval(%PinnedProgram{} = pinned, opts) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
-         {:ok, lease} <- shared_lease(shared) do
+         {:ok, lease} <- pinned_lease(pinned) do
       try do
         case options.isolation do
-          :caller -> evaluate_shared_caller(lease, options)
-          :process -> eval_isolated_shared(lease, options)
+          :caller -> evaluate_pinned_caller(lease, options)
+          :process -> eval_isolated_pinned(lease, options)
         end
       after
         ProgramStore.checkin(lease)
@@ -166,20 +166,20 @@ defmodule QuickBEAM.VM do
   `measurement.result`. Invalid programs or options are returned directly as
   `{:error, reason}` because no evaluation was started.
   """
-  @spec measure(Program.t() | SharedProgram.t(), keyword()) ::
+  @spec measure(Program.t() | PinnedProgram.t(), keyword()) ::
           {:ok, Measurement.t()} | {:error, term()}
   def measure(program, opts \\ [])
 
-  def measure(%SharedProgram{} = shared, opts) when is_list(opts) do
+  def measure(%PinnedProgram{} = pinned, opts) when is_list(opts) do
     with {:ok, options} <- evaluation_options(opts),
-         {:ok, lease} <- shared_lease(shared) do
+         {:ok, lease} <- pinned_lease(pinned) do
       started = System.monotonic_time()
 
       payload =
         try do
           case options.isolation do
-            :caller -> measure_shared_caller(lease, options)
-            :process -> measure_isolated_shared(lease, options)
+            :caller -> measure_pinned_caller(lease, options)
+            :process -> measure_isolated_pinned(lease, options)
           end
         after
           ProgramStore.checkin(lease)
@@ -312,22 +312,22 @@ defmodule QuickBEAM.VM do
     end
   end
 
-  defp shared_lease(shared) do
-    case ProgramStore.checkout(shared) do
+  defp pinned_lease(pinned) do
+    case ProgramStore.checkout(pinned) do
       {:ok, lease} -> {:ok, lease}
-      :unavailable -> {:error, :shared_program_unavailable}
+      :unavailable -> {:error, :pinned_program_unavailable}
     end
   end
 
-  defp evaluate_shared_caller(lease, options) do
+  defp evaluate_pinned_caller(lease, options) do
     with {:ok, program} <- ProgramStore.fetch(lease),
          :ok <- Verifier.verify_identity(program) do
       evaluate(program, options)
     end
   end
 
-  defp measure_shared_caller(lease, options) do
-    case fetch_verified_shared(lease) do
+  defp measure_pinned_caller(lease, options) do
+    case fetch_verified_pinned(lease) do
       {:ok, program} -> safe_measure(program, options)
       {:error, reason} -> {:measured, {:error, reason}, nil}
     end
@@ -335,7 +335,7 @@ defmodule QuickBEAM.VM do
 
   defp eval_isolated(program, options), do: eval_isolated_program(program, options)
 
-  defp eval_isolated_shared(lease, options) do
+  defp eval_isolated_pinned(lease, options) do
     with {:ok, program} <- ProgramStore.fetch(lease),
          :ok <- Verifier.verify_identity(program) do
       eval_isolated_program(program, options)
@@ -370,14 +370,14 @@ defmodule QuickBEAM.VM do
 
   defp measure_isolated(program, options), do: measure_isolated_program(program, options)
 
-  defp measure_isolated_shared(lease, options) do
-    case fetch_verified_shared(lease) do
+  defp measure_isolated_pinned(lease, options) do
+    case fetch_verified_pinned(lease) do
       {:ok, program} -> measure_isolated_program(program, options)
       {:error, reason} -> {:measured, {:error, reason}, nil}
     end
   end
 
-  defp fetch_verified_shared(lease) do
+  defp fetch_verified_pinned(lease) do
     with {:ok, program} <- ProgramStore.fetch(lease),
          :ok <- Verifier.verify_identity(program),
          do: {:ok, program}
@@ -438,11 +438,11 @@ defmodule QuickBEAM.VM do
     }
   end
 
-  @doc "Releases a bounded shared-program slot after its current evaluations finish."
-  @spec release_program(Program.t() | SharedProgram.t()) :: :ok | :not_shared
-  def release_program(program)
-      when is_struct(program, Program) or is_struct(program, SharedProgram),
-      do: ProgramStore.release(program)
+  @doc "Unpins a bounded program slot after its current evaluations finish."
+  @spec unpin(Program.t() | PinnedProgram.t()) :: :ok | :not_pinned
+  def unpin(program)
+      when is_struct(program, Program) or is_struct(program, PinnedProgram),
+      do: ProgramStore.unpin(program)
 
   @doc "Returns the monitored worker spawn options for an evaluation memory limit."
   def worker_spawn_options(:infinity), do: [:monitor]

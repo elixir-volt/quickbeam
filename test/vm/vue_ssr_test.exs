@@ -26,9 +26,9 @@ defmodule QuickBEAM.VM.VueSSRTest do
     start_supervised!({Compiler, capacity: 8})
     assert {:ok, source} = QuickBEAM.JS.bundle_file(@fixture, @bundle_opts)
     assert {:ok, program} = QuickBEAM.VM.compile(source, filename: @fixture)
-    assert {:ok, shared_program} = QuickBEAM.VM.share_program(program)
-    on_exit(fn -> QuickBEAM.VM.release_program(shared_program) end)
-    {:ok, source: source, program: program, shared_program: shared_program}
+    assert {:ok, pinned_program} = QuickBEAM.VM.pin(program)
+    on_exit(fn -> QuickBEAM.VM.unpin(pinned_program) end)
+    {:ok, source: source, program: program, pinned_program: pinned_program}
   end
 
   test "renders pinned Vue HTML after an asynchronous Beam.call", %{program: program} do
@@ -40,7 +40,7 @@ defmodule QuickBEAM.VM.VueSSRTest do
 
   test "matches the vendored native QuickJS renderer", %{
     program: program,
-    shared_program: shared_program,
+    pinned_program: pinned_program,
     source: source
   } do
     props = props("Native parity", 2)
@@ -65,16 +65,16 @@ defmodule QuickBEAM.VM.VueSSRTest do
                    @eval_opts
                )
 
-      assert {:ok, shared_compiler_html} =
+      assert {:ok, pinned_compiler_html} =
                QuickBEAM.VM.eval(
-                 shared_program,
+                 pinned_program,
                  [engine: :compiler, handlers: handlers] ++ @eval_opts
                )
 
       assert beam_html == native_html
       assert compiler_html == native_html
       assert scalar_html == native_html
-      assert shared_compiler_html == native_html
+      assert pinned_compiler_html == native_html
       stats = ModulePool.stats(ModulePool)
       assert stats.counts.ready >= 1
       assert stats.skips >= 1
@@ -83,8 +83,8 @@ defmodule QuickBEAM.VM.VueSSRTest do
     end
   end
 
-  test "shares one lightweight program handle across isolated concurrent Vue renders", %{
-    shared_program: program
+  test "pins one lightweight program handle across isolated concurrent Vue renders", %{
+    pinned_program: program
   } do
     tasks =
       for id <- 1..8 do

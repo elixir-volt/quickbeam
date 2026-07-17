@@ -4,8 +4,8 @@ defmodule QuickBEAM.VM.Program do
 
   `bytecode_digest` identifies the serialized QuickJS input. `source_digest` is
   also present when the public source compiler produced the program. The
-  binary `share_key` includes version, digest, and filename identity so bounded
-  shared-program storage never derives atoms from input.
+  binary `pin_key` includes version, digest, and filename identity so bounded
+  pinned storage never derives atoms from input.
   """
 
   @enforce_keys [:version, :fingerprint, :atoms, :root]
@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Program do
     :bytecode_digest,
     :bytecode_size,
     :source_digest,
-    :share_key
+    :pin_key
   ]
 
   @type t :: %__MODULE__{
@@ -28,18 +28,18 @@ defmodule QuickBEAM.VM.Program do
           bytecode_digest: binary() | nil,
           bytecode_size: non_neg_integer() | nil,
           source_digest: binary() | nil,
-          share_key: binary() | nil
+          pin_key: binary() | nil
         }
 
   @doc "Derives the binary identity used by bounded immutable program sharing."
-  @spec put_share_key(t()) :: t()
-  def put_share_key(%__MODULE__{} = program) do
+  @spec put_pin_key(t()) :: t()
+  def put_pin_key(%__MODULE__{} = program) do
     filename = if is_map(program.root), do: Map.get(program.root, :filename), else: nil
 
     identity =
       {:quickbeam_vm_program_v1, program.version, program.fingerprint, program.bytecode_digest,
        program.source_digest, filename}
 
-    %{program | share_key: :crypto.hash(:sha256, :erlang.term_to_binary(identity))}
+    %{program | pin_key: :crypto.hash(:sha256, :erlang.term_to_binary(identity))}
   end
 end

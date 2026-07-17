@@ -10,7 +10,7 @@ The single-scheduler fairness and timeout gate is published separately in [`beam
 - Engine: interpreter
 - Compiler profile: pure_v1
 - Compiler regions: false
-- Shared program handles: true
+- Pinned program handles: true
 - Git base: `8f498a5a`
 - Working tree at measurement: modified
 - Generated: 2026-07-16T21:50:19Z

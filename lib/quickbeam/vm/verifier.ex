@@ -34,7 +34,7 @@ defmodule QuickBEAM.VM.Verifier do
 
   def verify(_program, _opts), do: {:error, :invalid_program}
 
-  @doc "Checks the constant-time ABI identity of an already verified shared program."
+  @doc "Checks the constant-time ABI identity of an already verified pinned program."
   @spec verify_identity(Program.t()) :: :ok | {:error, term()}
   def verify_identity(%Program{} = program), do: verify_header(program)
   def verify_identity(_program), do: {:error, :invalid_program}

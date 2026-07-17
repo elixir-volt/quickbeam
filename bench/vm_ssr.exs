@@ -16,7 +16,7 @@ defmodule QuickBEAM.Bench.VMSSR do
           engine: :string,
           compiler_profile: :string,
           compiler_regions: :boolean,
-          shared_programs: :boolean,
+          pinned_programs: :boolean,
           samples: :integer,
           warmup: :integer,
           concurrency: :string,
@@ -30,7 +30,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     engine = engine!(Keyword.get(opts, :engine, "interpreter"))
     compiler_profile = compiler_profile!(Keyword.get(opts, :compiler_profile, "pure_v1"))
     compiler_regions = Keyword.get(opts, :compiler_regions, false)
-    shared_programs = Keyword.get(opts, :shared_programs, false)
+    pinned_programs = Keyword.get(opts, :pinned_programs, false)
     maybe_start_compiler!(engine)
     samples = positive!(Keyword.get(opts, :samples, @default_samples), :samples)
     warmup = non_negative!(Keyword.get(opts, :warmup, @default_warmup), :warmup)
@@ -41,7 +41,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     fixtures =
       Enum.map(
         fixture_specs(),
-        &compile_fixture!(&1, engine, compiler_profile, compiler_regions, shared_programs)
+        &compile_fixture!(&1, engine, compiler_profile, compiler_regions, pinned_programs)
       )
 
     results =
@@ -63,7 +63,7 @@ defmodule QuickBEAM.Bench.VMSSR do
         engine,
         compiler_profile,
         compiler_regions,
-        shared_programs,
+        pinned_programs,
         results,
         isolation,
         samples,
@@ -126,14 +126,14 @@ defmodule QuickBEAM.Bench.VMSSR do
     ]
   end
 
-  defp compile_fixture!(spec, engine, compiler_profile, compiler_regions, shared_programs) do
+  defp compile_fixture!(spec, engine, compiler_profile, compiler_regions, pinned_programs) do
     {:ok, source} = QuickBEAM.JS.bundle_file(spec.fixture, spec.bundle_opts)
     {:ok, decoded_program} = QuickBEAM.VM.compile(source, filename: spec.fixture)
 
     program =
-      if shared_programs do
-        {:ok, shared_program} = QuickBEAM.VM.share_program(decoded_program)
-        shared_program
+      if pinned_programs do
+        {:ok, pinned_program} = QuickBEAM.VM.pin(decoded_program)
+        pinned_program
       else
         decoded_program
       end
@@ -396,7 +396,7 @@ defmodule QuickBEAM.Bench.VMSSR do
          engine,
          compiler_profile,
          compiler_regions,
-         shared_programs,
+         pinned_programs,
          results,
          isolation,
          samples,
@@ -441,7 +441,7 @@ defmodule QuickBEAM.Bench.VMSSR do
     - Engine: #{engine}
     - Compiler profile: #{compiler_profile}
     - Compiler regions: #{compiler_regions}
-    - Shared program handles: #{shared_programs}
+    - Pinned program handles: #{pinned_programs}
     - Git base: `#{metadata.git}`
     - Working tree at measurement: #{metadata.tree_state}
     - Generated: #{metadata.generated}

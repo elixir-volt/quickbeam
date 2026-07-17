@@ -1,10 +1,10 @@
-defmodule QuickBEAM.VM.SharedProgram do
+defmodule QuickBEAM.VM.PinnedProgram do
   @moduledoc """
-  A lightweight handle to a verified immutable program in bounded shared storage.
+  A lightweight handle to a verified immutable program pinned in bounded storage.
 
   Handles can be copied cheaply between request processes. The underlying
   decoded program remains in a fixed `QuickBEAM.VM.ProgramStore` slot until
-  explicitly released with `QuickBEAM.VM.release_program/1`.
+  explicitly removed with `QuickBEAM.VM.unpin/1`.
   """
 
   @enforce_keys [:key]
