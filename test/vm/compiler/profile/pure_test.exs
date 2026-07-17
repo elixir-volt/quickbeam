@@ -100,8 +100,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert {:ok, region_template, 32} = Pure.prepare_region(function, 0, :scalar_v1)
     assert Pure.scalar_template?(region_template)
 
-    assert [{:function, _, :block, 7, clauses}] =
-             Enum.filter(region_template.forms, &match?({:function, _, :block, 7, _}, &1))
+    assert [{:function, _, :block, 3, clauses}] =
+             Enum.filter(region_template.forms, &match?({:function, _, :block, 3, _}, &1))
 
     assert length(clauses) <= 17
   end
@@ -287,8 +287,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert %Function{} = function = Enum.find(program.root.constants, &is_struct(&1, Function))
     assert {:ok, template, _count} = Pure.prepare(function, 32)
 
-    assert [{:function, _, :block, 7, _}] =
-             Enum.filter(template.forms, &match?({:function, _, :block, 7, _}, &1))
+    assert [{:function, _, :block, 3, _}] =
+             Enum.filter(template.forms, &match?({:function, _, :block, 3, _}, &1))
 
     module = hd(Contract.pool_modules())
     assert {:ok, artifact} = Emitter.emit(key(77), module, template)
@@ -303,7 +303,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert {:ok, local_program} = QuickBEAM.VM.compile(local_source)
     local_function = Enum.find(local_program.root.constants, &is_struct(&1, Function))
     assert {:ok, local_template, _count} = Pure.prepare(local_function, 32)
-    assert Enum.any?(local_template.forms, &match?({:function, _, :block, 7, _}, &1))
+    assert Enum.any?(local_template.forms, &match?({:function, _, :block, 3, _}, &1))
 
     start_pool()
     assert {:ok, interpreter} = Engine.measure(program, max_steps: 10_000)
@@ -375,6 +375,31 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert compiled.compiler_counters.invocation_actions > 0
 
     for limit <- [1, 10, div(interpreted.steps, 2), interpreted.steps - 1] do
+      assert Engine.eval(program, Keyword.put(opts, :max_steps, limit)) ==
+               Engine.eval(program, max_steps: limit)
+    end
+  end
+
+  test "materializes scalar tuple updates before invocation boundaries" do
+    start_pool()
+
+    source =
+      "(function(e,t,n,r=false,i=false,a=0){" <>
+        "for(let o=a;o<e.length;o++)t(e[o],n,r,i);return 42" <>
+        "})([1,2],function(){},0)"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    opts = [engine: :compiler, compiler_profile: :scalar_v1, max_steps: 10_000]
+    assert {:ok, interpreted} = Engine.measure(program, max_steps: 10_000)
+    assert {:ok, compiled} = Engine.measure(program, opts)
+    assert compiled.result == {:ok, 42}
+    assert compiled.result == interpreted.result
+    assert compiled.steps == interpreted.steps
+    assert compiled.logical_memory_bytes == interpreted.logical_memory_bytes
+    assert compiled.compiler_counters.generated_steps > 0
+    assert compiled.compiler_counters.invocation_actions > 0
+
+    for limit <- [1, div(interpreted.steps, 2), interpreted.steps - 1] do
       assert Engine.eval(program, Keyword.put(opts, :max_steps, limit)) ==
                Engine.eval(program, max_steps: limit)
     end

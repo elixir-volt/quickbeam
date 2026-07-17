@@ -4,13 +4,16 @@ defmodule QuickBEAM.VM.Compiler.Code.Emitter do
 
   The emitter validates the template envelope, replaces its fixed placeholder
   module, invokes the Erlang forms compiler, and applies the generated import
-  policy before returning an artifact.
+  policy before returning an artifact. SSA optimization is intentionally
+  disabled because affected OTP releases can emit invalid register-liveness
+  metadata for the bounded tuple and branch forms used by this backend; the
+  ordinary BEAM validator still checks every emitted module.
   """
 
-  alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Code.Artifact
   alias QuickBEAM.VM.Compiler.Code.Import
   alias QuickBEAM.VM.Compiler.Code.Template
+  alias QuickBEAM.VM.Compiler.Contract
 
   @max_form_count 5_000
   @max_form_bytes 8 * 1024 * 1024
@@ -98,7 +101,9 @@ defmodule QuickBEAM.VM.Compiler.Code.Emitter do
   defp replace_module_attribute(form, _module), do: form
 
   defp compile_forms(forms, module) do
-    case :compile.forms(forms, [:binary, :deterministic, :return_errors, :return_warnings]) do
+    options = [:binary, :deterministic, :no_ssa_opt, :return_errors, :return_warnings]
+
+    case :compile.forms(forms, options) do
       {:ok, ^module, binary} ->
         {:ok, binary}
 

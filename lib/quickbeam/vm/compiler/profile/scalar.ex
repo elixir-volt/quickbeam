@@ -20,12 +20,27 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   @stack_variables List.to_tuple(
                      for index <- 0..(@max_stack_depth - 1), do: :"_CompilerStack#{index}"
                    )
+  @charged_stack_variables List.to_tuple(
+                             for index <- 0..(@max_stack_depth - 1),
+                                 do: :"_CompilerChargedStack#{index}"
+                           )
+  @preflight_stack_variables List.to_tuple(
+                               for index <- 0..(@max_stack_depth - 1),
+                                   do: :"_CompilerPreflightStack#{index}"
+                             )
   @left_variables List.to_tuple(for index <- 0..255, do: :"_CompilerLeft#{index}")
   @right_variables List.to_tuple(for index <- 0..255, do: :"_CompilerRight#{index}")
   @value_variables List.to_tuple(for index <- 0..255, do: :"_CompilerValue#{index}")
   @property_variables List.to_tuple(for index <- 0..255, do: :"_CompilerProperty#{index}")
   @global_variables List.to_tuple(for index <- 0..255, do: :"_CompilerGlobal#{index}")
   @execution_variables List.to_tuple(for index <- 0..255, do: :"_CompilerExecution#{index}")
+  @invocation_variables List.to_tuple(
+                          for index <- 0..(@max_stack_depth + 1),
+                              do: :"_CompilerInvoke#{index}"
+                        )
+  @argument_tuple_variables List.to_tuple(for index <- 0..255, do: :"CompilerArgs#{index}")
+  @local_tuple_variables List.to_tuple(for index <- 0..255, do: :"CompilerLocals#{index}")
+  @materialized_variables List.to_tuple(for index <- 0..511, do: :"CompilerMaterialized#{index}")
 
   @type plan :: Runtime.plan()
 
@@ -209,7 +224,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
       case_expression(state, [
         clause(
           [tuple([pc, args, locals, stack])],
-          [local_call(:block, [pc, lease, frame, args, locals, stack, execution])]
+          [local_call(:block, [pc, lease, tuple([frame, args, locals, stack, execution])])]
         )
       ])
 
@@ -227,16 +242,18 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
         [
           variable(:_PC),
           variable(:Lease),
-          variable(:Frame),
-          variable(:Args),
-          variable(:Locals),
-          variable(:Stack),
-          variable(:Execution)
+          tuple([
+            variable(:Frame),
+            variable(:Args),
+            variable(:Locals),
+            variable(:Stack),
+            variable(:Execution)
+          ])
         ],
         [deopt_from_arguments(:unsupported_semantics, variable(:_PC), variable(:Stack))]
       )
 
-    function(:block, 7, clauses ++ [fallback])
+    function(:block, 3, clauses ++ [fallback])
   end
 
   defp block_clause(pc, {[], reason}, levels, _tuple_mode) do
@@ -260,7 +277,9 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
       locals: variable(:Locals),
       stack: stack_values(depth),
       execution: variable(:Execution),
-      tuple_mode: tuple_mode
+      tuple_mode: tuple_mode,
+      bindings: [],
+      materialization_counts: %{}
     }
 
     clause(block_arguments(pc, depth), [lower_operations(operations, reason, state)])
@@ -273,18 +292,51 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     args = variable(:Args)
     locals = variable(:Locals)
     execution = variable(:Execution)
+    charged_lease = variable(:_ChargedLease)
+    charged_frame = variable(:ChargedFrame)
+    charged_args = variable(:ChargedArgs)
+    charged_locals = variable(:ChargedLocals)
+    charged_stack = charged_stack_values(depth)
     charged_execution = variable(:ChargedExecution)
+    charged_state = variable(:ChargedState)
+    charge_result = variable(:ChargeResult)
     action = variable(:Action)
+
+    charged_bindings = [
+      match_expression(
+        charged_lease,
+        remote_call(:erlang, :element, [integer(1), charged_state])
+      ),
+      match_expression(
+        charged_frame,
+        remote_call(:erlang, :element, [integer(2), charged_state])
+      ),
+      match_expression(charged_args, remote_call(:erlang, :element, [integer(3), charged_state])),
+      match_expression(
+        charged_locals,
+        remote_call(:erlang, :element, [integer(4), charged_state])
+      ),
+      match_expression(
+        list(charged_stack),
+        remote_call(:erlang, :element, [integer(5), charged_state])
+      ),
+      match_expression(
+        charged_execution,
+        remote_call(:erlang, :element, [integer(6), charged_state])
+      )
+    ]
 
     state = %{
       pc: pc,
-      lease: lease,
-      frame: frame,
-      args: args,
-      locals: locals,
-      stack: stack_values(depth),
+      lease: charged_lease,
+      frame: charged_frame,
+      args: charged_args,
+      locals: charged_locals,
+      stack: charged_stack,
       execution: charged_execution,
-      tuple_mode: tuple_mode
+      tuple_mode: tuple_mode,
+      bindings: charged_bindings,
+      materialization_counts: %{}
     }
 
     lowered = lower_operations(operations, reason, state)
@@ -294,11 +346,13 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     charge =
       remote_call(Runtime, :charge_state, [lease, compact, execution, integer(length(operations))])
 
-    body =
-      case_expression(charge, [
-        clause([tuple([atom(:ok), charged_execution])], [lowered]),
+    charged_body =
+      case_expression(charge_result, [
+        clause([tuple([atom(:ok), charged_state])], [lowered]),
         clause([action], [action])
       ])
+
+    body = anonymous_call([clause([charge_result], [charged_body])], [charge])
 
     clause(block_arguments(pc, depth), [body])
   end
@@ -307,31 +361,40 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     [
       integer(pc),
       variable(:Lease),
-      variable(:Frame),
-      variable(:Args),
-      variable(:Locals),
-      stack_expression(depth),
-      variable(:Execution)
+      tuple([
+        variable(:Frame),
+        variable(:Args),
+        variable(:Locals),
+        stack_expression(depth),
+        variable(:Execution)
+      ])
     ]
   end
 
-  defp lower_operations([], reason, state), do: boundary_expression(reason, state)
+  defp lower_operations([], reason, state),
+    do: with_bindings(state, boundary_expression(reason, %{state | bindings: []}))
 
   defp lower_operations([{:global, name, operands} | operations], reason, state) do
-    lower_global(name, operands, operations, reason, state)
+    with_bindings(
+      state,
+      lower_global(name, operands, operations, reason, %{state | bindings: []})
+    )
   end
 
   defp lower_operations([{:object, name, operands} | operations], reason, state) do
-    lower_property(name, operands, operations, reason, state)
+    with_bindings(
+      state,
+      lower_property(name, operands, operations, reason, %{state | bindings: []})
+    )
   end
 
   defp lower_operations([{:invocation, name, operands}], _reason, state),
-    do: lower_invocation(name, operands, state)
+    do: with_bindings(state, lower_invocation(name, operands, %{state | bindings: []}))
 
   defp lower_operations([operation | operations], reason, state) do
     case lower_operation(operation, state) do
       {:next, state} -> lower_operations(operations, reason, state)
-      {:terminal, expression} -> expression
+      {:terminal, expression, state} -> with_bindings(state, expression)
     end
   end
 
@@ -350,14 +413,20 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
        when name in [:get_var, :get_var_undef] do
     value = variable(elem(@global_variables, rem(state.pc, 256)))
     get = remote_call(Runtime, :global_get, [atom(name), literal(atom_operand), state.execution])
-    next_state = %{state | pc: state.pc + 1, stack: [value | state.stack]}
 
     success =
       if name == :get_var do
-        charge_preflight(state, fn execution ->
-          lower_operations(operations, reason, %{next_state | execution: execution})
+        charge_preflight(state, fn charged_state ->
+          next_state = %{
+            charged_state
+            | pc: state.pc + 1,
+              stack: [value | charged_state.stack]
+          }
+
+          lower_operations(operations, reason, next_state)
         end)
       else
+        next_state = %{state | pc: state.pc + 1, stack: [value | state.stack]}
         lower_operations(operations, reason, next_state)
       end
 
@@ -379,39 +448,58 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
 
   defp lower_invocation(:call, [argument_count], state) do
     {arguments, [callable | stack]} = Enum.split(state.stack, argument_count)
-    arguments = arguments |> Enum.reverse() |> list()
     state = %{state | pc: state.pc + 1, stack: stack}
-    invoke_call(callable, arguments, literal(:undefined), state)
+    invoke_call(callable, Enum.reverse(arguments), literal(:undefined), state)
   end
 
   defp lower_invocation(:call_method, [argument_count], state) do
     {arguments, [callable, this | stack]} = Enum.split(state.stack, argument_count)
-    arguments = arguments |> Enum.reverse() |> list()
     state = %{state | pc: state.pc + 1, stack: stack}
-    invoke_call(callable, arguments, this, state)
+    invoke_call(callable, Enum.reverse(arguments), this, state)
   end
 
   defp invoke_call(callable, arguments, this, state) do
-    compact = tuple([state.frame, integer(state.pc), state.args, state.locals, list(state.stack)])
+    bind_invocation_values([callable, this | arguments], [], fn [callable, this | arguments] ->
+      compact =
+        tuple([state.frame, integer(state.pc), state.args, state.locals, list(state.stack)])
 
-    remote_call(Runtime, :invoke_state, [
-      callable,
-      arguments,
-      this,
-      compact,
-      state.execution
+      remote_call(Runtime, :invoke_state, [
+        callable,
+        list(arguments),
+        this,
+        compact,
+        state.execution
+      ])
+    end)
+  end
+
+  defp bind_invocation_values([], values, continuation),
+    do: values |> Enum.reverse() |> continuation.()
+
+  defp bind_invocation_values([expression | expressions], values, continuation) do
+    value = variable(elem(@invocation_variables, length(values)))
+
+    case_expression(expression, [
+      clause([value], [bind_invocation_values(expressions, [value | values], continuation)])
     ])
   end
 
   defp lower_property(name, operands, operations, reason, state) do
-    {object, key, result_stack} = property_operands(name, operands, state)
+    {object, key, _result_stack} = property_operands(name, operands, state)
     property_value = variable(elem(@property_variables, rem(state.pc, 256)))
     get = remote_call(Runtime, :property_get, [object, key, state.execution])
-    next_state = %{state | pc: state.pc + 1, stack: [property_value | result_stack]}
 
     success =
-      charge_preflight(state, fn execution ->
-        lower_operations(operations, reason, %{next_state | execution: execution})
+      charge_preflight(state, fn charged_state ->
+        {_object, _key, result_stack} = property_operands(name, operands, charged_state)
+
+        next_state = %{
+          charged_state
+          | pc: state.pc + 1,
+            stack: [property_value | result_stack]
+        }
+
+        lower_operations(operations, reason, next_state)
       end)
 
     case_expression(get, [
@@ -421,15 +509,47 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   end
 
   defp charge_preflight(state, continuation) do
+    lease = variable(:_PreflightLease)
+    frame = variable(:PreflightFrame)
+    args = variable(:PreflightArgs)
+    locals = variable(:PreflightLocals)
+    stack = preflight_stack_values(length(state.stack))
     execution = variable(elem(@execution_variables, rem(state.pc, 256)))
+    continuation_state = variable(:PreflightState)
     action = variable(:Action)
     compact = tuple([state.frame, integer(state.pc), state.args, state.locals, list(state.stack)])
+
+    charged_bindings = [
+      match_expression(lease, remote_call(:erlang, :element, [integer(1), continuation_state])),
+      match_expression(frame, remote_call(:erlang, :element, [integer(2), continuation_state])),
+      match_expression(args, remote_call(:erlang, :element, [integer(3), continuation_state])),
+      match_expression(locals, remote_call(:erlang, :element, [integer(4), continuation_state])),
+      match_expression(
+        list(stack),
+        remote_call(:erlang, :element, [integer(5), continuation_state])
+      ),
+      match_expression(
+        execution,
+        remote_call(:erlang, :element, [integer(6), continuation_state])
+      )
+    ]
+
+    charged_state = %{
+      state
+      | lease: lease,
+        frame: frame,
+        args: args,
+        locals: locals,
+        stack: stack,
+        execution: execution,
+        bindings: charged_bindings
+    }
 
     charge =
       remote_call(Runtime, :charge_state, [state.lease, compact, state.execution, integer(1)])
 
     case_expression(charge, [
-      clause([tuple([atom(:ok), execution])], [continuation.(execution)]),
+      clause([tuple([atom(:ok), continuation_state])], [continuation.(charged_state)]),
       clause([action], [action])
     ])
   end
@@ -480,6 +600,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
               :shr
             ] do
     value = binary_expression(name, left, right, state.pc)
+    {value, state} = materialize_expression(state, value)
     {:next, %{state | pc: state.pc + 1, stack: [value | stack]}}
   end
 
@@ -487,11 +608,13 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
        when name in [:post_inc, :post_dec] do
     operation = if name == :post_inc, do: :inc, else: :dec
     updated = unary_expression(operation, value, state.pc)
+    {updated, state} = materialize_expression(state, updated)
     {:next, %{state | pc: state.pc + 1, stack: [updated, value | stack]}}
   end
 
   defp lower_operation({:value, name, []}, %{stack: [value | stack]} = state) do
     value = unary_expression(name, value, state.pc)
+    {value, state} = materialize_expression(state, value)
     {:next, %{state | pc: state.pc + 1, stack: [value | stack]}}
   end
 
@@ -512,12 +635,12 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
      case_expression(truthy, [
        clause([atom(false)], [false_body]),
        clause([atom(true)], [true_body])
-     ])}
+     ]), state}
   end
 
   defp lower_operation({:branch, name, [target]}, state)
        when name in [:goto, :goto8, :goto16],
-       do: {:terminal, block_call(%{state | pc: target})}
+       do: {:terminal, block_call(%{state | pc: target}), state}
 
   defp lower_stack(name, operands, state) when name in [:push_i32, :push_i8, :push_i16] do
     [value] = operands
@@ -597,23 +720,22 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   defp lower_local(:get_arg, [index], state),
     do: push_expression(state, tuple_element(state.args, index))
 
-  defp lower_local(:put_arg, [index], %{stack: [value | stack]} = state),
-    do: %{
-      state
-      | pc: state.pc + 1,
-        args: tuple_put(state, state.args, index, value),
-        stack: stack
-    }
+  defp lower_local(:put_arg, [index], %{stack: [value | stack]} = state) do
+    state = put_tuple(state, :args, index, value)
+    %{state | pc: state.pc + 1, stack: stack}
+  end
 
-  defp lower_local(:set_arg, [index], %{stack: [value | _]} = state),
-    do: %{state | pc: state.pc + 1, args: tuple_put(state, state.args, index, value)}
+  defp lower_local(:set_arg, [index], %{stack: [value | _]} = state) do
+    state = put_tuple(state, :args, index, value)
+    %{state | pc: state.pc + 1}
+  end
 
   defp lower_local(name, [index], state) when name in [:get_loc, :get_loc_check],
     do: push_expression(state, tuple_element(state.locals, index))
 
   defp lower_local(:get_loc0_loc1, [first, second], state) do
-    first = tuple_element(state.locals, first)
-    second = tuple_element(state.locals, second)
+    {first, state} = materialize_expression(state, tuple_element(state.locals, first))
+    {second, state} = materialize_expression(state, tuple_element(state.locals, second))
     %{state | pc: state.pc + 1, stack: [first, second | state.stack]}
   end
 
@@ -621,39 +743,34 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     operation = if name == :inc_loc, do: :inc, else: :dec
     current = tuple_element(state.locals, index)
     value = unary_expression(operation, current, state.pc)
-    %{state | pc: state.pc + 1, locals: tuple_put(state, state.locals, index, value)}
+    {value, state} = materialize_expression(state, value)
+    state = put_tuple(state, :locals, index, value)
+    %{state | pc: state.pc + 1}
   end
 
   defp lower_local(:add_loc, [index], %{stack: [value | stack]} = state) do
     current = tuple_element(state.locals, index)
     value = binary_expression(:add, current, value, state.pc)
-
-    %{
-      state
-      | pc: state.pc + 1,
-        locals: tuple_put(state, state.locals, index, value),
-        stack: stack
-    }
+    {value, state} = materialize_expression(state, value)
+    state = put_tuple(state, :locals, index, value)
+    %{state | pc: state.pc + 1, stack: stack}
   end
 
   defp lower_local(name, [index], %{stack: [value | stack]} = state)
-       when name in [:put_loc, :put_loc_check_init, :put_loc_check],
-       do: %{
-         state
-         | pc: state.pc + 1,
-           locals: tuple_put(state, state.locals, index, value),
-           stack: stack
-       }
+       when name in [:put_loc, :put_loc_check_init, :put_loc_check] do
+    state = put_tuple(state, :locals, index, value)
+    %{state | pc: state.pc + 1, stack: stack}
+  end
 
-  defp lower_local(:set_loc, [index], %{stack: [value | _]} = state),
-    do: %{state | pc: state.pc + 1, locals: tuple_put(state, state.locals, index, value)}
+  defp lower_local(:set_loc, [index], %{stack: [value | _]} = state) do
+    state = put_tuple(state, :locals, index, value)
+    %{state | pc: state.pc + 1}
+  end
 
-  defp lower_local(:set_loc_uninitialized, [index], state),
-    do: %{
-      state
-      | pc: state.pc + 1,
-        locals: tuple_put(state, state.locals, index, atom(:uninitialized))
-    }
+  defp lower_local(:set_loc_uninitialized, [index], state) do
+    state = put_tuple(state, :locals, index, atom(:uninitialized))
+    %{state | pc: state.pc + 1}
+  end
 
   defp boundary_expression(:continue, state), do: block_call(state)
   defp boundary_expression(reason, state), do: deopt_call(reason, integer(state.pc), state)
@@ -662,11 +779,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     local_call(:block, [
       integer(state.pc),
       state.lease,
-      state.frame,
-      state.args,
-      state.locals,
-      list(state.stack),
-      state.execution
+      tuple([state.frame, state.args, state.locals, list(state.stack), state.execution])
     ])
   end
 
@@ -696,12 +809,24 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   defp stack_values(depth),
     do: for(index <- 0..(depth - 1), do: variable(elem(@stack_variables, index)))
 
+  defp charged_stack_values(0), do: []
+
+  defp charged_stack_values(depth),
+    do: for(index <- 0..(depth - 1), do: variable(elem(@charged_stack_variables, index)))
+
+  defp preflight_stack_values(0), do: []
+
+  defp preflight_stack_values(depth),
+    do: for(index <- 0..(depth - 1), do: variable(elem(@preflight_stack_variables, index)))
+
   defp stack_expression(depth), do: list(stack_values(depth))
 
   defp push_literal(state, value), do: push_expression(state, literal(value))
 
-  defp push_expression(state, expression),
-    do: %{state | pc: state.pc + 1, stack: [expression | state.stack]}
+  defp push_expression(state, expression) do
+    {expression, state} = materialize_expression(state, expression)
+    %{state | pc: state.pc + 1, stack: [expression | state.stack]}
+  end
 
   defp advance_stack(state, stack), do: %{state | pc: state.pc + 1, stack: stack}
 
@@ -810,11 +935,56 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   defp tuple_element(tuple, index),
     do: remote_call(:erlang, :element, [integer(index + 1), tuple])
 
-  defp tuple_put(%{tuple_mode: :beam}, tuple, index, value),
+  defp materialize_expression(state, expression) do
+    if simple_expression?(expression) do
+      {expression, state}
+    else
+      ordinal = Map.get(state.materialization_counts, state.pc, 0)
+      index = rem(state.pc, 256) + ordinal * 256
+      value = variable(elem(@materialized_variables, index))
+
+      state =
+        state
+        |> Map.update!(:bindings, &[match_expression(value, expression) | &1])
+        |> put_in([:materialization_counts, state.pc], ordinal + 1)
+
+      {value, state}
+    end
+  end
+
+  defp simple_expression?({type, _line, _value})
+       when type in [:atom, :char, :float, :integer, :string, :var],
+       do: true
+
+  defp simple_expression?({nil, _line}), do: true
+  defp simple_expression?(_expression), do: false
+
+  defp put_tuple(state, field, index, value) when field in [:args, :locals] do
+    tuple = Map.fetch!(state, field)
+    result = tuple_variable(field, state.pc)
+    update = tuple_update(state.tuple_mode, tuple, index, value)
+
+    state
+    |> Map.put(field, result)
+    |> Map.update!(:bindings, &[match_expression(result, update) | &1])
+  end
+
+  defp tuple_update(:beam, tuple, index, value),
     do: remote_call(:erlang, :setelement, [integer(index + 1), tuple, value])
 
-  defp tuple_put(%{tuple_mode: :runtime}, tuple, index, value),
+  defp tuple_update(:runtime, tuple, index, value),
     do: remote_call(Runtime, :tuple_put, [tuple, integer(index), value])
+
+  defp tuple_variable(:args, pc),
+    do: variable(elem(@argument_tuple_variables, rem(pc, 256)))
+
+  defp tuple_variable(:locals, pc),
+    do: variable(elem(@local_tuple_variables, rem(pc, 256)))
+
+  defp with_bindings(%{bindings: []}, expression), do: expression
+
+  defp with_bindings(%{bindings: bindings}, expression),
+    do: {:block, @line, Enum.reverse(bindings) ++ [expression]}
 
   defp function(name, arity, clauses), do: {:function, @line, name, arity, clauses}
   defp clause(arguments, body), do: {:clause, @line, arguments, [], body}
@@ -824,6 +994,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
   defp integer(value), do: {:integer, @line, value}
   defp literal(value), do: :erl_parse.abstract(value)
   defp tuple(values), do: {:tuple, @line, values}
+  defp match_expression(pattern, expression), do: {:match, @line, pattern, expression}
   defp list(values), do: Enum.reduce(Enum.reverse(values), {nil, @line}, &{:cons, @line, &1, &2})
   defp local_call(name, arguments), do: {:call, @line, atom(name), arguments}
   defp guard_call(name, arguments), do: {:call, @line, atom(name), arguments}

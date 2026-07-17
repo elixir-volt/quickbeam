@@ -139,7 +139,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.Pure do
   @doc "Reports whether a template uses bounded scalar block forms."
   @spec scalar_template?(Template.t()) :: boolean()
   def scalar_template?(%Template{forms: forms}),
-    do: Enum.any?(forms, &match?({:function, _, :block, 7, _}, &1))
+    do: Enum.any?(forms, &match?({:function, _, :block, 3, _}, &1))
 
   defp lowered_operation_count(plan) do
     Enum.reduce(plan, 0, fn {_pc, {operations, _reason}}, count -> count + length(operations) end)

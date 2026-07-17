@@ -11,7 +11,6 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Deopt
   alias QuickBEAM.VM.Compiler.Pool.Lease
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Opcode.Control
   alias QuickBEAM.VM.Runtime.Opcode.Local, as: Locals
@@ -19,6 +18,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
   alias QuickBEAM.VM.Runtime.Opcode.Value, as: Values
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Stack, as: OperandStack
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   @stack_operations Stack.opcodes()
@@ -145,7 +145,7 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
 
   @doc "Charges a scalar block or deoptimizes with its reconstructed before-block state."
   @spec charge_state(Lease.t(), tuple(), State.t(), pos_integer()) ::
-          {:ok, State.t()} | action()
+          {:ok, tuple()} | action()
   def charge_state(%Lease{owner: owner}, _state, _execution, _count) when owner != self(),
     do: {:error, :compiler_lease_owner_mismatch}
 
@@ -153,14 +153,16 @@ defmodule QuickBEAM.VM.Compiler.Runtime do
     do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
 
   def charge_state(
-        %Lease{},
-        {%Frame{}, pc, args, locals, stack},
+        %Lease{} = lease,
+        {%Frame{} = frame, pc, args, locals, stack},
         %State{remaining_steps: remaining} = execution,
         count
       )
       when is_integer(pc) and pc >= 0 and is_tuple(args) and is_tuple(locals) and is_list(stack) and
-             is_integer(count) and count > 0 and remaining >= count,
-      do: {:ok, %{execution | remaining_steps: remaining - count}}
+             is_integer(count) and count > 0 and remaining >= count do
+    charged_execution = %{execution | remaining_steps: remaining - count}
+    {:ok, {lease, frame, args, locals, stack, charged_execution}}
+  end
 
   def charge_state(%Lease{} = lease, state, %State{} = execution, count)
       when is_integer(count) and count > 0,

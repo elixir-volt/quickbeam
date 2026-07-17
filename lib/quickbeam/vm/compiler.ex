@@ -231,7 +231,11 @@ defmodule QuickBEAM.VM.Compiler do
   defp prepare_compiled_template(function, key, template, frame, execution) do
     execution = Counter.increment(execution, :compiled_functions)
     execution = cache_decision(execution, function.id, {:compile, key, template})
-    invoke_frame(execution.compiler_context.pool, key, template, frame, execution)
+
+    case invoke_frame(execution.compiler_context.pool, key, template, frame, execution) do
+      {:error, reason} -> {:error, {:compiler_function_failed, function.id, reason}}
+      action -> action
+    end
   end
 
   defp skip_uncached_frame(function, key, frame, execution) do
