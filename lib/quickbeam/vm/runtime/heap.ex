@@ -6,11 +6,11 @@ defmodule QuickBEAM.VM.Runtime.Heap do
   them and are exported to ordinary BEAM values at the evaluation boundary.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Memory
   alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Property.Descriptor
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
 
   @max_prototype_depth 1_000
 
@@ -273,23 +273,25 @@ defmodule QuickBEAM.VM.Runtime.Heap do
       when kind in [:getter, :setter] do
     key = normalize_key(key)
 
-    with {:ok, object} <- fetch_object(execution, reference) do
-      current = own_property_value(object, key)
+    case fetch_object(execution, reference) do
+      {:ok, object} ->
+        current = own_property_value(object, key)
 
-      property = %Descriptor{
-        kind: :accessor,
-        value: :undefined,
-        writable: false,
-        enumerable: Keyword.get(opts, :enumerable, current_flag(current, :enumerable, true)),
-        configurable:
-          Keyword.get(opts, :configurable, current_flag(current, :configurable, true)),
-        getter: if(kind == :getter, do: callable, else: current_accessor(current, :getter)),
-        setter: if(kind == :setter, do: callable, else: current_accessor(current, :setter))
-      }
+        property = %Descriptor{
+          kind: :accessor,
+          value: :undefined,
+          writable: false,
+          enumerable: Keyword.get(opts, :enumerable, current_flag(current, :enumerable, true)),
+          configurable:
+            Keyword.get(opts, :configurable, current_flag(current, :configurable, true)),
+          getter: if(kind == :getter, do: callable, else: current_accessor(current, :getter)),
+          setter: if(kind == :setter, do: callable, else: current_accessor(current, :setter))
+        }
 
-      store_descriptor(execution, id, object, key, property)
-    else
-      :error -> {:error, {:invalid_reference, id}}
+        store_descriptor(execution, id, object, key, property)
+
+      :error ->
+        {:error, {:invalid_reference, id}}
     end
   end
 
@@ -299,12 +301,15 @@ defmodule QuickBEAM.VM.Runtime.Heap do
   def define_descriptor(execution, %Reference{id: id} = reference, key, %Descriptor{} = property) do
     key = normalize_key(key)
 
-    with {:ok, object} <- fetch_object(execution, reference) do
-      if object.kind == :array and key == "length",
-        do: {:error, {:property_not_configurable, "length"}},
-        else: store_descriptor(execution, id, object, key, property)
-    else
-      :error -> {:error, {:invalid_reference, id}}
+    case fetch_object(execution, reference) do
+      {:ok, %Object{kind: :array}} when key == "length" ->
+        {:error, {:property_not_configurable, "length"}}
+
+      {:ok, object} ->
+        store_descriptor(execution, id, object, key, property)
+
+      :error ->
+        {:error, {:invalid_reference, id}}
     end
   end
 
@@ -395,10 +400,9 @@ defmodule QuickBEAM.VM.Runtime.Heap do
   defp valid_prototype?(_execution, _reference, nil), do: :ok
 
   defp valid_prototype?(execution, reference, prototype) do
-    case prototype_contains?(execution, prototype, reference, 0) do
-      true -> {:error, :cyclic_prototype}
-      false -> :ok
-    end
+    if prototype_contains?(execution, prototype, reference, 0),
+      do: {:error, :cyclic_prototype},
+      else: :ok
   end
 
   defp prototype_contains?(_execution, nil, _reference, _depth), do: false
@@ -424,34 +428,44 @@ defmodule QuickBEAM.VM.Runtime.Heap do
 
   defp get_with_depth(execution, %Reference{id: id} = reference, key, receiver, depth) do
     case fetch_object(execution, reference) do
-      {:ok, %Object{kind: :array, length: length}} when key == "length" ->
-        {:ok, length}
-
-      {:ok, object} ->
-        case Map.fetch(object.properties, key) do
-          {:ok, {value}} ->
-            {:ok, value}
-
-          {:ok, %Descriptor{getter: getter}} when not is_nil(getter) ->
-            {:ok, {:accessor, getter, receiver}}
-
-          {:ok, %Descriptor{setter: setter}} when not is_nil(setter) ->
-            {:ok, :undefined}
-
-          {:ok, %Descriptor{value: value}} ->
-            {:ok, value}
-
-          :error when is_struct(object.prototype, Reference) ->
-            get_with_depth(execution, object.prototype, key, receiver, depth + 1)
-
-          :error ->
-            {:ok, :undefined}
-        end
-
-      :error ->
-        {:error, {:invalid_reference, id}}
+      {:ok, object} -> get_from_object(execution, object, key, receiver, depth)
+      :error -> {:error, {:invalid_reference, id}}
     end
   end
+
+  defp get_from_object(
+         _execution,
+         %Object{kind: :array, length: length},
+         "length",
+         _receiver,
+         _depth
+       ),
+       do: {:ok, length}
+
+  defp get_from_object(execution, object, key, receiver, depth) do
+    case Map.fetch(object.properties, key) do
+      {:ok, {value}} ->
+        {:ok, value}
+
+      {:ok, %Descriptor{getter: getter}} when not is_nil(getter) ->
+        {:ok, {:accessor, getter, receiver}}
+
+      {:ok, %Descriptor{setter: setter}} when not is_nil(setter) ->
+        {:ok, :undefined}
+
+      {:ok, %Descriptor{value: value}} ->
+        {:ok, value}
+
+      :error ->
+        get_from_prototype(execution, object.prototype, key, receiver, depth)
+    end
+  end
+
+  defp get_from_prototype(execution, %Reference{} = prototype, key, receiver, depth),
+    do: get_with_depth(execution, prototype, key, receiver, depth + 1)
+
+  defp get_from_prototype(_execution, _prototype, _key, _receiver, _depth),
+    do: {:ok, :undefined}
 
   defp put_object(execution, id, object, key, value) do
     case put_value(execution, object, key, value) do
@@ -552,30 +566,37 @@ defmodule QuickBEAM.VM.Runtime.Heap do
     descriptor =
       own_property_value(object, key) || inherited_property(execution, object.prototype, key, 0)
 
-    cond do
-      match?(%Descriptor{setter: setter} when not is_nil(setter), descriptor) ->
-        {:error, {:invoke_setter, descriptor.setter}}
-
-      accessor?(descriptor) ->
-        {:error, {:property_not_writable, key}}
-
-      match?(%Descriptor{writable: false}, descriptor) ->
-        {:error, {:property_not_writable, key}}
-
-      Map.has_key?(object.properties, key) ->
-        {:ok, object}
-
-      object.kind == :array and is_integer(key) and key >= object.length and
-          not object.length_writable ->
-        {:error, {:property_not_writable, "length"}}
-
-      object.extensible ->
-        {:ok, object}
-
-      true ->
-        {:error, {:object_not_extensible, key}}
+    with :ok <- writable_descriptor(descriptor, key) do
+      put_new_or_existing_value(object, key)
     end
   end
+
+  defp writable_descriptor(%Descriptor{setter: setter}, _key) when not is_nil(setter),
+    do: {:error, {:invoke_setter, setter}}
+
+  defp writable_descriptor(%Descriptor{kind: :accessor}, key),
+    do: {:error, {:property_not_writable, key}}
+
+  defp writable_descriptor(%Descriptor{writable: false}, key),
+    do: {:error, {:property_not_writable, key}}
+
+  defp writable_descriptor(_descriptor, _key), do: :ok
+
+  defp put_new_or_existing_value(object, key) do
+    if Map.has_key?(object.properties, key),
+      do: {:ok, object},
+      else: put_new_value(object, key)
+  end
+
+  defp put_new_value(
+         %Object{kind: :array, length: length, length_writable: false},
+         key
+       )
+       when is_integer(key) and key >= length,
+       do: {:error, {:property_not_writable, "length"}}
+
+  defp put_new_value(%Object{extensible: true} = object, _key), do: {:ok, object}
+  defp put_new_value(_object, key), do: {:error, {:object_not_extensible, key}}
 
   defp define_property(%Object{kind: :array} = object, "length", value, opts) do
     cond do
@@ -607,40 +628,67 @@ defmodule QuickBEAM.VM.Runtime.Heap do
   defp validate_definition(object, key, candidate) do
     case own_property_value(object, key) do
       %Descriptor{configurable: false} = current ->
-        cond do
-          candidate.configurable ->
-            {:error, {:property_not_configurable, key}}
-
-          property_enumerable?(candidate) != property_enumerable?(current) ->
-            {:error, {:property_not_configurable, key}}
-
-          accessor?(candidate) != accessor?(current) ->
-            {:error, {:property_not_configurable, key}}
-
-          accessor?(current) and
-              (candidate.getter != current.getter or candidate.setter != current.setter) ->
-            {:error, {:property_not_configurable, key}}
-
-          not accessor?(current) and not current.writable and candidate.writable ->
-            {:error, {:property_not_writable, key}}
-
-          not accessor?(current) and not current.writable and candidate.value != current.value ->
-            {:error, {:property_not_writable, key}}
-
-          true ->
-            {:ok, object}
-        end
+        validate_fixed_definition(object, key, current, candidate)
 
       nil when not object.extensible ->
         {:error, {:object_not_extensible, key}}
 
       _current ->
-        if object.kind == :array and is_integer(key) and key >= object.length and
-             not object.length_writable,
-           do: {:error, {:property_not_writable, "length"}},
-           else: {:ok, object}
+        validate_array_growth(object, key)
     end
   end
+
+  defp validate_fixed_definition(object, key, current, candidate) do
+    with :ok <- keep_nonconfigurable(candidate, key),
+         :ok <- keep_enumerability(current, candidate, key),
+         :ok <- keep_descriptor_kind(current, candidate, key),
+         :ok <- keep_accessor_functions(current, candidate, key),
+         :ok <- keep_readonly_value(current, candidate, key) do
+      {:ok, object}
+    end
+  end
+
+  defp keep_nonconfigurable(%Descriptor{configurable: true}, key),
+    do: {:error, {:property_not_configurable, key}}
+
+  defp keep_nonconfigurable(_candidate, _key), do: :ok
+
+  defp keep_enumerability(current, candidate, key) do
+    if property_enumerable?(candidate) == property_enumerable?(current),
+      do: :ok,
+      else: {:error, {:property_not_configurable, key}}
+  end
+
+  defp keep_descriptor_kind(current, candidate, key) do
+    if accessor?(candidate) == accessor?(current),
+      do: :ok,
+      else: {:error, {:property_not_configurable, key}}
+  end
+
+  defp keep_accessor_functions(%Descriptor{kind: :accessor} = current, candidate, key) do
+    if candidate.getter == current.getter and candidate.setter == current.setter,
+      do: :ok,
+      else: {:error, {:property_not_configurable, key}}
+  end
+
+  defp keep_accessor_functions(_current, _candidate, _key), do: :ok
+
+  defp keep_readonly_value(%Descriptor{kind: :data, writable: false} = current, candidate, key) do
+    if not candidate.writable and candidate.value == current.value,
+      do: :ok,
+      else: {:error, {:property_not_writable, key}}
+  end
+
+  defp keep_readonly_value(_current, _candidate, _key), do: :ok
+
+  defp validate_array_growth(
+         %Object{kind: :array, length: length, length_writable: false},
+         key
+       )
+       when is_integer(key) and key >= length,
+       do: {:error, {:property_not_writable, "length"}}
+
+  defp validate_array_growth(object, _key), do: {:ok, object}
 
   defp store_descriptor(execution, id, object, key, property) do
     with {:ok, object} <- validate_definition(object, key, property) do

@@ -84,6 +84,26 @@ defmodule QuickBEAM.VM.Runtime.AsyncTest do
     assert {:ok, 42} = QuickBEAM.VM.eval(program)
   end
 
+  test "cancels an unobserved handler without terminating caller-isolated evaluation" do
+    test_process = self()
+    assert {:ok, program} = QuickBEAM.VM.compile("Beam.call('wait'); 42")
+
+    handler = fn [] ->
+      send(test_process, {:unobserved_handler_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    assert {:ok, 42} =
+             QuickBEAM.VM.eval(program,
+               handlers: %{"wait" => handler},
+               isolation: :caller
+             )
+
+    assert_receive {:unobserved_handler_started, handler_pid}
+    monitor = Process.monitor(handler_pid)
+    assert_receive {:DOWN, ^monitor, :process, ^handler_pid, _reason}, 1_000
+  end
+
   test "wall-clock timeout terminates an outstanding handler task" do
     test_process = self()
     source = "(async function(){return await Beam.call('wait')})()"
@@ -100,6 +120,14 @@ defmodule QuickBEAM.VM.Runtime.AsyncTest do
     assert_receive {:handler_started, handler_pid}
     monitor = Process.monitor(handler_pid)
     assert_receive {:DOWN, ^monitor, :process, ^handler_pid, _reason}, 1_000
+  end
+
+  test "bounds concurrently outstanding BEAM handlers per evaluation" do
+    calls = Enum.map_join(1..65, "\n", fn _index -> "Beam.call('ok');" end)
+    assert {:ok, program} = QuickBEAM.VM.compile(calls <> "\n42")
+
+    assert {:error, {:limit_exceeded, :host_operations, 64}} =
+             QuickBEAM.VM.eval(program, handlers: %{"ok" => fn [] -> :ok end})
   end
 
   test "validates handler names and arities before starting evaluation" do

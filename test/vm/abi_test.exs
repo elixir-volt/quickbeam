@@ -2,8 +2,8 @@ defmodule QuickBEAM.VM.ABITest do
   use ExUnit.Case, async: true
 
   alias QuickBEAM.VM.ABI
-  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.ABI.Source
+  alias QuickBEAM.VM.Bytecode.Opcode
 
   test "metadata is generated from the current vendored QuickJS sources" do
     assert ABI.bytecode_version() == 26

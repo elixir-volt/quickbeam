@@ -7,9 +7,9 @@ defmodule QuickBEAM.VM.Compiler.Code.Lifecycle do
   hard purge.
   """
 
-  alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Code.Artifact
   alias QuickBEAM.VM.Compiler.Code.Import
+  alias QuickBEAM.VM.Compiler.Contract
 
   @source ~c"quickbeam_compiler"
 

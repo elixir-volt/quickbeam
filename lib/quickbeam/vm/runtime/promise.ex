@@ -64,14 +64,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
       on_rejected: on_rejected
     }
 
-    execution =
-      case state(execution, source) do
-        :pending -> add_waiter(execution, id, reaction)
-        {:fulfilled, value} -> enqueue(execution, {:run_reaction, reaction, {:ok, value}})
-        {:rejected, reason} -> enqueue(execution, {:run_reaction, reaction, {:error, reason}})
-      end
-
-    {result_promise, execution}
+    {result_promise, attach_reaction(execution, source, id, reaction)}
   end
 
   @doc "Creates or reuses the Promise produced by resolving one value."
@@ -163,14 +156,15 @@ defmodule QuickBEAM.VM.Runtime.Promise do
       on_rejected: callback
     }
 
-    execution =
-      case state(execution, source) do
-        :pending -> add_waiter(execution, id, reaction)
-        {:fulfilled, value} -> enqueue(execution, {:run_reaction, reaction, {:ok, value}})
-        {:rejected, reason} -> enqueue(execution, {:run_reaction, reaction, {:error, reason}})
-      end
+    {result_promise, attach_reaction(execution, source, id, reaction)}
+  end
 
-    {result_promise, execution}
+  defp attach_reaction(execution, source, id, reaction) do
+    case state(execution, source) do
+      :pending -> add_waiter(execution, id, reaction)
+      {:fulfilled, value} -> enqueue(execution, {:run_reaction, reaction, {:ok, value}})
+      {:rejected, reason} -> enqueue(execution, {:run_reaction, reaction, {:error, reason}})
+    end
   end
 
   @doc "Settles a target Promise after a `finally` callback result."
@@ -451,5 +445,5 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   defp enqueue(execution, job), do: %{execution | jobs: :queue.in(job, execution.jobs)}
 
   defp enqueue_sync(execution, job),
-    do: %{execution | sync_jobs: :queue.in(job, execution.sync_jobs)}
+    do: %{execution | sync_jobs: :queue.in(job, execution.sync_jobs), sync_jobs_pending?: true}
 end

@@ -1,21 +1,31 @@
 defmodule QuickBEAM.VM.Builtin.DSLTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
+  alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Builtin.Array, as: ArrayBuiltin
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Builtin.Contract.Error, as: ContractError
-  alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
+  alias QuickBEAM.VM.Builtin.Error.Type, as: TypeErrorBuiltin
+  alias QuickBEAM.VM.Builtin.Function, as: FunctionBuiltin
   alias QuickBEAM.VM.Builtin.Installer
-  alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
+  alias QuickBEAM.VM.Builtin.Math, as: MathBuiltin
+  alias QuickBEAM.VM.Builtin.Object, as: ObjectBuiltin
+  alias QuickBEAM.VM.Builtin.Promise, as: PromiseBuiltin
   alias QuickBEAM.VM.Builtin.Registry
+  alias QuickBEAM.VM.Builtin.Set, as: SetBuiltin
   alias QuickBEAM.VM.Builtin.Spec
+  alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
+  alias QuickBEAM.VM.Builtin.Spec.Alias, as: AliasSpec
+  alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
+  alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
+  alias QuickBEAM.VM.Builtin.String, as: StringBuiltin
+  alias QuickBEAM.VM.Builtin.Symbol, as: SymbolBuiltin
   alias QuickBEAM.VM.Builtin.Validator
-
-  alias QuickBEAM.VM.Builtin
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Symbol, as: RuntimeSymbol
 
   defmodule Fixture do
     use QuickBEAM.VM.Builtin
@@ -88,8 +98,8 @@ defmodule QuickBEAM.VM.Builtin.DSLTest do
   end
 
   test "compiles declarative modules into immutable validated specs" do
-    math = QuickBEAM.VM.Builtin.Math.builtin_spec()
-    array = QuickBEAM.VM.Builtin.Array.builtin_spec()
+    math = MathBuiltin.builtin_spec()
+    array = ArrayBuiltin.builtin_spec()
 
     assert math.name == "Math"
     assert math.kind == :namespace
@@ -106,7 +116,7 @@ defmodule QuickBEAM.VM.Builtin.DSLTest do
     assert array.kind == :constructor
     assert array.prototype_spec.kind == :array
     assert array.prototype_spec.default_for == :array
-    assert [%FunctionSpec{key: "isArray", handler: :is_array, length: 1}] = array.statics
+    assert [%FunctionSpec{key: "isArray", handler: :array?, length: 1}] = array.statics
 
     assert Enum.map(array.prototype, & &1.key) ==
              ~w(concat filter forEach includes join map push reduce slice some sort)
@@ -141,41 +151,41 @@ defmodule QuickBEAM.VM.Builtin.DSLTest do
     assert Registry.modules(:core) == Enum.map(Registry.refresh()[:core], & &1.module)
     assert Registry.generation() == generation + 1
 
-    assert QuickBEAM.VM.Builtin.String.builtin_spec().kind == :constructor
+    assert StringBuiltin.builtin_spec().kind == :constructor
 
-    object = QuickBEAM.VM.Builtin.Object.builtin_spec()
+    object = ObjectBuiltin.builtin_spec()
     assert object.prototype_spec.extends == nil
     assert object.prototype_spec.default_for == :ordinary
 
-    function = QuickBEAM.VM.Builtin.Function.builtin_spec()
+    function = FunctionBuiltin.builtin_spec()
     assert function.prototype_spec.extends == "Object"
     assert function.prototype_spec.kind == :function
     assert function.prototype_spec.callable == :prototype_call
     assert function.prototype_spec.default_for == :function
 
-    promise = QuickBEAM.VM.Builtin.Promise.builtin_spec()
+    promise = PromiseBuiltin.builtin_spec()
     assert promise.kind == :constructor
     assert promise.constructor == :construct
     assert promise.depends_on == ["Object", "Function", "Symbol"]
 
-    error = QuickBEAM.VM.Builtin.Error.Type.builtin_spec()
+    error = TypeErrorBuiltin.builtin_spec()
     assert error.prototype_spec.extends == "Error"
     assert error.prototype_spec.error_type == "TypeError"
 
-    set = QuickBEAM.VM.Builtin.Set.builtin_spec()
+    set = SetBuiltin.builtin_spec()
     assert set.kind == :constructor
-    assert Enum.any?(set.prototype, &match?(%QuickBEAM.VM.Builtin.Spec.Alias{}, &1))
+    assert Enum.any?(set.prototype, &match?(%AliasSpec{}, &1))
 
-    symbol = QuickBEAM.VM.Builtin.Symbol.builtin_spec()
+    symbol = SymbolBuiltin.builtin_spec()
     assert symbol.kind == :function
     assert symbol.constructor == nil
 
     assert Enum.any?(
              symbol.statics,
-             &match?(%{key: "iterator", value: %QuickBEAM.VM.Runtime.Symbol{id: :iterator}}, &1)
+             &match?(%{key: "iterator", value: %RuntimeSymbol{id: :iterator}}, &1)
            )
 
-    assert Enum.map(QuickBEAM.VM.Builtin.Object.builtin_spec().statics, & &1.key) ==
+    assert Enum.map(ObjectBuiltin.builtin_spec().statics, & &1.key) ==
              ~w(assign create defineProperty defineProperties freeze getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
   end
 

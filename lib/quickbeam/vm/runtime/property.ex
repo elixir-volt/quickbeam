@@ -8,12 +8,12 @@ defmodule QuickBEAM.VM.Runtime.Property do
   `{:ok, {:accessor, getter, receiver}}` action for the interpreter to resume.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
   alias QuickBEAM.VM.Runtime.Property.Descriptor
   alias QuickBEAM.VM.Runtime.Reference
   alias QuickBEAM.VM.Runtime.RegExp
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   @function_tags [
@@ -33,23 +33,8 @@ defmodule QuickBEAM.VM.Runtime.Property do
   @spec get(term(), term(), State.t()) :: get_result()
   def get(%Reference{} = object, key, execution) do
     case Heap.get(execution, object, key) do
-      {:ok, :undefined} = missing ->
-        case Heap.fetch_object(execution, object) do
-          {:ok, %{internal: :global_object}} ->
-            case Map.fetch(execution.globals, key) do
-              {:ok, value} -> {:ok, value}
-              :error -> missing
-            end
-
-          {:ok, %{kind: :regexp}} when key in ["exec", "test"] ->
-            {:ok, {:primitive_method, :regexp, key}}
-
-          _other ->
-            missing
-        end
-
-      result ->
-        result
+      {:ok, :undefined} = missing -> missing_reference_property(object, key, execution, missing)
+      result -> result
     end
   end
 
@@ -94,6 +79,26 @@ defmodule QuickBEAM.VM.Runtime.Property do
     do: {:error, :null_or_undefined_property_access}
 
   def get(_object, _key, _execution), do: {:ok, :undefined}
+
+  defp missing_reference_property(object, key, execution, missing) do
+    case Heap.fetch_object(execution, object) do
+      {:ok, %{internal: :global_object}} ->
+        global_property(execution.globals, key, missing)
+
+      {:ok, %{kind: :regexp}} when key in ["exec", "test"] ->
+        {:ok, {:primitive_method, :regexp, key}}
+
+      _other ->
+        missing
+    end
+  end
+
+  defp global_property(globals, key, missing) do
+    case Map.fetch(globals, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> missing
+    end
+  end
 
   @doc "Writes a JavaScript property or returns an accessor setter action."
   @spec put(term(), term(), term(), State.t()) ::

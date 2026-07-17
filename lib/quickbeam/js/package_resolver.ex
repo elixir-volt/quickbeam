@@ -128,18 +128,14 @@ defmodule QuickBEAM.JS.PackageResolver do
     |> find_package_root(package_name)
   end
 
-  defp find_package_root("/", package_name) do
-    package_dir = Path.join(["/", "node_modules", package_name])
-    if File.dir?(package_dir), do: {:ok, package_dir}, else: :error
-  end
-
   defp find_package_root(dir, package_name) do
     package_dir = Path.join([dir, "node_modules", package_name])
+    parent = Path.dirname(dir)
 
-    if File.dir?(package_dir) do
-      {:ok, package_dir}
-    else
-      find_package_root(Path.dirname(dir), package_name)
+    cond do
+      File.dir?(package_dir) -> {:ok, package_dir}
+      parent == dir -> :error
+      true -> find_package_root(parent, package_name)
     end
   end
 

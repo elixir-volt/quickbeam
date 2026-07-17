@@ -7,9 +7,9 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Control do
   interpreter and their canonical semantic layers.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   @opcodes [

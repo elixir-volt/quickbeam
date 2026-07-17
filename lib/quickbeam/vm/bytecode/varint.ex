@@ -59,12 +59,10 @@ defmodule QuickBEAM.VM.Bytecode.Varint do
   def read_fixed_u32(_binary), do: {:error, :unexpected_end}
 
   defp decode_unsigned(binary) do
-    try do
-      {value, rest} = Varint.LEB128.decode(binary)
-      {:ok, value, rest}
-    rescue
-      ArgumentError -> {:error, :bad_leb128}
-    end
+    {value, rest} = Varint.LEB128.decode(binary)
+    {:ok, value, rest}
+  rescue
+    ArgumentError -> {:error, :bad_leb128}
   end
 
   defp terminated_within_limit(_binary, 0, error), do: {:error, error}

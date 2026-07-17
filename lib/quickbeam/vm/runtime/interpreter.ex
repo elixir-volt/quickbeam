@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   Elixir or native call stack.
   """
 
+  alias QuickBEAM.VM.Builtin.Array, as: ArrayBuiltin
   alias QuickBEAM.VM.Builtin.Registry
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
   alias QuickBEAM.VM.Builtin.Set, as: SetBuiltin
@@ -68,16 +69,17 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
     max_steps = Keyword.get(opts, :max_steps, @default_max_steps)
     vars = Map.new(Keyword.get(opts, :vars, %{}))
 
-    execution = %State{
-      atoms: program.atoms,
-      globals: vars,
-      handlers: Map.new(Keyword.get(opts, :handlers, %{})),
-      max_stack_depth: Keyword.get(opts, :max_stack_depth, @default_max_stack_depth),
-      memory_limit: Keyword.get(opts, :memory_limit, :infinity),
-      measurement_target: Keyword.get(opts, :measurement_target),
-      remaining_steps: max_steps,
-      step_limit: max_steps
-    }
+    execution =
+      State.new(
+        atoms: program.atoms,
+        globals: vars,
+        handlers: Map.new(Keyword.get(opts, :handlers, %{})),
+        max_stack_depth: Keyword.get(opts, :max_stack_depth, @default_max_stack_depth),
+        memory_limit: Keyword.get(opts, :memory_limit, :infinity),
+        measurement_target: Keyword.get(opts, :measurement_target),
+        remaining_steps: max_steps,
+        step_limit: max_steps
+      )
 
     execution = Memory.charge(execution, Memory.estimate(vars))
     execution = install_host_globals(execution, Keyword.get(opts, :profile, :core))
@@ -177,11 +179,11 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   def run_synchronous_job(%State{} = execution) do
     case :queue.out(execution.sync_jobs) do
       {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
-        execution = %{execution | sync_jobs: sync_jobs}
+        execution = put_sync_jobs(execution, sync_jobs)
         promise |> Async.read_thenable(thenable, getter, nil, execution) |> execute_async()
 
-      {:empty, _sync_jobs} ->
-        {:none, execution}
+      {:empty, sync_jobs} ->
+        {:none, put_sync_jobs(execution, sync_jobs)}
     end
   end
 
@@ -275,14 +277,14 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   defp execute_async({:suspended, continuation}), do: {:suspended, continuation}
   defp execute_async({:error, reason, execution}), do: {:error, reason, execution}
 
-  defp run(frame, %State{} = execution) when execution.sync_jobs != {[], []} do
+  defp run(frame, %State{sync_jobs_pending?: true} = execution) do
     case :queue.out(execution.sync_jobs) do
       {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
-        execution = %{execution | sync_jobs: sync_jobs}
+        execution = put_sync_jobs(execution, sync_jobs)
         promise |> Async.read_thenable(thenable, getter, frame, execution) |> execute_async()
 
-      {:empty, _sync_jobs} ->
-        run(frame, %{execution | sync_jobs: {[], []}})
+      {:empty, sync_jobs} ->
+        run(frame, put_sync_jobs(execution, sync_jobs))
     end
   end
 
@@ -539,14 +541,14 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   defp continue_iterator_sync(boundary, execution) do
     case :queue.out(execution.sync_jobs) do
       {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
-        execution = %{execution | sync_jobs: sync_jobs}
+        execution = put_sync_jobs(execution, sync_jobs)
 
         promise
         |> Async.read_thenable(thenable, getter, boundary, execution)
         |> execute_async()
 
-      {:empty, _sync_jobs} ->
-        boundary |> Iterator.continue(%{execution | sync_jobs: {[], []}}) |> execute_invocation()
+      {:empty, sync_jobs} ->
+        boundary |> Iterator.continue(put_sync_jobs(execution, sync_jobs)) |> execute_invocation()
     end
   end
 
@@ -760,21 +762,7 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   end
 
   defp allocate_array(entries, execution) do
-    {array, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      entries
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn
-        {{:present, value}, index}, execution ->
-          {:ok, execution} = Property.define(array, index, value, execution)
-          execution
-
-        {:hole, _index}, execution ->
-          execution
-      end)
-
-    {:ok, execution} = Property.define(array, "length", length(entries), execution)
+    {array, execution} = ArrayBuiltin.from_entries(entries, execution)
     {:value, array, execution}
   end
 
@@ -792,6 +780,9 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   end
 
   defp interpreter_array_values(_value, _execution), do: {:error, :not_an_array}
+
+  defp put_sync_jobs(execution, sync_jobs),
+    do: %{execution | sync_jobs: sync_jobs, sync_jobs_pending?: not :queue.is_empty(sync_jobs)}
 
   defp continue(frame, execution), do: run(next_frame(frame), execution)
   defp next_frame(frame), do: %{frame | pc: frame.pc + 1}
@@ -940,12 +931,13 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   end
 
   defp build_host_template(profile) do
-    execution = %State{
-      atoms: {},
-      max_stack_depth: 1,
-      remaining_steps: 1,
-      step_limit: 1
-    }
+    execution =
+      State.new(
+        atoms: {},
+        max_stack_depth: 1,
+        remaining_steps: 1,
+        step_limit: 1
+      )
 
     build_host_globals(execution, profile)
   end
@@ -981,8 +973,14 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
 
   defp start_host_call(arguments, caller, execution, tail?) do
     case Async.start_host_call(arguments, execution) do
-      {:ok, promise, execution} -> complete_call_result(promise, caller, execution, tail?)
-      {:error, reason, execution} -> raise_js_from_caller(reason, caller, execution)
+      {:ok, promise, execution} ->
+        complete_call_result(promise, caller, execution, tail?)
+
+      {:error, {:limit_exceeded, _kind, _limit} = reason, execution} ->
+        {:error, reason, execution}
+
+      {:error, reason, execution} ->
+        raise_js_from_caller(reason, caller, execution)
     end
   end
 

@@ -3,8 +3,8 @@ defmodule QuickBEAM.VM.Compiler.CounterTest do
 
   alias QuickBEAM.VM.Compiler.Context
   alias QuickBEAM.VM.Compiler.Counter
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Runtime.State
 
   test "keeps fixed OTP counters in the evaluation owner" do
     execution = %State{

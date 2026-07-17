@@ -145,9 +145,25 @@ defmodule QuickBEAM.VM.Runtime.ObjectTest do
       "(()=>{let value=new Set([2,1,2]);let iterator=value.values();return [iterator.next().value,iterator.next().value,iterator.next().done]})()",
       "(()=>{let value=new Set();return value[Symbol.iterator]===value.values})()",
       "(()=>{let value=new Set();return value.add(2).add(1).add(2).size})()",
+      "(()=>{let value=new Set([1,2/2,NaN,NaN,-0,0]);return [value.size,value.has(1.0),value.has(NaN),value.delete(NaN),value.has(NaN),value.size]})()",
       "(()=>{let iterable={[Symbol.iterator](){let i=0;return {next(){i++;return i<=2?{value:i,done:false}:{done:true}}}}};return new Set(iterable).size})()",
       "(()=>{let iterable={[Symbol.iterator](){return {next(){throw 42}}}};try{new Set(iterable)}catch(error){return error}})()",
       "(()=>{try{Set()}catch(error){return error.name}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native weak collection object-key validation", %{runtime: runtime} do
+    sources = [
+      "(()=>{let key={};let value=new WeakMap([[key,42]]);return [value.get(key),value.has(key),value.delete(key),value.has(key)]})()",
+      "(()=>{try{new WeakMap([[1,42]])}catch(error){return error.name}})()",
+      "(()=>{try{new WeakMap().set(1,42)}catch(error){return error.name}})()",
+      "(()=>{let key={};let value=new WeakSet([key]);return [value.has(key),value.delete(key),value.has(key)]})()",
+      "(()=>{try{new WeakSet([1])}catch(error){return error.name}})()",
+      "(()=>{try{new WeakSet().add(1)}catch(error){return error.name}})()"
     ]
 
     for source <- sources do

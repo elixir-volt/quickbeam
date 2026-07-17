@@ -8,8 +8,8 @@ defmodule QuickBEAM.VM.Compiler.Deopt do
   """
 
   alias QuickBEAM.VM.Compiler.Contract
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   @contract_version Contract.version()
   @artifact_key_bytes Contract.artifact_key_bytes()

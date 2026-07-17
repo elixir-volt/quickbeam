@@ -63,17 +63,7 @@ defmodule QuickBEAM.VM.Builtin.Set do
   def add(%Call{this: %Reference{} = set, arguments: arguments, execution: execution}) do
     value = List.first(arguments, :undefined)
 
-    case Heap.update_object(execution, set, fn
-           %Object{kind: :set, internal: %{values: values, index: index}} = object ->
-             if MapSet.member?(index, value) do
-               object
-             else
-               %{object | internal: %{values: values ++ [value], index: MapSet.put(index, value)}}
-             end
-
-           object ->
-             object
-         end) do
+    case Heap.update_object(execution, set, &add_value(&1, value)) do
       {:ok, execution} ->
         case Heap.fetch_object(execution, set) do
           {:ok, %Object{kind: :set}} -> {:ok, set, execution}
@@ -93,15 +83,16 @@ defmodule QuickBEAM.VM.Builtin.Set do
 
     case Heap.fetch_object(execution, set) do
       {:ok, %Object{kind: :set, internal: %{values: values, index: index}}} ->
-        found? = MapSet.member?(index, value)
+        key = set_key(value)
+        found? = MapSet.member?(index, key)
 
         {:ok, execution} =
           Heap.update_object(execution, set, fn object ->
             %{
               object
               | internal: %{
-                  values: Enum.reject(values, &Value.strict_equal?(&1, value)),
-                  index: MapSet.delete(index, value)
+                  values: Enum.reject(values, &same_value_zero?(&1, value)),
+                  index: MapSet.delete(index, key)
                 }
             }
           end)
@@ -121,7 +112,7 @@ defmodule QuickBEAM.VM.Builtin.Set do
 
     case Heap.fetch_object(execution, set) do
       {:ok, %Object{kind: :set, internal: %{index: entries}}} ->
-        {:ok, MapSet.member?(entries, value), execution}
+        {:ok, MapSet.member?(entries, set_key(value)), execution}
 
       _other ->
         {:error, :incompatible_set_receiver, execution}
@@ -213,12 +204,42 @@ defmodule QuickBEAM.VM.Builtin.Set do
 
   @doc "Initializes a Set receiver from values in iteration order."
   def initialize(receiver, values, execution) do
-    values = Enum.uniq(values)
+    {reversed_values, index} =
+      Enum.reduce(values, {[], MapSet.new()}, fn value, {values, index} ->
+        key = set_key(value)
+
+        if MapSet.member?(index, key),
+          do: {values, index},
+          else: {[value | values], MapSet.put(index, key)}
+      end)
 
     Heap.update_object(execution, receiver, fn object ->
-      %{object | kind: :set, internal: %{values: values, index: MapSet.new(values)}}
+      %{object | kind: :set, internal: %{values: Enum.reverse(reversed_values), index: index}}
     end)
   end
+
+  defp add_value(%Object{kind: :set, internal: %{values: values, index: index}} = object, value) do
+    key = set_key(value)
+
+    if MapSet.member?(index, key),
+      do: object,
+      else: %{object | internal: %{values: values ++ [value], index: MapSet.put(index, key)}}
+  end
+
+  defp add_value(object, _value), do: object
+
+  defp set_key(:nan), do: {:number, :nan}
+  defp set_key(value) when is_integer(value), do: {:number, value}
+  defp set_key(value) when is_float(value) and value == 0.0, do: {:number, 0}
+
+  defp set_key(value) when is_float(value) and trunc(value) == value,
+    do: {:number, trunc(value)}
+
+  defp set_key(value) when is_float(value), do: {:number, value}
+  defp set_key(value), do: value
+
+  defp same_value_zero?(:nan, :nan), do: true
+  defp same_value_zero?(left, right), do: Value.strict_equal?(left, right)
 
   defp declared(handler), do: {:declared_builtin, __MODULE__, handler}
 end

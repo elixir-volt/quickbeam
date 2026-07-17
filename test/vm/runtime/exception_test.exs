@@ -1,13 +1,12 @@
 defmodule QuickBEAM.VM.Runtime.ExceptionTest do
   use ExUnit.Case, async: true
 
+  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Boundary
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Exception
   alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Promise
-
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Thrown
 
   test "materializes thrown values and resumes the nearest catch target" do

@@ -13,7 +13,7 @@ defmodule QuickBEAM.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]],
+      dialyzer: [plt_add_apps: [:crypto, :inets, :mix, :public_key, :ssl]],
       name: "QuickBEAM",
       description:
         "JavaScript runtime for the BEAM — Web APIs backed by OTP, native DOM, and a built-in TypeScript toolchain.",

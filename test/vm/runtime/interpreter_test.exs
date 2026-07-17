@@ -1,9 +1,9 @@
 defmodule QuickBEAM.VM.Runtime.InterpreterTest do
   use ExUnit.Case, async: true
 
+  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Interpreter
-  alias QuickBEAM.VM.Program
 
   test "evaluates arithmetic and comparisons in an isolated BEAM process" do
     assert {:ok, program} = QuickBEAM.VM.compile("(2 + 3 * 4) === 14")

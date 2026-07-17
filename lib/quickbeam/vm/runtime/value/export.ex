@@ -7,19 +7,21 @@ defmodule QuickBEAM.VM.Runtime.Value.Export do
   """
 
   alias QuickBEAM.VM.Runtime.Exception
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
   alias QuickBEAM.VM.Runtime.Property.Descriptor
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Symbol
 
   @doc "Exports one owner-local JavaScript value to a safe BEAM term."
   @spec value(term(), State.t()) :: {:ok, term()} | {:error, term()}
-  def value(value, %State{} = execution), do: convert(value, execution, MapSet.new())
+  def value(value, %State{} = execution), do: convert(value, execution, %{})
 
+  @spec convert(term(), State.t(), %{optional(non_neg_integer()) => true}) ::
+          {:ok, term()} | {:error, term()}
   defp convert(%PromiseReference{} = promise, execution, seen) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} -> convert(value, execution, seen)
@@ -29,11 +31,11 @@ defmodule QuickBEAM.VM.Runtime.Value.Export do
   end
 
   defp convert(%Reference{id: id} = reference, execution, seen) do
-    if MapSet.member?(seen, id) do
+    if Map.has_key?(seen, id) do
       {:error, {:cyclic_result, id}}
     else
       case Heap.fetch_object(execution, reference) do
-        {:ok, object} -> convert_object(object, execution, MapSet.put(seen, id))
+        {:ok, object} -> convert_object(object, execution, Map.put(seen, id, true))
         :error -> {:error, {:invalid_reference, id}}
       end
     end
@@ -62,6 +64,8 @@ defmodule QuickBEAM.VM.Runtime.Value.Export do
 
   defp convert(value, _execution, _seen), do: {:ok, value}
 
+  @spec convert_object(Object.t(), State.t(), %{optional(non_neg_integer()) => true}) ::
+          {:ok, term()} | {:error, term()}
   defp convert_object(%Object{callable: callable}, _execution, _seen) when not is_nil(callable),
     do: {:error, :function_result}
 
@@ -90,6 +94,8 @@ defmodule QuickBEAM.VM.Runtime.Value.Export do
     end)
   end
 
+  @spec convert_list([term()], State.t(), %{optional(non_neg_integer()) => true}, [term()]) ::
+          {:ok, [term()]} | {:error, term()}
   defp convert_list([], _execution, _seen, result), do: {:ok, Enum.reverse(result)}
 
   defp convert_list([value | rest], execution, seen, result) do

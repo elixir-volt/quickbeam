@@ -1,14 +1,14 @@
 defmodule QuickBEAM.VM.Runtime.AsyncSemanticsTest do
   use ExUnit.Case, async: true
 
+  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Async
   alias QuickBEAM.VM.Runtime.Boundary
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Promise.Reaction
+  alias QuickBEAM.VM.Runtime.State
 
   test "enters async functions through an owner-local Promise boundary" do
     execution = execution()

@@ -6,13 +6,14 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Local do
   The module returns explicit frame actions and never owns interpreter stepping.
   """
 
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Bytecode.Atom, as: AtomTable
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Memory
-  alias QuickBEAM.VM.Bytecode.Atom, as: AtomTable
   alias QuickBEAM.VM.Runtime.Property
+  alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   @get_reference_ops [

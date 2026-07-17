@@ -3,12 +3,12 @@ defmodule QuickBEAM.VM.Runtime.InvocationTest do
 
   alias QuickBEAM.VM.Builtin.Action
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.Runtime.Boundary
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Boundary
+  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
+  alias QuickBEAM.VM.Runtime.State
 
   test "plans ordinary and closure calls as explicit frame entries" do
     execution = execution()

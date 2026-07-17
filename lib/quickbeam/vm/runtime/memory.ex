@@ -6,8 +6,8 @@ defmodule QuickBEAM.VM.Runtime.Memory do
   controlled limit failures before the worker's process heap ceiling.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Object
+  alias QuickBEAM.VM.Runtime.State
 
   @object_bytes 128
   @property_bytes 64

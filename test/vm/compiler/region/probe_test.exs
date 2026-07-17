@@ -3,10 +3,10 @@ defmodule QuickBEAM.VM.Compiler.Region.ProbeTest do
 
   alias QuickBEAM.VM.Compiler.Context
   alias QuickBEAM.VM.Compiler.Region.Probe
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   test "samples fixed-capacity integer regions in the evaluation owner" do
     execution = execution()

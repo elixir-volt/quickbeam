@@ -1,90 +1,117 @@
 defmodule QuickBEAM.VM.Builtin.Validator do
   @moduledoc "Validates builtin declarations and handler contracts at compile time."
 
+  alias QuickBEAM.VM.Builtin.Spec
   alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
   alias QuickBEAM.VM.Builtin.Spec.Alias, as: AliasSpec
   alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
   alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
   alias QuickBEAM.VM.Builtin.Spec.Prototype, as: PrototypeSpec
-  alias QuickBEAM.VM.Builtin.Spec
 
   @doc "Validates a compiled builtin spec against its declaring module."
   @spec validate!(Spec.t(), Macro.Env.t()) :: :ok
   def validate!(%Spec{} = spec, env) do
-    unless is_binary(spec.name) and spec.name != "" do
-      compile_error!(env, "builtin name must be a non-empty string")
-    end
-
-    unless spec.kind in [:namespace, :function, :constructor, :intrinsic] do
-      compile_error!(env, "unsupported builtin kind: #{inspect(spec.kind)}")
-    end
-
-    unless is_integer(spec.length) and spec.length >= 0 do
-      compile_error!(env, "builtin length must be a non-negative integer")
-    end
-
-    unless spec.profiles != [] and Enum.all?(spec.profiles, &is_atom/1) do
-      compile_error!(env, "builtin profiles must be a non-empty atom list")
-    end
-
-    unless Enum.all?(spec.depends_on, &(is_binary(&1) and &1 != "")) do
-      compile_error!(env, "builtin dependencies must be non-empty strings")
-    end
-
-    if spec.kind == :constructor and not is_atom(spec.constructor) do
-      compile_error!(env, "constructor builtins require a :constructor handler")
-    end
-
+    validate_spec!(spec, env)
     %PrototypeSpec{} = prototype = spec.prototype_spec
-
-    unless prototype.extends in [:default, nil] or
-             (is_binary(prototype.extends) and prototype.extends in spec.depends_on) do
-      compile_error!(env, "prototype :extends must name a declared dependency or be nil")
-    end
-
-    unless prototype.kind in [:ordinary, :array, :function] do
-      compile_error!(env, "unsupported prototype kind: #{inspect(prototype.kind)}")
-    end
-
-    unless is_nil(prototype.default_for) or is_atom(prototype.default_for) do
-      compile_error!(env, "prototype :default_for must be an atom")
-    end
-
-    unless is_nil(prototype.error_type) or is_binary(prototype.error_type) do
-      compile_error!(env, "prototype :error_type must be a string")
-    end
-
-    unless is_nil(prototype.primitive) or
-             match?({kind, _value} when is_atom(kind), prototype.primitive) do
-      compile_error!(env, "prototype :primitive must be a {kind, value} pair")
-    end
-
-    if prototype.kind == :function and not is_atom(prototype.callable) do
-      compile_error!(env, "function prototypes require a :callable handler")
-    end
+    validate_prototype!(prototype, spec, env)
 
     entries = spec.statics ++ spec.prototype
     duplicate_keys!(spec.statics, :static, env)
     duplicate_keys!(spec.prototype, :prototype, env)
+    validate_handlers!(entries, prototype, spec, env)
+    Enum.each(entries, &validate_entry!(&1, env))
+  end
 
+  defp validate_spec!(spec, env) do
+    validate!(
+      is_binary(spec.name) and spec.name != "",
+      env,
+      "builtin name must be a non-empty string"
+    )
+
+    validate!(spec.kind in [:namespace, :function, :constructor, :intrinsic], env, fn ->
+      "unsupported builtin kind: #{inspect(spec.kind)}"
+    end)
+
+    validate!(
+      is_integer(spec.length) and spec.length >= 0,
+      env,
+      "builtin length must be a non-negative integer"
+    )
+
+    validate!(
+      spec.profiles != [] and Enum.all?(spec.profiles, &is_atom/1),
+      env,
+      "builtin profiles must be a non-empty atom list"
+    )
+
+    validate!(
+      Enum.all?(spec.depends_on, &(is_binary(&1) and &1 != "")),
+      env,
+      "builtin dependencies must be non-empty strings"
+    )
+
+    validate!(
+      spec.kind != :constructor or is_atom(spec.constructor),
+      env,
+      "constructor builtins require a :constructor handler"
+    )
+  end
+
+  defp validate_prototype!(prototype, spec, env) do
+    valid_parent? =
+      prototype.extends in [:default, nil] or
+        (is_binary(prototype.extends) and prototype.extends in spec.depends_on)
+
+    validate!(valid_parent?, env, "prototype :extends must name a declared dependency or be nil")
+
+    validate!(prototype.kind in [:ordinary, :array, :function], env, fn ->
+      "unsupported prototype kind: #{inspect(prototype.kind)}"
+    end)
+
+    validate!(
+      is_nil(prototype.default_for) or is_atom(prototype.default_for),
+      env,
+      "prototype :default_for must be an atom"
+    )
+
+    validate!(
+      is_nil(prototype.error_type) or is_binary(prototype.error_type),
+      env,
+      "prototype :error_type must be a string"
+    )
+
+    valid_primitive? =
+      is_nil(prototype.primitive) or
+        match?({kind, _value} when is_atom(kind), prototype.primitive)
+
+    validate!(valid_primitive?, env, "prototype :primitive must be a {kind, value} pair")
+
+    validate!(
+      prototype.kind != :function or is_atom(prototype.callable),
+      env,
+      "function prototypes require a :callable handler"
+    )
+  end
+
+  defp validate_handlers!(entries, prototype, spec, env) do
     handlers =
       entries
       |> Enum.flat_map(&entry_handlers/1)
-      |> then(fn handlers ->
-        handlers = if spec.constructor, do: [spec.constructor | handlers], else: handlers
-        handlers = if spec.kind == :function, do: [:call | handlers], else: handlers
-        if prototype.callable, do: [prototype.callable | handlers], else: handlers
-      end)
+      |> maybe_prepend(spec.constructor)
+      |> maybe_prepend(if(spec.kind == :function, do: :call))
+      |> maybe_prepend(prototype.callable)
       |> Enum.uniq()
 
     Enum.each(handlers, fn handler ->
-      unless is_atom(handler) and Module.defines?(env.module, {handler, 1}, :def) do
-        compile_error!(env, "builtin handler #{inspect(handler)}/1 must be a public function")
-      end
+      validate!(is_atom(handler) and Module.defines?(env.module, {handler, 1}, :def), env, fn ->
+        "builtin handler #{inspect(handler)}/1 must be a public function"
+      end)
     end)
-
-    Enum.each(entries, &validate_entry!(&1, env))
   end
+
+  defp maybe_prepend(values, nil), do: values
+  defp maybe_prepend(values, value), do: [value | values]
 
   defp entry_handlers(%FunctionSpec{handler: handler}), do: [handler]
 
@@ -131,6 +158,13 @@ defmodule QuickBEAM.VM.Builtin.Validator do
         compile_error!(env, "duplicate #{namespace} keys: #{inspect(Enum.uniq(duplicates))}")
     end
   end
+
+  defp validate!(true, _env, _description), do: :ok
+
+  defp validate!(false, env, description) when is_binary(description),
+    do: compile_error!(env, description)
+
+  defp validate!(false, env, description), do: compile_error!(env, description.())
 
   defp compile_error!(env, description) do
     raise CompileError, file: env.file, line: env.line, description: description

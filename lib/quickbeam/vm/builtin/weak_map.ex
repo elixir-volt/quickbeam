@@ -5,6 +5,8 @@ defmodule QuickBEAM.VM.Builtin.WeakMap do
 
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Builtin.Map, as: MapBuiltin
+  alias QuickBEAM.VM.Runtime.Heap
+  alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Reference
 
   builtin "WeakMap",
@@ -21,7 +23,12 @@ defmodule QuickBEAM.VM.Builtin.WeakMap do
   end
 
   @doc "Constructs an evaluation-local weak-key map."
-  def construct(%Call{} = call), do: MapBuiltin.construct(call)
+  def construct(%Call{} = call) do
+    case MapBuiltin.construct(call) do
+      {:ok, receiver, execution} = result -> validate_keys(result, receiver, execution)
+      action -> action
+    end
+  end
 
   @doc "Removes a WeakMap entry."
   def delete(%Call{} = call), do: MapBuiltin.delete(call)
@@ -35,5 +42,21 @@ defmodule QuickBEAM.VM.Builtin.WeakMap do
   @doc "Adds or replaces a WeakMap entry."
   def set(%Call{arguments: [%Reference{} | _]} = call), do: MapBuiltin.set(call)
 
-  def set(%Call{execution: execution}), do: {:error, :invalid_weak_map_key, execution}
+  def set(%Call{execution: execution}),
+    do: {:error, {:type_error, :invalid_weak_map_key}, execution}
+
+  defp validate_keys(result, receiver, execution) do
+    case Heap.fetch_object(execution, receiver) do
+      {:ok, %Object{internal: %{entries: entries}}} ->
+        if valid_keys?(entries),
+          do: result,
+          else: {:error, {:type_error, :invalid_weak_map_key}, execution}
+
+      _invalid_receiver ->
+        {:error, {:type_error, :invalid_weak_map_receiver}, execution}
+    end
+  end
+
+  defp valid_keys?(entries),
+    do: Enum.all?(entries, fn {key, _value} -> is_struct(key, Reference) end)
 end

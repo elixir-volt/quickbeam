@@ -38,6 +38,8 @@ defmodule QuickBEAM.Test262 do
   than silently falling back to the native engine.
   """
 
+  alias QuickBEAM.JSError
+  alias QuickBEAM.Test262.Metadata
   alias QuickBEAM.VM.Runtime.Engine
 
   @minimal_harness """
@@ -92,17 +94,17 @@ defmodule QuickBEAM.Test262 do
   def configured_root, do: System.get_env("TEST262_PATH")
 
   @doc "Parses the metadata fields needed by the bounded runner."
-  @spec parse_metadata(binary()) :: QuickBEAM.Test262.Metadata.t()
+  @spec parse_metadata(binary()) :: Metadata.t()
   def parse_metadata(source) do
     case metadata_block(source) do
       {:ok, yaml} ->
         yaml
         |> String.trim()
         |> YamlElixir.read_from_string!()
-        |> QuickBEAM.Test262.Metadata.from_map!()
+        |> Metadata.from_map!()
 
       :missing ->
-        %QuickBEAM.Test262.Metadata{}
+        %Metadata{}
     end
   end
 
@@ -255,7 +257,7 @@ defmodule QuickBEAM.Test262 do
   defp normalize_phase(:early), do: :parse
   defp normalize_phase(phase) when phase in [:parse, :resolution, :runtime], do: phase
 
-  defp error_name(%QuickBEAM.JSError{name: name}), do: name
+  defp error_name(%JSError{name: name}), do: name
   defp error_name(error) when is_map(error), do: error[:name] || error["name"]
   defp error_name(_error), do: nil
 
@@ -269,10 +271,8 @@ defmodule QuickBEAM.Test262 do
     do: %{path: path, classification: classification, vm: vm, native: native, metadata: metadata}
 
   defp safe_stop(runtime) do
-    try do
-      QuickBEAM.stop(runtime)
-    catch
-      :exit, _reason -> :ok
-    end
+    QuickBEAM.stop(runtime)
+  catch
+    :exit, _reason -> :ok
   end
 end

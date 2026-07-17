@@ -33,13 +33,13 @@ defmodule QuickBEAM.JSError do
   @doc "Converts a JavaScript error value returned by the native runtime."
   def from_js_value(value) when is_map(value) do
     %__MODULE__{
-      message: to_string(value[:message] || value["message"] || inspect(value)),
-      name: to_string(value[:name] || value["name"] || "Error"),
+      message: error_text(value[:message] || value["message"] || inspect(value)),
+      name: error_text(value[:name] || value["name"] || "Error"),
       stack: get_stack(value),
       filename: value[:filename] || value["filename"],
       line: value[:line] || value["line"],
       column: value[:column] || value["column"],
-      frames: value[:frames] || value["frames"] || []
+      frames: normalize_frames(value[:frames] || value["frames"])
     }
   end
 
@@ -75,14 +75,15 @@ defmodule QuickBEAM.JSError do
 
   def from_vm(reason, frames) do
     {name, message} = vm_name_and_message(reason)
-    first = List.first(frames) || %{}
+    frames = normalize_frames(frames)
+    first = List.first(frames)
 
     %__MODULE__{
       name: name,
       message: message,
-      filename: first[:filename],
-      line: first[:line],
-      column: first[:column],
+      filename: frame_value(first, :filename),
+      line: frame_value(first, :line),
+      column: frame_value(first, :column),
       frames: frames,
       stack: format_stack(name, message, frames)
     }
@@ -92,8 +93,8 @@ defmodule QuickBEAM.JSError do
 
   defp vm_name_and_message(%{} = value) when not is_struct(value) do
     {
-      to_string(value[:name] || value["name"] || "Error"),
-      to_string(value[:message] || value["message"] || inspect(value))
+      error_text(value[:name] || value["name"] || "Error"),
+      error_text(value[:message] || value["message"] || inspect(value))
     }
   end
 
@@ -115,7 +116,7 @@ defmodule QuickBEAM.JSError do
     do: {"Error", "Unknown BEAM handler #{inspect(name)}"}
 
   defp vm_name_and_message({:handler_exception, exception, _stacktrace}),
-    do: {"Error", Exception.message(exception)}
+    do: {"Error", handler_exception_message(exception)}
 
   defp vm_name_and_message(reason), do: {"Error", format_reason(reason)}
 
@@ -131,20 +132,37 @@ defmodule QuickBEAM.JSError do
   defp format_stack(name, message, frames) do
     rendered =
       Enum.map_join(frames, "\n", fn frame ->
-        function = frame.function || "<anonymous>"
-        filename = frame.filename || "<eval>"
-        line = frame.line || 1
-        column = frame.column || 1
+        function = frame_value(frame, :function) || "<anonymous>"
+        filename = frame_value(frame, :filename) || "<eval>"
+        line = frame_value(frame, :line) || 1
+        column = frame_value(frame, :column) || 1
         "    at #{function} (#{filename}:#{line}:#{column})"
       end)
 
     "#{name}: #{message}\n#{rendered}"
   end
 
+  defp handler_exception_message(%{__exception__: true} = exception),
+    do: Exception.message(exception)
+
+  defp handler_exception_message(reason), do: format_reason(reason)
+
+  defp error_text(value) when is_binary(value), do: value
+  defp error_text(value) when is_atom(value) or is_number(value), do: to_string(value)
+  defp error_text(value), do: inspect(value)
+
+  defp normalize_frames(frames) when is_list(frames), do: frames
+  defp normalize_frames(_frames), do: []
+
+  defp frame_value(frame, key) when is_map(frame),
+    do: Map.get(frame, key) || Map.get(frame, Atom.to_string(key))
+
+  defp frame_value(_frame, _key), do: nil
+
   defp get_stack(value) do
     case value[:stack] || value["stack"] do
       nil -> nil
-      stack -> to_string(stack)
+      stack -> error_text(stack)
     end
   end
 end

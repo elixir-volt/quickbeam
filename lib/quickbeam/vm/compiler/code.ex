@@ -9,12 +9,12 @@ defmodule QuickBEAM.VM.Compiler.Code do
 
   @behaviour QuickBEAM.VM.Compiler.Pool.Backend
 
-  alias QuickBEAM.VM.Compiler.Code.Lifecycle
   alias QuickBEAM.VM.Compiler.Code.Emitter
+  alias QuickBEAM.VM.Compiler.Code.Lifecycle
   alias QuickBEAM.VM.Compiler.Pool
   alias QuickBEAM.VM.Compiler.Pool.Lease
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   @doc "Compiles a validated template for one fixed generated-module slot."
   @impl true

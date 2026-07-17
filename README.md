@@ -78,7 +78,8 @@ global function.
   explicitly without falling back to native execution.
 - `memory_limit` bounds deterministic logical VM allocation. It is distinct
   from endpoint BEAM process memory, which is reported by `measure/2` and
-  `measure_call/4`.
+  `measure_call/4`. Each evaluation permits at most 64 concurrently outstanding
+  asynchronous `Beam.call` handler operations.
 - `:core` and `:ssr` select fixed builtin profiles. They do not expose the full
   browser, Node.js, DOM, WASM, or native-addon surfaces of a native runtime.
 - Pinned storage has fixed capacity and residency budgets, no implicit eviction,

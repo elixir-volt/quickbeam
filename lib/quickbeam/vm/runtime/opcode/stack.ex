@@ -7,9 +7,9 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Stack do
   stepping and resource accounting.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Stack, as: OperandStack
+  alias QuickBEAM.VM.Runtime.State
 
   @opcodes [
     :push_i32,

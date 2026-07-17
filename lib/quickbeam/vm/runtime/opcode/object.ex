@@ -9,9 +9,8 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
 
   import Bitwise
 
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Iterator
@@ -19,6 +18,7 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
   alias QuickBEAM.VM.Runtime.Property.Descriptor
   alias QuickBEAM.VM.Runtime.Reference
   alias QuickBEAM.VM.Runtime.RegExp
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Symbol
   alias QuickBEAM.VM.Runtime.Value
 
@@ -135,10 +135,12 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
       ) do
     case Heap.own_property(execution, object, key) do
       {:ok, nil} ->
-        case Property.define(object, key, value, execution) do
-          {:ok, execution} -> next(%{frame | stack: [object | stack]}, execution)
-          {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
-        end
+        continue_definition(
+          Property.define(object, key, value, execution),
+          [object | stack],
+          frame,
+          execution
+        )
 
       {:ok, %Descriptor{}} ->
         {:throw, {:type_error, :duplicate_private_field}, frame, execution}
@@ -327,10 +329,12 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
       ) do
     key = Locals.resolve_atom(atom, execution)
 
-    case Property.define(object, key, value, execution) do
-      {:ok, execution} -> next(%{frame | stack: [object | stack]}, execution)
-      {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
-    end
+    continue_definition(
+      Property.define(object, key, value, execution),
+      [object | stack],
+      frame,
+      execution
+    )
   end
 
   def execute(
@@ -477,26 +481,36 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
       ),
       do: next(%{frame | stack: stack}, execution)
 
+  defp continue_definition({:ok, execution}, stack, frame, _previous_execution),
+    do: next(%{frame | stack: stack}, execution)
+
+  defp continue_definition({:error, reason}, _stack, frame, execution),
+    do: {:throw, {:type_error, reason}, frame, execution}
+
   defp copy_excluded_keys(value, _execution) when value in [:undefined, nil], do: {:ok, []}
   defp copy_excluded_keys(value, execution), do: Property.enumerable_keys(value, execution)
 
   defp copy_data_properties(keys, target, source, execution) do
     Enum.reduce_while(keys, {:ok, execution}, fn key, {:ok, execution} ->
-      case Property.get(source, key, execution) do
-        {:ok, {:accessor, _getter, _receiver}} ->
-          {:halt, {:error, :unsupported_copy_accessor}}
-
-        {:ok, value} ->
-          case Property.put(target, key, value, execution) do
-            {:ok, execution} -> {:cont, {:ok, execution}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
+      copy_data_property(source, target, key, execution)
     end)
   end
+
+  defp copy_data_property(source, target, key, execution) do
+    case Property.get(source, key, execution) do
+      {:ok, {:accessor, _getter, _receiver}} ->
+        {:halt, {:error, :unsupported_copy_accessor}}
+
+      {:ok, value} ->
+        continue_property_copy(Property.put(target, key, value, execution))
+
+      {:error, reason} ->
+        {:halt, {:error, reason}}
+    end
+  end
+
+  defp continue_property_copy({:ok, execution}), do: {:cont, {:ok, execution}}
+  defp continue_property_copy({:error, reason}), do: {:halt, {:error, reason}}
 
   defp private_brand(home, execution) do
     case Heap.own_property(execution, home, :private_brand_token) do
@@ -528,7 +542,8 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
 
     with :ok <- validate_class_parent(parent, execution),
          {:ok, parent_prototype} <- class_parent_prototype(parent, execution) do
-      {prototype, execution} = Heap.allocate(execution, prototype: parent_prototype)
+      {prototype, execution} =
+        Heap.allocate(execution, :ordinary, prototype: parent_prototype)
 
       {:ok, execution} =
         Property.define(prototype, "constructor", constructor, execution,
@@ -556,23 +571,22 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Object do
           configurable: true
         )
 
-      execution =
-        case parent do
-          %Reference{} = parent ->
-            case Heap.set_prototype(execution, constructor, parent) do
-              {:ok, execution} -> execution
-              {:error, _reason} -> execution
-            end
-
-          _other ->
-            execution
-        end
+      execution = set_constructor_parent(execution, constructor, parent)
 
       next(%{frame | stack: [prototype, constructor | stack]}, execution)
     else
       {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
     end
   end
+
+  defp set_constructor_parent(execution, constructor, %Reference{} = parent) do
+    case Heap.set_prototype(execution, constructor, parent) do
+      {:ok, execution} -> execution
+      {:error, _reason} -> execution
+    end
+  end
+
+  defp set_constructor_parent(execution, _constructor, _parent), do: execution
 
   defp instantiate_class_constructor(%Function{} = function, frame, execution),
     do: Locals.instantiate_function(function, frame, execution, prototype?: false)

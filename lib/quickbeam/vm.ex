@@ -19,14 +19,17 @@ defmodule QuickBEAM.VM do
   profiles rather than every native QuickJS, browser, Node.js, DOM, WASM, or
   addon feature. Unsupported behavior fails without native fallback.
   `:memory_limit` governs deterministic logical VM allocation, while endpoint
-  BEAM process memory is reported separately by measurement APIs. Pinned
-  storage is fixed-capacity, explicitly retired, and never implicitly evicted.
+  BEAM process memory is reported separately by measurement APIs. An
+  evaluation may have at most 64 asynchronous BEAM handler operations
+  outstanding at once. Pinned storage is fixed-capacity, explicitly retired,
+  and never implicitly evicted.
   """
 
   alias QuickBEAM.VM.ABI
   alias QuickBEAM.VM.Bytecode.Decoder
   alias QuickBEAM.VM.Bytecode.Verifier
   alias QuickBEAM.VM.Measurement
+  alias QuickBEAM.VM.Options
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Program.Identity
@@ -111,7 +114,7 @@ defmodule QuickBEAM.VM do
   def compile(source, opts \\ [])
 
   def compile(source, opts) when is_binary(source) and is_list(opts) do
-    with :ok <- validate_options(opts, @compile_options),
+    with :ok <- Options.validate(opts, @compile_options),
          {filename, decode_options} = Keyword.pop(opts, :filename),
          :ok <- validate_filename(filename),
          {:ok, runtime} <- QuickBEAM.start(apis: false) do
@@ -145,7 +148,7 @@ defmodule QuickBEAM.VM do
   def decode(bytecode, opts \\ [])
 
   def decode(bytecode, opts) when is_binary(bytecode) and is_list(opts) do
-    with :ok <- validate_options(opts, @decode_options),
+    with :ok <- Options.validate(opts, @decode_options),
          {max_bytecode_bytes, verifier_options} =
            Keyword.pop(opts, :max_bytecode_bytes, @max_bytecode_bytes),
          :ok <- validate_max_bytecode_bytes(max_bytecode_bytes),
@@ -197,7 +200,7 @@ defmodule QuickBEAM.VM do
   def eval(program, opts \\ [])
 
   def eval(program, opts) when is_list(opts) do
-    with :ok <- validate_options(opts, @evaluation_options) do
+    with :ok <- Options.validate(opts, @evaluation_options) do
       Engine.eval(program, Keyword.put(opts, :engine, :interpreter))
     end
   end
@@ -219,7 +222,7 @@ defmodule QuickBEAM.VM do
 
   def call(program, name, arguments, opts)
       when is_binary(name) and is_list(arguments) and is_list(opts) do
-    with :ok <- validate_options(opts, @evaluation_options) do
+    with :ok <- Options.validate(opts, @evaluation_options) do
       Engine.call(program, name, arguments, Keyword.put(opts, :engine, :interpreter))
     end
   end
@@ -243,7 +246,7 @@ defmodule QuickBEAM.VM do
   def measure(program, opts \\ [])
 
   def measure(program, opts) when is_list(opts) do
-    with :ok <- validate_options(opts, @evaluation_options),
+    with :ok <- Options.validate(opts, @evaluation_options),
          {:ok, measurement} <-
            Engine.measure(program, Keyword.put(opts, :engine, :interpreter)) do
       {:ok, public_measurement(measurement)}
@@ -269,7 +272,7 @@ defmodule QuickBEAM.VM do
 
   def measure_call(program, name, arguments, opts)
       when is_binary(name) and is_list(arguments) and is_list(opts) do
-    with :ok <- validate_options(opts, @evaluation_options),
+    with :ok <- Options.validate(opts, @evaluation_options),
          {:ok, measurement} <-
            Engine.measure_call(
              program,
@@ -325,17 +328,6 @@ defmodule QuickBEAM.VM do
       process_memory_bytes: measurement.process_memory_bytes,
       reductions: measurement.reductions
     }
-  end
-
-  defp validate_options(opts, allowed) do
-    if Keyword.keyword?(opts) do
-      case Keyword.keys(opts) -- allowed do
-        [] -> :ok
-        [unknown | _] -> {:error, {:unknown_option, unknown}}
-      end
-    else
-      {:error, {:invalid_options, opts}}
-    end
   end
 
   defp validate_max_bytecode_bytes(limit)

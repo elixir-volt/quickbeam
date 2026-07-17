@@ -1,21 +1,19 @@
 defmodule QuickBEAM.VM.Compiler.CodeTest do
   use ExUnit.Case, async: false
 
-  alias QuickBEAM.VM.Compiler.Contract
-  alias QuickBEAM.VM.Compiler.Deopt
   alias QuickBEAM.VM.Compiler.Code
-  alias QuickBEAM.VM.Compiler.Pool
-  alias QuickBEAM.VM.Compiler.Runtime
-
   alias QuickBEAM.VM.Compiler.Code.Artifact
-  alias QuickBEAM.VM.Compiler.Code.Lifecycle
   alias QuickBEAM.VM.Compiler.Code.Emitter
   alias QuickBEAM.VM.Compiler.Code.Import
+  alias QuickBEAM.VM.Compiler.Code.Lifecycle
   alias QuickBEAM.VM.Compiler.Code.Template
-
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Compiler.Contract
+  alias QuickBEAM.VM.Compiler.Deopt
+  alias QuickBEAM.VM.Compiler.Pool
+  alias QuickBEAM.VM.Compiler.Runtime
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   test "compiles a slot-specific module with only allowlisted runtime imports" do
     module = hd(Contract.pool_modules())

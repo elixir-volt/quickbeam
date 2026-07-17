@@ -8,8 +8,8 @@ defmodule QuickBEAM.VM.Bytecode.Verifier.Stack do
   opcode-specific stack depth.
   """
 
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Bytecode.Opcode
+  alias QuickBEAM.VM.Program.Function
 
   @terminal_ops [
     :tail_call,

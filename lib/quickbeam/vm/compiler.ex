@@ -114,7 +114,7 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   @doc "Compiles and invokes one entry block for a canonical bytecode frame."
-  @spec execute_frame(struct(), struct()) :: frame_action()
+  @spec execute_frame(struct(), struct()) :: term()
   def execute_frame(
         %Frame{function: %Function{id: function_id} = function} = frame,
         %State{compiler_context: %Context{pool: pool}} = execution
@@ -463,11 +463,6 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp resume_action({:skip, frame, execution}, _initial),
     do: Interpreter.run_frame(frame, execution)
-
-  defp resume_action({status, _value, %State{}} = result, _execution)
-       when status in [:ok, :error], do: result
-
-  defp resume_action({:suspended, _continuation} = result, _execution), do: result
 
   defp resume_action({:error, reason}, execution),
     do: {:error, {:compiler_error, reason}, execution}

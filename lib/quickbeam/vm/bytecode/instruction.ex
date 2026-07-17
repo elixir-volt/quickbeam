@@ -70,27 +70,29 @@ defmodule QuickBEAM.VM.Bytecode.Instruction do
         {:error, {:unknown_opcode, op, pos}}
 
       {_name, size, _n_pop, _n_push, fmt} ->
-        if pos + size > len do
-          {:error, {:truncated_instruction, op, pos}}
-        else
-          case operands_for(bc, pos + 1, op, fmt, offset_map, ac) do
-            {:ok, operands} ->
-              decode_pass2(
-                bc,
-                len,
-                pos + size,
-                idx + 1,
-                offset_map,
-                [
-                  {op, operands} | acc
-                ],
-                ac
-              )
+        state = %{bc: bc, len: len, pos: pos, index: idx, offsets: offset_map, acc: acc, ac: ac}
+        decode_instruction(state, op, size, fmt)
+    end
+  end
 
-            {:error, _} = err ->
-              err
-          end
-        end
+  defp decode_instruction(%{len: len, pos: pos}, op, size, _fmt) when pos + size > len,
+    do: {:error, {:truncated_instruction, op, pos}}
+
+  defp decode_instruction(state, op, size, fmt) do
+    case operands_for(state.bc, state.pos + 1, op, fmt, state.offsets, state.ac) do
+      {:ok, operands} ->
+        decode_pass2(
+          state.bc,
+          state.len,
+          state.pos + size,
+          state.index + 1,
+          state.offsets,
+          [{op, operands} | state.acc],
+          state.ac
+        )
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

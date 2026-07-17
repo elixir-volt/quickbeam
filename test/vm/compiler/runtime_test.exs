@@ -3,11 +3,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeTest do
 
   alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Deopt
-  alias QuickBEAM.VM.Compiler.Runtime
   alias QuickBEAM.VM.Compiler.Pool.Lease
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Compiler.Runtime
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   test "charges guaranteed blocks exactly and deoptimizes before a partial block" do
     frame = frame()

@@ -2,11 +2,11 @@ defmodule QuickBEAM.VM.Runtime.PropertyTest do
   use ExUnit.Case, async: true
 
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
 
   test "returns explicit getter and setter actions with the original receiver" do
     execution = execution()

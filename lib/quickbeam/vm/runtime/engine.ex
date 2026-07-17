@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Engine do
 
   alias QuickBEAM.VM.Bytecode.Verifier
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Options
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Program.Pinned
   alias QuickBEAM.VM.Program.Store
@@ -162,19 +163,8 @@ defmodule QuickBEAM.VM.Runtime.Engine do
       :vars
     ]
 
-    with :ok <- validate_options(opts, allowed) do
+    with :ok <- Options.validate(opts, allowed) do
       validate_evaluation_options(opts)
-    end
-  end
-
-  defp validate_options(opts, allowed) do
-    if Keyword.keyword?(opts) do
-      case Keyword.keys(opts) -- allowed do
-        [] -> :ok
-        [unknown | _] -> {:error, {:unknown_option, unknown}}
-      end
-    else
-      {:error, {:invalid_options, opts}}
     end
   end
 
@@ -433,6 +423,7 @@ defmodule QuickBEAM.VM.Runtime.Engine do
       timeout ->
         Process.exit(pid, :kill)
         await_down(monitor_ref, pid)
+        flush_reply(reply_ref)
         {:error, {:limit_exceeded, :timeout, timeout}}
     end
   end
@@ -448,6 +439,14 @@ defmodule QuickBEAM.VM.Runtime.Engine do
       {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
     after
       1_000 -> Process.demonitor(monitor_ref, [:flush])
+    end
+  end
+
+  defp flush_reply(reply_ref) do
+    receive do
+      {^reply_ref, _result} -> :ok
+    after
+      0 -> :ok
     end
   end
 end

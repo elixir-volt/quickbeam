@@ -56,10 +56,8 @@ defmodule Mix.Tasks.Quickbeam.Vm.Fuzz do
 
     try do
       Enum.map(Fuzz.default_sources(), fn {name, source} ->
-        case QuickBEAM.compile(runtime, source) do
-          {:ok, bytecode} -> {name, bytecode}
-          {:error, reason} -> Mix.raise("failed to compile #{name}: #{inspect(reason)}")
-        end
+        {:ok, bytecode} = QuickBEAM.compile(runtime, source)
+        {name, bytecode}
       end)
     after
       QuickBEAM.stop(runtime)

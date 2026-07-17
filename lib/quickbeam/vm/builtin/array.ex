@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Builtin.Array do
     constructor: :construct,
     length: 1,
     depends_on: ["Object", "Function"] do
-    static :is_array, js: "isArray", length: 1
+    static :array?, js: "isArray", length: 1
 
     prototype kind: :array, extends: "Object", default_for: :array do
       method :concat, length: 1
@@ -54,12 +54,12 @@ defmodule QuickBEAM.VM.Builtin.Array do
 
   def construct(%Call{arguments: arguments, execution: execution}) do
     entries = Enum.map(arguments, &{:present, &1})
-    {array, execution} = array_from_entries(entries, execution)
+    {array, execution} = from_entries(entries, execution)
     {:ok, array, execution}
   end
 
   @doc "Implements `Array.isArray`."
-  def is_array(%Call{arguments: arguments, execution: execution}) do
+  def array?(%Call{arguments: arguments, execution: execution}) do
     value = List.first(arguments, :undefined)
 
     result =
@@ -73,12 +73,14 @@ defmodule QuickBEAM.VM.Builtin.Array do
 
   @doc "Implements sparse `Array.prototype.concat`."
   def concat(%Call{this: receiver, arguments: arguments, execution: execution}) do
-    with {:ok, entries} <- array_entries(receiver, execution) do
-      entries = Enum.reduce(arguments, entries, &(&2 ++ concat_entries(&1, execution)))
-      {array, execution} = array_from_entries(entries, execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
+    case array_entries(receiver, execution) do
+      {:ok, entries} ->
+        entries = Enum.reduce(arguments, entries, &(&2 ++ concat_entries(&1, execution)))
+        {array, execution} = from_entries(entries, execution)
+        {:ok, array, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
 
@@ -86,17 +88,19 @@ defmodule QuickBEAM.VM.Builtin.Array do
   def includes(%Call{this: receiver, arguments: arguments, execution: execution}) do
     searched = List.first(arguments, :undefined)
 
-    with {:ok, entries} <- array_entries(receiver, execution) do
-      included? =
-        Enum.any?(entries, fn
-          :hole -> searched == :undefined
-          {:present, :nan} -> searched == :nan
-          {:present, value} -> Value.strict_equal?(value, searched)
-        end)
+    case array_entries(receiver, execution) do
+      {:ok, entries} ->
+        included? =
+          Enum.any?(entries, fn
+            :hole -> searched == :undefined
+            {:present, :nan} -> searched == :nan
+            {:present, value} -> Value.strict_equal?(value, searched)
+          end)
 
-      {:ok, included?, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
+        {:ok, included?, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
 
@@ -109,17 +113,19 @@ defmodule QuickBEAM.VM.Builtin.Array do
         [value | _] -> Value.to_string_value(value)
       end
 
-    with {:ok, entries} <- array_entries(receiver, execution) do
-      value =
-        Enum.map_join(entries, separator, fn
-          :hole -> ""
-          {:present, value} when value in [nil, :undefined] -> ""
-          {:present, value} -> Value.to_string_value(value)
-        end)
+    case array_entries(receiver, execution) do
+      {:ok, entries} ->
+        value =
+          Enum.map_join(entries, separator, fn
+            :hole -> ""
+            {:present, value} when value in [nil, :undefined] -> ""
+            {:present, value} -> Value.to_string_value(value)
+          end)
 
-      {:ok, value, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
+        {:ok, value, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
 
@@ -146,12 +152,14 @@ defmodule QuickBEAM.VM.Builtin.Array do
 
   @doc "Implements sparse `Array.prototype.slice`."
   def slice(%Call{this: receiver, arguments: arguments, execution: execution}) do
-    with {:ok, entries} <- array_entries(receiver, execution) do
-      {start, length} = slice_range(length(entries), arguments)
-      {array, execution} = array_from_entries(Enum.slice(entries, start, length), execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
+    case array_entries(receiver, execution) do
+      {:ok, entries} ->
+        {start, length} = Value.slice_range(length(entries), arguments)
+        {array, execution} = from_entries(Enum.slice(entries, start, length), execution)
+        {:ok, array, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
 
@@ -172,12 +180,24 @@ defmodule QuickBEAM.VM.Builtin.Array do
 
   @doc "Sorts present array values lexicographically when no comparator is supplied."
   def sort(%Call{this: %Reference{} = array, arguments: arguments, execution: execution}) do
-    comparator = List.first(arguments, :undefined)
+    case List.first(arguments, :undefined) do
+      :undefined -> sort_default(array, execution)
+      _comparator -> {:error, :unsupported_array_sort_comparator, execution}
+    end
+  end
 
-    if comparator != :undefined do
-      {:error, :unsupported_array_sort_comparator, execution}
-    else
-      with {:ok, entries} <- array_entries(array, execution) do
+  def sort(%Call{execution: execution}), do: {:error, :not_an_array, execution}
+
+  @doc "Allocates an owner-local array containing the supplied present values."
+  @spec from_values([term()], QuickBEAM.VM.Runtime.State.t()) ::
+          {Reference.t(), QuickBEAM.VM.Runtime.State.t()}
+  def from_values(values, execution) do
+    from_entries(Enum.map(values, &{:present, &1}), execution)
+  end
+
+  defp sort_default(array, execution) do
+    case array_entries(array, execution) do
+      {:ok, entries} ->
         values =
           entries
           |> Enum.flat_map(fn
@@ -197,13 +217,11 @@ defmodule QuickBEAM.VM.Builtin.Array do
           end)
 
         {:ok, array, execution}
-      else
-        {:error, reason} -> {:error, reason, execution}
-      end
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
-
-  def sort(%Call{execution: execution}), do: {:error, :not_an_array, execution}
 
   defp array_entries(value, _execution) when is_list(value),
     do: {:ok, Enum.map(value, &{:present, &1})}
@@ -227,7 +245,10 @@ defmodule QuickBEAM.VM.Builtin.Array do
     end
   end
 
-  defp array_from_entries(entries, execution) do
+  @doc "Allocates an owner-local sparse array from present-value and hole entries."
+  @spec from_entries([{:present, term()} | :hole], QuickBEAM.VM.Runtime.State.t()) ::
+          {Reference.t(), QuickBEAM.VM.Runtime.State.t()}
+  def from_entries(entries, execution) do
     {array, execution} = Heap.allocate(execution, :array)
 
     execution =
@@ -245,35 +266,6 @@ defmodule QuickBEAM.VM.Builtin.Array do
     {:ok, execution} = Property.define(array, "length", length(entries), execution)
     {array, execution}
   end
-
-  defp slice_range(size, arguments) do
-    start =
-      case arguments do
-        [start | _] -> normalize_slice_index(start, size)
-        [] -> 0
-      end
-
-    finish =
-      case arguments do
-        [_start, finish | _] -> normalize_slice_index(finish, size)
-        _ -> size
-      end
-
-    {start, max(finish - start, 0)}
-  end
-
-  defp normalize_slice_index(value, size) do
-    case Value.to_number(value) do
-      :infinity -> size
-      :neg_infinity -> 0
-      :nan -> 0
-      index when is_number(index) -> normalize_index(trunc(index), size)
-      _value -> 0
-    end
-  end
-
-  defp normalize_index(index, size) when index < 0, do: max(size + index, 0)
-  defp normalize_index(index, size), do: min(index, size)
 
   defp iteration_action(method, %Call{
          arguments: arguments,

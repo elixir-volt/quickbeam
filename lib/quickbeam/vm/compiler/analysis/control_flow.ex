@@ -6,9 +6,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.ControlFlow do
   v26 canonical instruction indexes and does not carry prototype runtime state.
   """
 
+  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.Compiler.Analysis.Block
   alias QuickBEAM.VM.Program.Function
-  alias QuickBEAM.VM.Bytecode.Opcode
 
   @conditional_branches [:if_false, :if_false8, :if_true, :if_true8]
   @unconditional_branches [:goto, :goto8, :goto16]

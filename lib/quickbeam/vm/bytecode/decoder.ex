@@ -7,12 +7,12 @@ defmodule QuickBEAM.VM.Bytecode.Decoder do
   """
 
   alias QuickBEAM.VM.ABI
+  alias QuickBEAM.VM.Bytecode.Atom, as: AtomTable
   alias QuickBEAM.VM.Bytecode.Checksum
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Bytecode.Instruction
   alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Bytecode.Atom, as: AtomTable
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
 
   alias QuickBEAM.VM.Bytecode.Varint, as: LEB128
   import Bitwise
@@ -107,16 +107,20 @@ defmodule QuickBEAM.VM.Bytecode.Decoder do
 
   defp read_atom_list(data, count, acc) do
     with {:ok, type, rest} <- LEB128.read_u8(data) do
-      if type == 0 do
-        with {:ok, atom_id, rest2} <- LEB128.read_fixed_u32(rest),
-             {:ok, atom} <- predefined_atom(atom_id) do
-          read_atom_list(rest2, count - 1, [atom | acc])
-        end
-      else
-        with {:ok, str, rest2} <- read_string_raw(rest) do
-          read_atom_list(rest2, count - 1, [str | acc])
-        end
-      end
+      read_atom(type, rest, count, acc)
+    end
+  end
+
+  defp read_atom(0, data, count, acc) do
+    with {:ok, atom_id, rest} <- LEB128.read_fixed_u32(data),
+         {:ok, atom} <- predefined_atom(atom_id) do
+      read_atom_list(rest, count - 1, [atom | acc])
+    end
+  end
+
+  defp read_atom(_type, data, count, acc) do
+    with {:ok, string, rest} <- read_string_raw(data) do
+      read_atom_list(rest, count - 1, [string | acc])
     end
   end
 
@@ -133,71 +137,62 @@ defmodule QuickBEAM.VM.Bytecode.Decoder do
   #   idx < JS_ATOM_END → predefined runtime atom (return as {:predefined, idx})
   #   idx >= JS_ATOM_END → atom table at idx - JS_ATOM_END
   defp read_atom_ref(data, atoms) do
-    with {:ok, v, rest} <- LEB128.read_unsigned(data) do
-      if band(v, 1) == 1 do
-        {:ok, {:tagged_int, bsr(v, 1)}, rest}
-      else
-        idx = bsr(v, 1)
-
-        name =
-          case idx do
-            0 ->
-              ""
-
-            n when n < @js_atom_end ->
-              {:predefined, n}
-
-            _ ->
-              local_idx = idx - @js_atom_end
-
-              if local_idx < tuple_size(atoms),
-                do: elem(atoms, local_idx),
-                else: {:error, {:unknown_atom, idx}}
-          end
-
-        case name do
-          {:error, reason} -> {:error, reason}
-          name -> {:ok, name, rest}
-        end
-      end
+    with {:ok, value, rest} <- LEB128.read_unsigned(data) do
+      decode_atom_ref(value, atoms, rest)
     end
+  end
+
+  defp decode_atom_ref(value, _atoms, rest) when band(value, 1) == 1,
+    do: {:ok, {:tagged_int, bsr(value, 1)}, rest}
+
+  defp decode_atom_ref(value, atoms, rest) do
+    case atom_name(bsr(value, 1), atoms) do
+      {:error, reason} -> {:error, reason}
+      name -> {:ok, name, rest}
+    end
+  end
+
+  defp atom_name(0, _atoms), do: ""
+  defp atom_name(index, _atoms) when index < @js_atom_end, do: {:predefined, index}
+
+  defp atom_name(index, atoms) do
+    local_index = index - @js_atom_end
+
+    if local_index < tuple_size(atoms),
+      do: elem(atoms, local_index),
+      else: {:error, {:unknown_atom, index}}
   end
 
   # ── String reading ──
   # bc_get_leb128 for len (where bit0=is_wide, bits1+=actual_len), then raw bytes.
 
   defp read_binary_raw(data) do
-    with {:ok, len_encoded, rest} <- LEB128.read_unsigned(data) do
-      byte_len = bsr(len_encoded, 1)
-
-      if byte_size(rest) < byte_len do
-        {:error, :unexpected_end}
-      else
-        <<raw::binary-size(^byte_len), rest2::binary>> = rest
-        {:ok, raw, rest2}
-      end
+    with {:ok, length, rest} <- LEB128.read_unsigned(data) do
+      take_binary(rest, bsr(length, 1))
     end
   end
 
   defp read_string_raw(data) do
-    with {:ok, len_encoded, rest} <- LEB128.read_unsigned(data) do
-      is_wide = band(len_encoded, 1) == 1
-      char_len = bsr(len_encoded, 1)
-      byte_len = if is_wide, do: char_len * 2, else: char_len
-
-      if byte_size(rest) < byte_len do
-        {:error, :unexpected_end}
-      else
-        <<str::binary-size(^byte_len), rest2::binary>> = rest
-
-        if is_wide do
-          {:ok, wide_to_utf8(str), rest2}
-        else
-          {:ok, latin1_to_utf8(str), rest2}
-        end
-      end
+    with {:ok, encoded_length, rest} <- LEB128.read_unsigned(data),
+         wide? = band(encoded_length, 1) == 1,
+         byte_length = string_byte_length(encoded_length, wide?),
+         {:ok, string, rest} <- take_binary(rest, byte_length) do
+      {:ok, decode_string(string, wide?), rest}
     end
   end
+
+  defp string_byte_length(encoded_length, true), do: bsr(encoded_length, 1) * 2
+  defp string_byte_length(encoded_length, false), do: bsr(encoded_length, 1)
+
+  defp decode_string(string, true), do: wide_to_utf8(string)
+  defp decode_string(string, false), do: latin1_to_utf8(string)
+
+  defp take_binary(data, length) when byte_size(data) >= length do
+    <<value::binary-size(^length), rest::binary>> = data
+    {:ok, value, rest}
+  end
+
+  defp take_binary(_data, _length), do: {:error, :unexpected_end}
 
   defp latin1_to_utf8(data) do
     for <<b <- data>>, into: <<>>, do: <<b::utf8>>
@@ -436,47 +431,62 @@ defmodule QuickBEAM.VM.Bytecode.Decoder do
          {:ok, locals, rest} <- read_vardefs(rest, local_count, atoms),
          {:ok, closure_vars, rest} <- read_closure_vars(rest, closure_var_count, atoms),
          {:ok, cpool, rest} <- read_cpool(rest, cpool_count, atoms, depth) do
-      if byte_size(rest) < byte_code_len do
-        {:error, :unexpected_end}
-      else
-        <<byte_code::binary-size(^byte_code_len), rest::binary>> = rest
+      metadata = %{
+        name: func_name,
+        arg_count: arg_count,
+        var_count: var_count,
+        defined_arg_count: defined_arg_count,
+        stack_size: stack_size,
+        var_ref_count: var_ref_count,
+        locals: locals,
+        closure_vars: closure_vars,
+        constants: cpool,
+        strict?: strict > 0,
+        flags: flags_map
+      }
 
-        with {:ok, instructions} <- Instruction.decode(byte_code, arg_count),
-             {:ok, debug_info, rest} <- read_debug_info(rest, flags_map.has_debug_info, atoms) do
-          fun = %Function{
-            name: func_name,
-            arg_count: arg_count,
-            var_count: var_count,
-            defined_arg_count: defined_arg_count,
-            stack_size: stack_size,
-            var_ref_count: var_ref_count,
-            locals: locals,
-            closure_vars: closure_vars,
-            constants: cpool,
-            instructions: List.to_tuple(instructions),
-            filename: debug_info.filename,
-            line_num: debug_info.line_num,
-            col_num: debug_info.col_num,
-            pc2line: debug_info.pc2line,
-            source: debug_info.source,
-            source_positions: source_positions(byte_code, debug_info),
-            is_strict_mode: strict > 0,
-            has_prototype: flags_map.has_prototype,
-            has_simple_parameter_list: flags_map.has_simple_parameter_list,
-            is_derived_class_constructor: flags_map.is_derived_class_constructor,
-            need_home_object: flags_map.need_home_object,
-            func_kind: flags_map.func_kind,
-            new_target_allowed: flags_map.new_target_allowed,
-            super_call_allowed: flags_map.super_call_allowed,
-            super_allowed: flags_map.super_allowed,
-            arguments_allowed: flags_map.arguments_allowed,
-            has_debug_info: flags_map.has_debug_info
-          }
-
-          {:ok, fun, rest}
-        end
-      end
+      read_function_bytecode(rest, byte_code_len, atoms, metadata)
     end
+  end
+
+  defp read_function_bytecode(data, byte_code_length, atoms, metadata) do
+    with {:ok, byte_code, rest} <- take_binary(data, byte_code_length),
+         {:ok, instructions} <- Instruction.decode(byte_code, metadata.arg_count),
+         {:ok, debug_info, rest} <- read_debug_info(rest, metadata.flags.has_debug_info, atoms) do
+      {:ok, build_function(metadata, instructions, byte_code, debug_info), rest}
+    end
+  end
+
+  defp build_function(metadata, instructions, byte_code, debug_info) do
+    %Function{
+      name: metadata.name,
+      arg_count: metadata.arg_count,
+      var_count: metadata.var_count,
+      defined_arg_count: metadata.defined_arg_count,
+      stack_size: metadata.stack_size,
+      var_ref_count: metadata.var_ref_count,
+      locals: metadata.locals,
+      closure_vars: metadata.closure_vars,
+      constants: metadata.constants,
+      instructions: List.to_tuple(instructions),
+      filename: debug_info.filename,
+      line_num: debug_info.line_num,
+      col_num: debug_info.col_num,
+      pc2line: debug_info.pc2line,
+      source: debug_info.source,
+      source_positions: source_positions(byte_code, debug_info),
+      is_strict_mode: metadata.strict?,
+      has_prototype: metadata.flags.has_prototype,
+      has_simple_parameter_list: metadata.flags.has_simple_parameter_list,
+      is_derived_class_constructor: metadata.flags.is_derived_class_constructor,
+      need_home_object: metadata.flags.need_home_object,
+      func_kind: metadata.flags.func_kind,
+      new_target_allowed: metadata.flags.new_target_allowed,
+      super_call_allowed: metadata.flags.super_call_allowed,
+      super_allowed: metadata.flags.super_allowed,
+      arguments_allowed: metadata.flags.arguments_allowed,
+      has_debug_info: metadata.flags.has_debug_info
+    }
   end
 
   # Must match JS_WriteFunctionTag bit layout:

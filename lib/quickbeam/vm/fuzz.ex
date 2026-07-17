@@ -16,12 +16,12 @@ defmodule QuickBEAM.VM.Fuzz do
   import Bitwise
 
   alias QuickBEAM.VM.Bytecode.Checksum
+  alias QuickBEAM.VM.Bytecode.Opcode
+  alias QuickBEAM.VM.Bytecode.Verifier
   alias QuickBEAM.VM.Fuzz.Finding
   alias QuickBEAM.VM.Fuzz.Mutation
   alias QuickBEAM.VM.Fuzz.Summary
-  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.Program
-  alias QuickBEAM.VM.Bytecode.Verifier
 
   @mask 0xFFFFFFFFFFFFFFFF
   @default_iterations 1_000

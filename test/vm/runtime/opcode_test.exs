@@ -1,18 +1,18 @@
 defmodule QuickBEAM.VM.Runtime.OpcodeTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Object
-  alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Opcode.Control
+  alias QuickBEAM.VM.Runtime.Opcode.Invocation, as: CallOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Local, as: Locals
   alias QuickBEAM.VM.Runtime.Opcode.Object, as: Objects
   alias QuickBEAM.VM.Runtime.Opcode.Stack
   alias QuickBEAM.VM.Runtime.Opcode.Value, as: Values
-  alias QuickBEAM.VM.Runtime.Opcode.Invocation, as: CallOpcodes
+  alias QuickBEAM.VM.Runtime.Property
+  alias QuickBEAM.VM.Runtime.State
 
   test "opcode families publish non-overlapping routing tables" do
     opcodes =

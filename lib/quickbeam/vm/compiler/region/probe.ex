@@ -8,8 +8,8 @@ defmodule QuickBEAM.VM.Compiler.Region.Probe do
   not enabled by ordinary evaluation or standard measurements.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   @sample_interval 16
   @window_size 64

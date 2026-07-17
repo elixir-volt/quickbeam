@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Builtin.Object do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Builtin.Array, as: ArrayBuiltin
   alias QuickBEAM.VM.Builtin.Call
 
   alias QuickBEAM.VM.Runtime.Boundary
@@ -207,7 +208,7 @@ defmodule QuickBEAM.VM.Builtin.Object do
       }) do
     case Property.own_property_names(target, execution) do
       {:ok, keys} ->
-        {array, execution} = array_from(keys, execution)
+        {array, execution} = ArrayBuiltin.from_values(keys, execution)
         {:ok, array, execution}
 
       {:error, reason} ->
@@ -236,12 +237,14 @@ defmodule QuickBEAM.VM.Builtin.Object do
 
   @doc "Implements `Object.keys` with canonical enumerable-key ordering."
   def keys(%Call{arguments: [value | _], execution: execution}) do
-    with {:ok, keys} <- own_keys(value, execution) do
-      keys = Enum.map(keys, &Value.to_string_value/1)
-      {array, execution} = array_from(keys, execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
+    case own_keys(value, execution) do
+      {:ok, keys} ->
+        keys = Enum.map(keys, &Value.to_string_value/1)
+        {array, execution} = ArrayBuiltin.from_values(keys, execution)
+        {:ok, array, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
     end
   end
 
@@ -292,30 +295,43 @@ defmodule QuickBEAM.VM.Builtin.Object do
       accessor? = getter? or setter? or (not value? and not writable? and accessor?(current))
 
       {:ok,
-       if accessor? do
-         %Descriptor{
-           kind: :accessor,
-           value: :undefined,
-           writable: false,
-           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
-           configurable:
-             if(configurable?, do: Value.truthy?(configurable), else: current.configurable),
-           getter: if(getter?, do: getter, else: current.getter),
-           setter: if(setter?, do: setter, else: current.setter)
-         }
-       else
-         %Descriptor{
-           value: if(value?, do: value, else: current.value),
-           writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
-           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
-           configurable:
-             if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
-         }
-       end}
-    else
-      {:error, reason} -> {:error, reason}
+       build_descriptor(accessor?, current,
+         getter: {getter?, getter},
+         setter: {setter?, setter},
+         value: {value?, value},
+         writable: {writable?, writable},
+         enumerable: {enumerable?, enumerable},
+         configurable: {configurable?, configurable}
+       )}
     end
   end
+
+  defp build_descriptor(true, current, fields) do
+    %Descriptor{
+      kind: :accessor,
+      value: :undefined,
+      writable: false,
+      enumerable: descriptor_boolean(fields[:enumerable], current.enumerable),
+      configurable: descriptor_boolean(fields[:configurable], current.configurable),
+      getter: descriptor_value(fields[:getter], current.getter),
+      setter: descriptor_value(fields[:setter], current.setter)
+    }
+  end
+
+  defp build_descriptor(false, current, fields) do
+    %Descriptor{
+      value: descriptor_value(fields[:value], current.value),
+      writable: descriptor_boolean(fields[:writable], current.writable),
+      enumerable: descriptor_boolean(fields[:enumerable], current.enumerable),
+      configurable: descriptor_boolean(fields[:configurable], current.configurable)
+    }
+  end
+
+  defp descriptor_value({true, value}, _default), do: value
+  defp descriptor_value({false, _value}, default), do: default
+
+  defp descriptor_boolean({true, value}, _default), do: Value.truthy?(value)
+  defp descriptor_boolean({false, _value}, default), do: default
 
   defp compatible_descriptor_kinds(true, true), do: {:error, :invalid_property_descriptor}
   defp compatible_descriptor_kinds(_accessor?, _data?), do: :ok
@@ -403,18 +419,4 @@ defmodule QuickBEAM.VM.Builtin.Object do
     do: {:ok, Enum.to_list(0..(length(value) - 1))}
 
   defp own_keys(_value, _execution), do: {:ok, []}
-
-  defp array_from(values, execution) do
-    {array, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      values
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Property.define(array, index, value, execution)
-        execution
-      end)
-
-    {array, execution}
-  end
 end

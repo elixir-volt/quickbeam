@@ -1,10 +1,10 @@
 defmodule QuickBEAM.VM.Runtime.HeapTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Value.Export
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Property.Descriptor
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Value.Export
 
   test "resolves inherited properties through the prototype chain" do
     execution = execution()

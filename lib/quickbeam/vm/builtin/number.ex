@@ -15,7 +15,7 @@ defmodule QuickBEAM.VM.Builtin.Number do
     constructor: :construct,
     length: 1,
     depends_on: ["Object", "Function"] do
-    constant "MAX_VALUE", 1.7976931348623157e308
+    constant "MAX_VALUE", 1.797_693_134_862_315_7e308
     constant "MIN_VALUE", 5.0e-324
     constant "POSITIVE_INFINITY", :infinity
     constant "NEGATIVE_INFINITY", :neg_infinity

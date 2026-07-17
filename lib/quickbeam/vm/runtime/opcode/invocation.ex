@@ -8,11 +8,11 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Invocation do
   continuation frames and executing invocation actions.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Iterator
+  alias QuickBEAM.VM.Runtime.State
 
   @opcodes [
     :apply,

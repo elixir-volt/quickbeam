@@ -3,11 +3,12 @@ defmodule QuickBEAM.VM.Bytecode.DecoderTest do
 
   alias QuickBEAM.VM.ABI
   alias QuickBEAM.VM.Bytecode.Checksum
-  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Bytecode.Decoder
   alias QuickBEAM.VM.Bytecode.Instruction
   alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Bytecode.Verifier
+  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
 
   setup do
     {:ok, runtime} = QuickBEAM.start(apis: false)
@@ -117,8 +118,9 @@ defmodule QuickBEAM.VM.Bytecode.DecoderTest do
         Varint.LEB128.encode(84)
       ])
 
-    assert {:ok, %Program{root: {:object, %{^key => 42}}}} =
-             payload |> bytecode_envelope() |> QuickBEAM.VM.decode()
+    bytecode = bytecode_envelope(payload)
+    assert {:ok, %Program{root: {:object, %{^key => 42}}}} = Decoder.decode(bytecode)
+    assert {:error, :invalid_root_function} = QuickBEAM.VM.decode(bytecode)
   end
 
   test "rejects overlong LEB128 fields" do
@@ -201,6 +203,30 @@ defmodule QuickBEAM.VM.Bytecode.DecoderTest do
 
     assert {:error, {:invalid_instruction, 0, 0, :invalid_operand_type}} =
              Verifier.verify(%{program | root: invalid_operand})
+  end
+
+  test "verifier rejects malformed decoded container shapes without raising", %{runtime: runtime} do
+    {:ok, bytecode} = QuickBEAM.compile(runtime, "42")
+    {:ok, program} = QuickBEAM.VM.decode(bytecode)
+
+    assert {:error, :invalid_root_function} = Verifier.verify(%{program | root: nil})
+
+    assert {:error, {:invalid_function, 0, :constants}} =
+             Verifier.verify(%{program | root: %{program.root | constants: :invalid}})
+
+    malformed_locals = %{program.root | var_count: 1, locals: [nil]}
+
+    assert {:error, :invalid_variable_metadata} =
+             Verifier.verify(%{program | root: malformed_locals})
+
+    malformed_constant = %{program.root | constants: [{:array, :invalid}]}
+
+    assert {:error, :invalid_array_constant} =
+             Verifier.verify(%{program | root: malformed_constant})
+
+    assert {:error, {:invalid_options, :invalid}} = Verifier.verify(program, :invalid)
+    assert {:error, {:invalid_option, :invalid}} = Verifier.verify(program, [:invalid])
+    assert {:error, :invalid_root_function} = QuickBEAM.VM.eval(%{program | root: nil})
   end
 
   test "instruction decoder rejects labels inside an instruction" do

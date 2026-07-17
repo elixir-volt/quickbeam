@@ -7,11 +7,11 @@ defmodule QuickBEAM.VM.Runtime.Opcode.Value do
   interpreter.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   @binary_operations [

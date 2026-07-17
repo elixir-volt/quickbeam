@@ -3,11 +3,11 @@ defmodule QuickBEAM.VM.Builtin.String do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin.Array, as: ArrayBuiltin
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Object
-  alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
   alias QuickBEAM.VM.Runtime.RegExp
   alias QuickBEAM.VM.Runtime.Value
@@ -137,7 +137,7 @@ defmodule QuickBEAM.VM.Builtin.String do
   @doc "Implements UTF-16 `String.prototype.slice`."
   def slice(%Call{} = call) do
     with_string(call, fn value, arguments, execution ->
-      {start, length} = slice_range(Value.string_length(value), arguments)
+      {start, length} = Value.slice_range(Value.string_length(value), arguments)
       {:ok, Value.string_slice(value, start, length), execution}
     end)
   end
@@ -152,7 +152,7 @@ defmodule QuickBEAM.VM.Builtin.String do
           [separator | _] -> String.split(value, Value.to_string_value(separator))
         end
 
-      {array, execution} = array_from(parts, execution)
+      {array, execution} = ArrayBuiltin.from_values(parts, execution)
       {:ok, array, execution}
     end)
   end
@@ -212,36 +212,6 @@ defmodule QuickBEAM.VM.Builtin.String do
 
   defp string_value(_value, _execution), do: :error
 
-  defp array_from(values, execution) do
-    {array, execution} = Heap.allocate(execution, :array)
-
-    execution =
-      values
-      |> Enum.with_index()
-      |> Enum.reduce(execution, fn {value, index}, execution ->
-        {:ok, execution} = Property.define(array, index, value, execution)
-        execution
-      end)
-
-    {array, execution}
-  end
-
-  defp slice_range(size, arguments) do
-    start =
-      case arguments do
-        [start | _] -> normalize_slice_index(start, size)
-        [] -> 0
-      end
-
-    finish =
-      case arguments do
-        [_start, finish | _] -> normalize_slice_index(finish, size)
-        _ -> size
-      end
-
-    {start, max(finish - start, 0)}
-  end
-
   defp substring_index(value, size) do
     case Value.to_number(value) do
       :infinity -> size
@@ -249,19 +219,6 @@ defmodule QuickBEAM.VM.Builtin.String do
       _other -> 0
     end
   end
-
-  defp normalize_slice_index(value, size) do
-    case Value.to_number(value) do
-      :infinity -> size
-      :neg_infinity -> 0
-      :nan -> 0
-      index when is_number(index) -> normalize_index(trunc(index), size)
-      _value -> 0
-    end
-  end
-
-  defp normalize_index(index, size) when index < 0, do: max(size + index, 0)
-  defp normalize_index(index, size), do: min(index, size)
 
   defp replace_string(value, %RegExp{source: source}, replacement) do
     case Regex.compile(source) do

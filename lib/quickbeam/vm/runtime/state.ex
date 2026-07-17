@@ -6,6 +6,8 @@ defmodule QuickBEAM.VM.Runtime.State do
   Promises, jobs, handlers, and resource counters are process-local.
   """
 
+  @empty_queue :queue.new()
+
   @enforce_keys [:atoms, :max_stack_depth, :remaining_steps, :step_limit]
   defstruct [
     :atoms,
@@ -19,8 +21,9 @@ defmodule QuickBEAM.VM.Runtime.State do
     globals: %{},
     handlers: %{},
     heap: %{},
-    jobs: {[], []},
-    sync_jobs: {[], []},
+    jobs: @empty_queue,
+    sync_jobs: @empty_queue,
+    sync_jobs_pending?: false,
     max_stack_depth: 1_000,
     memory_exceeded: false,
     memory_limit: :infinity,
@@ -70,6 +73,7 @@ defmodule QuickBEAM.VM.Runtime.State do
           heap: %{optional(non_neg_integer()) => QuickBEAM.VM.Runtime.Object.t()},
           jobs: :queue.queue(term()),
           sync_jobs: :queue.queue(term()),
+          sync_jobs_pending?: boolean(),
           max_stack_depth: pos_integer(),
           memory_exceeded: boolean(),
           memory_limit: pos_integer() | :infinity,
@@ -90,4 +94,15 @@ defmodule QuickBEAM.VM.Runtime.State do
           remaining_steps: non_neg_integer(),
           step_limit: pos_integer()
         }
+
+  @doc "Builds evaluation state with fresh owner-local job queues."
+  @spec new(keyword()) :: t()
+  def new(attributes) when is_list(attributes) do
+    attributes =
+      attributes
+      |> Keyword.put_new(:jobs, :queue.new())
+      |> Keyword.put_new(:sync_jobs, :queue.new())
+
+    struct!(__MODULE__, attributes)
+  end
 end

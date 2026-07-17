@@ -110,6 +110,31 @@ defmodule QuickBEAM.VM.Runtime.ErrorTest do
     refute error.stack =~ "error_test.exs"
   end
 
+  test "normalizes thrown handler terms without crashing error conversion" do
+    source = "(async function load(){return await Beam.call('fail')})()"
+    assert {:ok, program} = QuickBEAM.VM.compile(source, filename: "async.js")
+
+    assert {:error, %QuickBEAM.JSError{} = error} =
+             QuickBEAM.VM.eval(program, handlers: %{"fail" => fn [] -> throw(:unavailable) end})
+
+    assert error.name == "Error"
+    assert error.message == "{:throw, :unavailable}"
+    refute error.stack =~ "lib/quickbeam"
+  end
+
+  test "normalizes non-string native error properties defensively" do
+    error =
+      QuickBEAM.JSError.from_js_value(%{
+        name: %{kind: :custom},
+        message: {:bad, :value},
+        frames: :invalid
+      })
+
+    assert error.name == "%{kind: :custom}"
+    assert error.message == "{:bad, :value}"
+    assert error.frames == []
+  end
+
   test "keeps infrastructure and resource failures distinct from JavaScript errors" do
     assert {:ok, loop} = QuickBEAM.VM.compile("while(true) {}")
 

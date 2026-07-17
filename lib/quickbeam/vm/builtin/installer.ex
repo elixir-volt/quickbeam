@@ -7,17 +7,16 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   stable module/handler tokens rather than captured closures.
   """
 
+  alias QuickBEAM.VM.Builtin.Spec
   alias QuickBEAM.VM.Builtin.Spec.Accessor, as: AccessorSpec
   alias QuickBEAM.VM.Builtin.Spec.Alias, as: AliasSpec
   alias QuickBEAM.VM.Builtin.Spec.Function, as: FunctionSpec
   alias QuickBEAM.VM.Builtin.Spec.Property, as: PropertySpec
   alias QuickBEAM.VM.Builtin.Spec.Prototype, as: PrototypeSpec
-  alias QuickBEAM.VM.Builtin.Spec
-
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
 
   @doc "Installs registered builtin modules for the selected profile."
   @spec install_all(State.t(), [module()], atom()) :: State.t()
@@ -263,26 +262,28 @@ defmodule QuickBEAM.VM.Builtin.Installer do
         raise ArgumentError, "duplicate builtin specs: #{inspect(Enum.uniq(duplicates))}"
     end
 
-    Enum.reduce(specs, MapSet.new(Map.keys(execution.globals)), fn spec, available ->
-      missing = Enum.reject(spec.depends_on, &MapSet.member?(available, &1))
+    validate_dependencies!(specs, MapSet.new(Map.keys(execution.globals)))
+  end
 
-      if missing != [] do
-        raise ArgumentError,
-              "builtin #{spec.name} has unavailable dependencies: #{inspect(missing)}"
-      end
+  defp validate_dependencies!([], _available), do: :ok
 
-      if spec.kind == :intrinsic and not MapSet.member?(available, spec.name) do
-        raise ArgumentError, "builtin intrinsic #{spec.name} is not installed"
-      end
+  defp validate_dependencies!([spec | specs], available) do
+    missing = Enum.reject(spec.depends_on, &MapSet.member?(available, &1))
 
-      if spec.kind in [:namespace, :function, :constructor] and
-           MapSet.member?(available, spec.name) do
-        raise ArgumentError, "builtin #{spec.name} conflicts with an installed global"
-      end
+    if missing != [] do
+      raise ArgumentError,
+            "builtin #{spec.name} has unavailable dependencies: #{inspect(missing)}"
+    end
 
-      MapSet.put(available, spec.name)
-    end)
+    if spec.kind == :intrinsic and not MapSet.member?(available, spec.name) do
+      raise ArgumentError, "builtin intrinsic #{spec.name} is not installed"
+    end
 
-    :ok
+    if spec.kind in [:namespace, :function, :constructor] and
+         MapSet.member?(available, spec.name) do
+      raise ArgumentError, "builtin #{spec.name} conflicts with an installed global"
+    end
+
+    validate_dependencies!(specs, MapSet.put(available, spec.name))
   end
 end

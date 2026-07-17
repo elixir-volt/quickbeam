@@ -3,12 +3,12 @@ defmodule QuickBEAM.VM.Builtin.Runtime do
   Installs and dispatches the JavaScript built-ins supported by the VM profile.
   """
 
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
   alias QuickBEAM.VM.Runtime.RegExp
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Value
 
   alias QuickBEAM.VM.Builtin.Installer
@@ -109,24 +109,31 @@ defmodule QuickBEAM.VM.Builtin.Runtime do
 
   defp regex_match_from(%RegExp{} = regexp, value, last_index) do
     stateful? = regexp_flag?(regexp, 1) or regexp_flag?(regexp, 32)
-    current_index = if is_integer(last_index) and last_index >= 0, do: last_index, else: 0
+    current_index = normalized_last_index(last_index)
     start = if stateful?, do: current_index, else: 0
 
     case compile_regexp(regexp) do
-      {:ok, regex} ->
-        case Regex.run(regex, value, offset: start, return: :index) do
-          [{index, length} | _captures] ->
-            next_index = if stateful?, do: index + max(length, 1), else: current_index
-            {true, next_index}
-
-          nil ->
-            {false, if(stateful?, do: 0, else: current_index)}
-        end
-
-      {:error, _reason} ->
-        {false, if(stateful?, do: 0, else: current_index)}
+      {:ok, regex} -> run_regexp(regex, value, start, current_index, stateful?)
+      {:error, _reason} -> {false, reset_index(current_index, stateful?)}
     end
   end
+
+  defp run_regexp(regex, value, start, current_index, stateful?) do
+    case Regex.run(regex, value, offset: start, return: :index) do
+      [{index, length} | _captures] ->
+        next_index = if stateful?, do: index + max(length, 1), else: current_index
+        {true, next_index}
+
+      nil ->
+        {false, reset_index(current_index, stateful?)}
+    end
+  end
+
+  defp normalized_last_index(index) when is_integer(index) and index >= 0, do: index
+  defp normalized_last_index(_index), do: 0
+
+  defp reset_index(_current_index, true), do: 0
+  defp reset_index(current_index, false), do: current_index
 
   defp regex_match?(%RegExp{} = regexp, value) do
     case compile_regexp(regexp) do

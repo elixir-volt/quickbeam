@@ -65,12 +65,14 @@ defmodule QuickBEAM.VM.Builtin.Map do
   def delete(%Call{this: %Reference{} = map, arguments: arguments, execution: execution}) do
     key = List.first(arguments, :undefined)
 
-    with {:ok, entries} <- entries(map, execution) do
-      found? = Enum.any?(entries, fn {candidate, _value} -> same_key?(candidate, key) end)
-      retained = Enum.reject(entries, fn {candidate, _value} -> same_key?(candidate, key) end)
-      update_map(map, execution, fn _entries -> retained end, found?)
-    else
-      :error -> incompatible(execution)
+    case entries(map, execution) do
+      {:ok, entries} ->
+        found? = Enum.any?(entries, fn {candidate, _value} -> same_key?(candidate, key) end)
+        retained = Enum.reject(entries, fn {candidate, _value} -> same_key?(candidate, key) end)
+        update_map(map, execution, fn _entries -> retained end, found?)
+
+      :error ->
+        incompatible(execution)
     end
   end
 
@@ -85,18 +87,7 @@ defmodule QuickBEAM.VM.Builtin.Map do
 
     case entries(map, execution) do
       {:ok, entries} ->
-        value =
-          Enum.find_value(entries, :undefined, fn {candidate, value} ->
-            if same_key?(candidate, key), do: {:found, value}
-          end)
-
-        value =
-          case value do
-            {:found, found} -> found
-            other -> other
-          end
-
-        {:ok, value, execution}
+        {:ok, find_entry(entries, key), execution}
 
       :error ->
         incompatible(execution)
@@ -132,12 +123,7 @@ defmodule QuickBEAM.VM.Builtin.Map do
     update_map(
       map,
       execution,
-      fn entries ->
-        case Enum.find_index(entries, fn {candidate, _value} -> same_key?(candidate, key) end) do
-          nil -> entries ++ [{key, value}]
-          index -> List.replace_at(entries, index, {key, value})
-        end
-      end,
+      fn entries -> put_entry(entries, key, value) end,
       map
     )
   end
@@ -148,33 +134,7 @@ defmodule QuickBEAM.VM.Builtin.Map do
   def next(%Call{this: %Reference{} = iterator, execution: execution}) do
     case Heap.fetch_object(execution, iterator) do
       {:ok, %Object{internal: {:map_iterator, entries, index, kind}}} ->
-        done? = index >= length(entries)
-
-        {value, execution} =
-          if done? do
-            {:undefined, execution}
-          else
-            {key, value} = Enum.at(entries, index)
-
-            case kind do
-              :keys -> {key, execution}
-              :values -> {value, execution}
-              :entries -> map_entry_array(key, value, execution)
-            end
-          end
-
-        {:ok, execution} =
-          Heap.update_object(execution, iterator, fn object ->
-            %{
-              object
-              | internal: {:map_iterator, entries, if(done?, do: index, else: index + 1), kind}
-            }
-          end)
-
-        {result, execution} = Heap.allocate(execution)
-        {:ok, execution} = Property.define(result, "value", value, execution)
-        {:ok, execution} = Property.define(result, "done", done?, execution)
-        {:ok, result, execution}
+        advance_iterator(iterator, entries, index, kind, execution)
 
       _other ->
         {:error, :incompatible_map_iterator_receiver, execution}
@@ -200,12 +160,9 @@ defmodule QuickBEAM.VM.Builtin.Map do
   @doc "Initializes a Map receiver from insertion-ordered entries."
   def initialize(receiver, entries, execution) do
     entries =
-      Enum.reduce(entries, [], fn {key, value}, accumulated ->
-        case Enum.find_index(accumulated, fn {candidate, _value} -> same_key?(candidate, key) end) do
-          nil -> accumulated ++ [{key, value}]
-          index -> List.replace_at(accumulated, index, {key, value})
-        end
-      end)
+      entries
+      |> Enum.reduce([], fn {key, value}, acc -> put_entry_prepend(acc, key, value) end)
+      |> Enum.reverse()
 
     Heap.update_object(execution, receiver, fn object ->
       %{object | kind: :map, internal: %{entries: entries}}
@@ -225,17 +182,22 @@ defmodule QuickBEAM.VM.Builtin.Map do
     do: iterable |> Iterator.values(execution) |> pair_entries(execution)
 
   defp pair_entries({:ok, values}, execution) do
-    Enum.reduce_while(values, {:ok, []}, fn pair, {:ok, entries} ->
-      with {:ok, key} <- Property.get(pair, 0, execution),
-           {:ok, value} <- Property.get(pair, 1, execution) do
-        {:cont, {:ok, entries ++ [{key, value}]}}
-      else
-        _error -> {:halt, {:error, :invalid_map_entry}}
-      end
-    end)
+    case Enum.reduce_while(values, [], &read_pair(&1, &2, execution)) do
+      :invalid -> {:error, :invalid_map_entry}
+      entries -> {:ok, Enum.reverse(entries)}
+    end
   end
 
   defp pair_entries(other, _execution), do: other
+
+  defp read_pair(pair, entries, execution) do
+    with {:ok, key} <- Property.get(pair, 0, execution),
+         {:ok, value} <- Property.get(pair, 1, execution) do
+      {:cont, [{key, value} | entries]}
+    else
+      _error -> {:halt, :invalid}
+    end
+  end
 
   defp map_iterator(%Call{this: %Reference{} = map, execution: execution}, kind) do
     case entries(map, execution) do
@@ -284,6 +246,56 @@ defmodule QuickBEAM.VM.Builtin.Map do
 
       {:error, _reason} ->
         incompatible(execution)
+    end
+  end
+
+  defp advance_iterator(iterator, entries, index, kind, execution) do
+    done? = index >= length(entries)
+    {value, execution} = iterator_value(entries, index, kind, done?, execution)
+    next_index = if done?, do: index, else: index + 1
+
+    {:ok, execution} =
+      Heap.update_object(execution, iterator, fn object ->
+        %{object | internal: {:map_iterator, entries, next_index, kind}}
+      end)
+
+    {result, execution} = Heap.allocate(execution)
+    {:ok, execution} = Property.define(result, "value", value, execution)
+    {:ok, execution} = Property.define(result, "done", done?, execution)
+    {:ok, result, execution}
+  end
+
+  defp iterator_value(_entries, _index, _kind, true, execution),
+    do: {:undefined, execution}
+
+  defp iterator_value(entries, index, kind, false, execution) do
+    {key, value} = Enum.at(entries, index)
+
+    case kind do
+      :keys -> {key, execution}
+      :values -> {value, execution}
+      :entries -> map_entry_array(key, value, execution)
+    end
+  end
+
+  defp find_entry(entries, key) do
+    case Enum.find(entries, fn {candidate, _value} -> same_key?(candidate, key) end) do
+      {_candidate, value} -> value
+      nil -> :undefined
+    end
+  end
+
+  defp put_entry(entries, key, value) do
+    case Enum.find_index(entries, fn {candidate, _value} -> same_key?(candidate, key) end) do
+      nil -> entries ++ [{key, value}]
+      index -> List.replace_at(entries, index, {key, value})
+    end
+  end
+
+  defp put_entry_prepend(entries, key, value) do
+    case Enum.find_index(entries, fn {candidate, _value} -> same_key?(candidate, key) end) do
+      nil -> [{key, value} | entries]
+      index -> List.replace_at(entries, index, {key, value})
     end
   end
 

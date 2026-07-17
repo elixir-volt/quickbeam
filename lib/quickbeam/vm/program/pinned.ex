@@ -12,5 +12,5 @@ defmodule QuickBEAM.VM.Program.Pinned do
   @enforce_keys [:key]
   defstruct [:key]
 
-  @opaque t :: %__MODULE__{key: binary()}
+  @type t :: %__MODULE__{key: binary()}
 end

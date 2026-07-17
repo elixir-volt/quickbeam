@@ -65,10 +65,10 @@ defmodule QuickBEAM.VM.Runtime.Value do
   def binary(:div, left, right), do: divide(left, right)
   def binary(:mod, left, right), do: modulo(left, right)
   def binary(:pow, left, right), do: power(left, right)
-  def binary(:lt, left, right), do: compare(left, right, &Kernel.</2)
-  def binary(:lte, left, right), do: compare(left, right, &Kernel.<=/2)
-  def binary(:gt, left, right), do: compare(left, right, &Kernel.>/2)
-  def binary(:gte, left, right), do: compare(left, right, &Kernel.>=/2)
+  def binary(:lt, left, right), do: compare(left, right, :lt)
+  def binary(:lte, left, right), do: compare(left, right, :lte)
+  def binary(:gt, left, right), do: compare(left, right, :gt)
+  def binary(:gte, left, right), do: compare(left, right, :gte)
   def binary(:eq, left, right), do: abstract_equal?(left, right)
   def binary(:neq, left, right), do: not abstract_equal?(left, right)
   def binary(:strict_eq, left, right), do: strict_equal?(left, right)
@@ -83,75 +83,87 @@ defmodule QuickBEAM.VM.Runtime.Value do
   @doc "Implements JavaScript addition, including string concatenation."
   @spec add(term(), term()) :: term()
   def add(a, b) when is_binary(a) or is_binary(b), do: to_string_value(a) <> to_string_value(b)
-  def add(a, b), do: numeric_binary(a, b, &Kernel.+/2)
+  def add(a, b), do: add_numbers(to_number(a), to_number(b))
+
+  @doc "Normalizes JavaScript slice arguments to a bounded start and length."
+  @spec slice_range(non_neg_integer(), [term()]) :: {non_neg_integer(), non_neg_integer()}
+  def slice_range(size, arguments) do
+    start = arguments |> List.first(0) |> normalize_slice_index(size)
+    finish = arguments |> Enum.at(1, size) |> normalize_slice_index(size)
+    {start, max(finish - start, 0)}
+  end
 
   @doc "Implements numeric subtraction after JavaScript coercion."
   @spec subtract(term(), term()) :: term()
-  def subtract(a, b), do: numeric_binary(a, b, &Kernel.-/2)
+  def subtract(a, b), do: subtract_numbers(to_number(a), to_number(b))
 
   @doc "Implements numeric multiplication after JavaScript coercion."
   @spec multiply(term(), term()) :: term()
-  def multiply(a, b), do: numeric_binary(a, b, &Kernel.*/2)
+  def multiply(a, b), do: multiply_numbers(to_number(a), to_number(b))
 
   @doc "Implements numeric division with represented JavaScript infinities and NaN."
   @spec divide(term(), term()) :: term()
-  def divide(a, b) do
-    a = to_number(a)
-    b = to_number(b)
+  def divide(a, b), do: divide_numbers(to_number(a), to_number(b))
 
-    cond do
-      a == :nan or b == :nan -> :nan
-      b == 0 and a == 0 -> :nan
-      b == 0 and a > 0 -> :infinity
-      b == 0 and a < 0 -> :neg_infinity
-      true -> a / b
-    end
-  end
+  defp divide_numbers(:nan, _divisor), do: :nan
+  defp divide_numbers(_dividend, :nan), do: :nan
+
+  defp divide_numbers(dividend, divisor)
+       when dividend in [:infinity, :neg_infinity] and divisor in [:infinity, :neg_infinity],
+       do: :nan
+
+  defp divide_numbers(dividend, divisor)
+       when dividend in [:infinity, :neg_infinity] and is_number(divisor),
+       do: signed_infinity(negative?(dividend) != negative?(divisor))
+
+  defp divide_numbers(dividend, divisor)
+       when is_number(dividend) and divisor in [:infinity, :neg_infinity],
+       do: signed_zero(negative?(dividend) != negative?(divisor))
+
+  defp divide_numbers(dividend, divisor) when dividend == 0 and divisor == 0, do: :nan
+
+  defp divide_numbers(dividend, divisor) when divisor == 0,
+    do: signed_infinity(negative?(dividend) != negative?(divisor))
+
+  defp divide_numbers(dividend, divisor), do: dividend / divisor
 
   @doc "Implements numeric remainder after JavaScript coercion."
   @spec modulo(term(), term()) :: term()
-  def modulo(a, b) do
-    a = to_number(a)
-    b = to_number(b)
+  def modulo(a, b), do: remainder(to_number(a), to_number(b))
 
-    cond do
-      a == :nan or b == :nan or b == 0 -> :nan
-      is_integer(a) and is_integer(b) -> rem(a, b)
-      true -> :math.fmod(a, b)
+  defp remainder(:nan, _divisor), do: :nan
+  defp remainder(_dividend, :nan), do: :nan
+  defp remainder(dividend, _divisor) when dividend in [:infinity, :neg_infinity], do: :nan
+  defp remainder(_dividend, divisor) when divisor == 0, do: :nan
+  defp remainder(dividend, divisor) when divisor in [:infinity, :neg_infinity], do: dividend
+
+  defp remainder(dividend, divisor) when is_integer(dividend) and is_integer(divisor) do
+    case rem(dividend, divisor) do
+      0 when dividend < 0 -> -0.0
+      result -> result
     end
   end
+
+  defp remainder(dividend, divisor), do: :math.fmod(dividend, divisor)
 
   @doc "Implements numeric exponentiation after JavaScript coercion."
   @spec power(term(), term()) :: term()
-  def power(a, b) do
-    case {to_number(a), to_number(b)} do
-      {:nan, _} -> :nan
-      {_, :nan} -> :nan
-      {left, right} -> :math.pow(left, right)
-    end
-  end
+  def power(a, b), do: power_numbers(to_number(a), to_number(b))
 
   @doc "Implements unary numeric negation."
   @spec negate(term()) :: term()
-  def negate(value) do
-    case to_number(value) do
-      :nan -> :nan
-      number -> -number
-    end
-  end
+  def negate(value), do: negate_number(to_number(value))
 
   @doc "Compares strings lexically or other values numerically."
-  @spec compare(term(), term(), (term(), term() -> boolean())) :: boolean()
-  def compare(a, b, operation) do
-    {a, b} =
-      if is_binary(a) and is_binary(b),
-        do: {a, b},
-        else: {to_number(a), to_number(b)}
+  @spec compare(term(), term(), :lt | :lte | :gt | :gte) :: boolean()
+  def compare(a, b, operation) when is_binary(a) and is_binary(b),
+    do: compare_order(operation, ordering(a, b))
 
-    if a == :nan or b == :nan do
-      false
-    else
-      operation.(a, b)
+  def compare(a, b, operation) do
+    case {to_number(a), to_number(b)} do
+      {:nan, _right} -> false
+      {_left, :nan} -> false
+      {left, right} -> compare_order(operation, ordering(left, right))
     end
   end
 
@@ -205,20 +217,7 @@ defmodule QuickBEAM.VM.Runtime.Value do
   def to_number(:neg_infinity), do: :neg_infinity
   def to_number(""), do: 0
 
-  def to_number(value) when is_binary(value) do
-    value = String.trim(value)
-
-    case Integer.parse(value) do
-      {integer, ""} ->
-        integer
-
-      _ ->
-        case Float.parse(value) do
-          {float, ""} -> float
-          _ -> :nan
-        end
-    end
-  end
+  def to_number(value) when is_binary(value), do: value |> String.trim() |> parse_number()
 
   def to_number(_value), do: :nan
 
@@ -242,6 +241,12 @@ defmodule QuickBEAM.VM.Runtime.Value do
   def to_string_value(:infinity), do: "Infinity"
   def to_string_value(:neg_infinity), do: "-Infinity"
   def to_string_value(value) when is_integer(value), do: Integer.to_string(value)
+  def to_string_value(value) when is_float(value) and value == 0.0, do: "0"
+
+  def to_string_value(value)
+      when is_float(value) and value > -1.0e21 and value < 1.0e21 and trunc(value) == value,
+      do: value |> trunc() |> Integer.to_string()
+
   def to_string_value(value) when is_float(value), do: Float.to_string(value)
   def to_string_value(value) when is_binary(value), do: value
   def to_string_value(_value), do: "[object Object]"
@@ -274,13 +279,160 @@ defmodule QuickBEAM.VM.Runtime.Value do
     |> string_from_units()
   end
 
-  defp numeric_binary(a, b, operation) do
-    case {to_number(a), to_number(b)} do
-      {:nan, _} -> :nan
-      {_, :nan} -> :nan
-      {left, right} -> operation.(left, right)
+  defp parse_number(""), do: 0
+  defp parse_number("Infinity"), do: :infinity
+  defp parse_number("+Infinity"), do: :infinity
+  defp parse_number("-Infinity"), do: :neg_infinity
+  defp parse_number("0x" <> digits), do: parse_integer(digits, 16)
+  defp parse_number("0X" <> digits), do: parse_integer(digits, 16)
+  defp parse_number("0b" <> digits), do: parse_integer(digits, 2)
+  defp parse_number("0B" <> digits), do: parse_integer(digits, 2)
+  defp parse_number("0o" <> digits), do: parse_integer(digits, 8)
+  defp parse_number("0O" <> digits), do: parse_integer(digits, 8)
+
+  defp parse_number(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> integer
+      _invalid_integer -> parse_float(value)
     end
   end
+
+  defp parse_integer(value, base) do
+    case Integer.parse(value, base) do
+      {integer, ""} -> integer
+      _invalid_integer -> :nan
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(value) do
+      {float, ""} -> float
+      _invalid_float -> :nan
+    end
+  end
+
+  defp normalize_slice_index(value, size) do
+    case to_number(value) do
+      :infinity -> size
+      :neg_infinity -> 0
+      :nan -> 0
+      index when is_number(index) -> normalize_slice_integer(trunc(index), size)
+    end
+  end
+
+  defp normalize_slice_integer(index, size) when index < 0, do: max(size + index, 0)
+  defp normalize_slice_integer(index, size), do: min(index, size)
+
+  defp add_numbers(:nan, _right), do: :nan
+  defp add_numbers(_left, :nan), do: :nan
+  defp add_numbers(:infinity, :neg_infinity), do: :nan
+  defp add_numbers(:neg_infinity, :infinity), do: :nan
+  defp add_numbers(:infinity, _right), do: :infinity
+  defp add_numbers(_left, :infinity), do: :infinity
+  defp add_numbers(:neg_infinity, _right), do: :neg_infinity
+  defp add_numbers(_left, :neg_infinity), do: :neg_infinity
+  defp add_numbers(left, right), do: left + right
+
+  defp subtract_numbers(left, right), do: add_numbers(left, negate_number(right))
+
+  defp multiply_numbers(:nan, _right), do: :nan
+  defp multiply_numbers(_left, :nan), do: :nan
+
+  defp multiply_numbers(left, right)
+       when left in [:infinity, :neg_infinity] or right in [:infinity, :neg_infinity] do
+    if zero?(left) or zero?(right),
+      do: :nan,
+      else: signed_infinity(negative?(left) != negative?(right))
+  end
+
+  defp multiply_numbers(left, right), do: left * right
+
+  defp power_numbers(_base, exponent) when exponent == 0, do: 1.0
+  defp power_numbers(:nan, _exponent), do: :nan
+  defp power_numbers(_base, :nan), do: :nan
+
+  defp power_numbers(base, exponent) when exponent in [:infinity, :neg_infinity] do
+    power_infinite_exponent(base, exponent)
+  end
+
+  defp power_numbers(base, exponent) when base in [:infinity, :neg_infinity] do
+    power_infinite_base(base, exponent)
+  end
+
+  defp power_numbers(base, exponent) when base == 0 and exponent < 0,
+    do: signed_infinity(negative?(base) and odd_integer?(exponent))
+
+  defp power_numbers(base, exponent) do
+    :math.pow(base, exponent)
+  rescue
+    ArithmeticError -> :nan
+  end
+
+  defp power_infinite_exponent(base, exponent) do
+    magnitude = if base in [:infinity, :neg_infinity], do: :infinity, else: abs(base)
+
+    case {magnitude, exponent} do
+      {magnitude, _exponent} when magnitude == 1 -> :nan
+      {:infinity, :infinity} -> :infinity
+      {:infinity, :neg_infinity} -> 0.0
+      {magnitude, :infinity} when magnitude > 1 -> :infinity
+      {_magnitude, :infinity} -> 0.0
+      {magnitude, :neg_infinity} when magnitude > 1 -> 0.0
+      {_magnitude, :neg_infinity} -> :infinity
+    end
+  end
+
+  defp power_infinite_base(base, exponent) when exponent > 0 do
+    negative_result? = base == :neg_infinity and odd_integer?(exponent)
+    signed_infinity(negative_result?)
+  end
+
+  defp power_infinite_base(_base, _exponent), do: 0.0
+
+  defp negate_number(:nan), do: :nan
+  defp negate_number(:infinity), do: :neg_infinity
+  defp negate_number(:neg_infinity), do: :infinity
+  defp negate_number(number) when number == 0, do: signed_zero(not negative?(number))
+  defp negate_number(number), do: -number
+
+  defp ordering(left, right) when left == right, do: :eq
+  defp ordering(:neg_infinity, _right), do: :lt
+  defp ordering(_left, :neg_infinity), do: :gt
+  defp ordering(:infinity, _right), do: :gt
+  defp ordering(_left, :infinity), do: :lt
+  defp ordering(left, right) when left < right, do: :lt
+  defp ordering(_left, _right), do: :gt
+
+  defp compare_order(:lt, :lt), do: true
+  defp compare_order(:lte, order) when order in [:lt, :eq], do: true
+  defp compare_order(:gt, :gt), do: true
+  defp compare_order(:gte, order) when order in [:gt, :eq], do: true
+  defp compare_order(_operation, _order), do: false
+
+  defp odd_integer?(value) when is_integer(value), do: rem(value, 2) != 0
+
+  defp odd_integer?(value) when is_float(value) and trunc(value) == value,
+    do: rem(trunc(value), 2) != 0
+
+  defp odd_integer?(_value), do: false
+
+  defp signed_infinity(true), do: :neg_infinity
+  defp signed_infinity(false), do: :infinity
+  defp signed_zero(true), do: -0.0
+  defp signed_zero(false), do: 0.0
+
+  defp negative?(:neg_infinity), do: true
+
+  defp negative?(value) when is_float(value) and value == 0.0 do
+    <<sign::1, _magnitude::63>> = <<value::float>>
+    sign == 1
+  end
+
+  defp negative?(value) when is_number(value), do: value < 0
+  defp negative?(_value), do: false
+
+  defp zero?(value) when is_number(value), do: value == 0
+  defp zero?(_value), do: false
 
   defp signed32(value) do
     value = band(value, 0xFFFFFFFF)

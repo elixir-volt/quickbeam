@@ -10,9 +10,9 @@ defmodule QuickBEAM.VM.Compiler.Counter do
   module-pool state.
   """
 
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Bytecode.Opcode
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   @indexes %{
     frame_attempts: 1,

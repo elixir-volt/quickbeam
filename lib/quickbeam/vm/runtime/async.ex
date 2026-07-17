@@ -11,17 +11,16 @@ defmodule QuickBEAM.VM.Runtime.Async do
   alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Coroutine
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Invocation
-
   alias QuickBEAM.VM.Runtime.Memory
   alias QuickBEAM.VM.Runtime.Promise
-
-  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
   alias QuickBEAM.VM.Runtime.Promise.Reaction
-
+  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Thrown
+
+  @max_host_operations 64
 
   @type result ::
           {:run, Frame.t(), State.t()}
@@ -265,15 +264,19 @@ defmodule QuickBEAM.VM.Runtime.Async do
   @spec start_host_call([term()], State.t()) ::
           {:ok, PromiseReference.t(), State.t()} | {:error, term(), State.t()}
   def start_host_call([name | arguments], execution) when is_binary(name) do
-    {promise, execution} = Promise.new(execution)
+    if map_size(execution.operations) < @max_host_operations do
+      {promise, execution} = Promise.new(execution)
 
-    execution =
-      case Map.fetch(execution.handlers, name) do
-        {:ok, handler} -> start_handler_task(handler, arguments, promise, execution)
-        :error -> Promise.settle(execution, promise, {:error, {:unknown_handler, name}})
-      end
+      execution =
+        case Map.fetch(execution.handlers, name) do
+          {:ok, handler} -> start_handler_task(handler, arguments, promise, execution)
+          :error -> Promise.settle(execution, promise, {:error, {:unknown_handler, name}})
+        end
 
-    {:ok, promise, execution}
+      {:ok, promise, execution}
+    else
+      {:error, {:limit_exceeded, :host_operations, @max_host_operations}, execution}
+    end
   end
 
   def start_host_call(_arguments, execution),
@@ -324,15 +327,32 @@ defmodule QuickBEAM.VM.Runtime.Async do
     owner = self()
 
     case Task.Supervisor.start_child(QuickBEAM.VM.TaskSupervisor, fn ->
-           Process.link(owner)
-           result = invoke_handler(handler, arguments)
-           send(owner, {:quickbeam_vm_host_reply, operation, result})
+           coordinate_handler(owner, operation, handler, arguments)
          end) do
       {:ok, pid} ->
         %{execution | operations: Map.put(execution.operations, operation, {promise, pid})}
 
       {:error, reason} ->
         Promise.settle(execution, promise, {:error, {:handler_start_failed, reason}})
+    end
+  end
+
+  defp coordinate_handler(owner, operation, handler, arguments) do
+    owner_monitor = Process.monitor(owner)
+    coordinator = self()
+
+    handler_pid =
+      spawn_link(fn ->
+        send(coordinator, {operation, invoke_handler(handler, arguments)})
+      end)
+
+    receive do
+      {^operation, result} ->
+        Process.demonitor(owner_monitor, [:flush])
+        send(owner, {:quickbeam_vm_host_reply, operation, result})
+
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
+        Process.exit(handler_pid, :kill)
     end
   end
 
