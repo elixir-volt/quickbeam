@@ -72,9 +72,6 @@ jobs:
           TEST262_PATH: /tmp/quickbeam-test262
         run: mix test test/vm/test262_test.exs --include test262
 
-      - name: Supervised pinned SSR example
-        run: mix run examples/vm_ssr.exs
-
   ubsan:
     name: UBSan + Zig Debug
     runs-on: ubuntu-latest

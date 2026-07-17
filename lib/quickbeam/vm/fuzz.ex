@@ -728,13 +728,29 @@ defmodule QuickBEAM.VM.Fuzz do
 
   defp safe_name(name) do
     name
-    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.to_charlist()
+    |> Enum.reduce({[], false}, fn character, {characters, separator?} ->
+      cond do
+        safe_name_character?(character) -> {[character | characters], false}
+        separator? -> {characters, true}
+        true -> {[?- | characters], true}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+    |> to_string()
     |> String.trim("-")
     |> case do
       "" -> "corpus"
       safe -> safe
     end
   end
+
+  defp safe_name_character?(character) when character in ?a..?z, do: true
+  defp safe_name_character?(character) when character in ?A..?Z, do: true
+  defp safe_name_character?(character) when character in ?0..?9, do: true
+  defp safe_name_character?(character) when character in [?_, ?-], do: true
+  defp safe_name_character?(_character), do: false
 
   defp validate_run(corpus, opts) when is_list(corpus) and is_list(opts) do
     if Keyword.keyword?(opts),

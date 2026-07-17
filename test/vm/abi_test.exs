@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.ABITest do
   use ExUnit.Case, async: true
 
   alias QuickBEAM.VM.{ABI, Opcodes}
+  alias QuickBEAM.VM.ABI.Source
 
   test "metadata is generated from the current vendored QuickJS sources" do
     assert ABI.bytecode_version() == 26
@@ -10,6 +11,32 @@ defmodule QuickBEAM.VM.ABITest do
     assert Opcodes.num(:check_object) != nil
     assert Opcodes.num(:using_dispose) != nil
     assert Opcodes.info(Opcodes.num(:await)) == {:await, 1, 1, 1, :none}
+  end
+
+  test "parses exact C declarations with the bounded source parser" do
+    source = """
+    #define BC_VERSION 26
+    typedef enum BCTagEnum {
+      BC_TAG_NULL = 1,
+      BC_TAG_UNDEFINED,
+    } BCTagEnum;
+    """
+
+    assert Source.define!(source, "BC_VERSION") == "26"
+
+    assert Source.enum_entries!(source, "BCTagEnum") == [
+             "BC_TAG_NULL = 1",
+             "BC_TAG_UNDEFINED"
+           ]
+
+    assert Source.macro_arguments(~S|DEF(name, "value,with,commas") /* comment */|, "DEF") == [
+             ["name", ~s("value,with,commas")]
+           ]
+  end
+
+  test "rejects unterminated C declarations" do
+    assert_raise ArgumentError, fn -> Source.enum_entries!("typedef enum Broken {", "Broken") end
+    assert_raise ArgumentError, fn -> Source.macro_arguments("DEF(name, value", "DEF") end
   end
 
   test "predefined atom indexes include QuickJS v26 additions" do

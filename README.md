@@ -58,9 +58,7 @@ end
 
 The program store is fixed-capacity and has no implicit eviction or fallback.
 Applications should have one supervised lifecycle owner pin each bundle during
-startup and unpin it during replacement or normal shutdown. See the runnable
-[`examples/vm_ssr.exs`](examples/vm_ssr.exs) and the
-[BEAM interpreter architecture](docs/beam-interpreter-architecture.md).
+startup and unpin it during replacement or normal shutdown.
 
 The optional `engine: :compiler` tiers remain explicitly supervised and
 release-quarantined; the interpreter is the production default.

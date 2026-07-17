@@ -92,14 +92,30 @@ defmodule QuickBEAM.Test262 do
   @doc "Parses the metadata fields needed by the bounded runner."
   @spec parse_metadata(binary()) :: QuickBEAM.Test262.Metadata.t()
   def parse_metadata(source) do
-    case Regex.run(~r/\/\*---\s*(.*?)\s*---\*\//s, source, capture: :all_but_first) do
-      [yaml] ->
+    case metadata_block(source) do
+      {:ok, yaml} ->
         yaml
+        |> String.trim()
         |> YamlElixir.read_from_string!()
         |> QuickBEAM.Test262.Metadata.from_map!()
 
-      _no_metadata ->
+      :missing ->
         %QuickBEAM.Test262.Metadata{}
+    end
+  end
+
+  defp metadata_block(source) do
+    opening = "/*---"
+    closing = "---*/"
+
+    with {start, opening_size} <- :binary.match(source, opening),
+         body_start = start + opening_size,
+         body_size = byte_size(source) - body_start,
+         body = binary_part(source, body_start, body_size),
+         {closing_start, _closing_size} <- :binary.match(body, closing) do
+      {:ok, binary_part(body, 0, closing_start)}
+    else
+      :nomatch -> :missing
     end
   end
 

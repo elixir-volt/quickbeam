@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.ABI do
   cannot silently leave a hand-maintained decoder table behind.
   """
 
-  alias QuickBEAM.VM.ABIGenerator
+  alias QuickBEAM.VM.ABI.Generator
 
   @decoder_format_version 1
   @c_src_dir Application.app_dir(:quickbeam, "priv/c_src")
@@ -23,11 +23,11 @@ defmodule QuickBEAM.VM.ABI do
   @opcode_source File.read!(@opcode_path)
   @atom_source File.read!(@atom_path)
 
-  @bytecode_version ABIGenerator.version!(@quickjs_source)
-  @tags ABIGenerator.tags!(@quickjs_source)
-  @opcodes ABIGenerator.opcodes!(@opcode_source)
-  @atoms ABIGenerator.atoms!(@atom_source)
-  @fingerprint ABIGenerator.fingerprint(
+  @bytecode_version Generator.version!(@quickjs_source)
+  @tags Generator.tags!(@quickjs_source)
+  @opcodes Generator.opcodes!(@opcode_source)
+  @atoms Generator.atoms!(@atom_source)
+  @fingerprint Generator.fingerprint(
                  @bytecode_version,
                  @decoder_format_version,
                  [@quickjs_source, @opcode_source, @atom_source]
