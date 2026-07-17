@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Compiler.Context do
     artifact_namespace: nil,
     decisions: %{},
     max_decisions: 256,
-    min_nested_instructions: 32,
+    min_function_instructions: 32,
     profile: :pure_v1,
     counters: nil,
     region_probe: nil,
@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Compiler.Context do
               :skip | {:cached, binary()} | {:compile, binary(), term()}
           },
           max_decisions: pos_integer(),
-          min_nested_instructions: non_neg_integer(),
+          min_function_instructions: non_neg_integer(),
           profile: :pure_v1 | :scalar_v1,
           counters: Counter.t() | nil,
           region_probe: Probe.t() | nil,

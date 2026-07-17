@@ -88,16 +88,20 @@ defmodule QuickBEAM.VM.Compiler do
     pool = Keyword.get(opts, :compiler_pool, Pool)
     {:ok, artifact_namespace} = Contract.program_identity(program)
 
+    counters = if execution.measurement_target, do: Counter.new()
+    region_probe = if Keyword.get(opts, :compiler_region_probe) == true, do: Probe.new()
+    profile = Keyword.get(opts, :compiler_profile, :pure_v1)
+
     context = %Context{
       artifact_namespace: artifact_namespace,
-      counters: if(execution.measurement_target, do: Counter.new()),
+      counters: counters,
       deopt_module: Deopt,
       executor: __MODULE__,
-      instrumentation: Instrumentation,
+      instrumentation: if(counters || region_probe, do: Instrumentation),
       pool: pool,
-      profile: Keyword.get(opts, :compiler_profile, :pure_v1),
+      profile: profile,
       program: program,
-      region_probe: if(Keyword.get(opts, :compiler_region_probe) == true, do: Probe.new()),
+      region_probe: region_probe,
       regions: Keyword.get(opts, :compiler_regions, false)
     }
 
@@ -143,14 +147,12 @@ defmodule QuickBEAM.VM.Compiler do
          frame,
          %State{
            compiler_context: %Context{
-             program: %Program{root: %Function{} = root} = program,
-             min_nested_instructions: nested_minimum,
+             program: %Program{root: %Function{}} = program,
+             min_function_instructions: minimum,
              profile: profile
            }
          } = execution
        ) do
-    minimum = if function.id == root.id, do: 1, else: nested_minimum
-
     if Pure.candidate?(function, minimum, profile) do
       prepare_keyed_frame(program, function, minimum, profile, frame, execution)
     else

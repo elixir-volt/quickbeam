@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.Runtime.Optimization do
          arguments,
          _default
        )
-       when is_atom(instrumentation),
+       when is_atom(instrumentation) and not is_nil(instrumentation),
        do: apply(instrumentation, function, arguments)
 
   defp instrument(%State{}, _function, _arguments, default), do: default

@@ -313,6 +313,14 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
 
   defp run(%Frame{} = frame, %State{} = execution), do: execute_current(frame, execution)
 
+  defp execute_current(
+         frame,
+         %State{compiler_context: %{instrumentation: nil}} = execution
+       ) do
+    {opcode, operands} = elem(frame.function.instructions, frame.pc)
+    execute_current_opcode(opcode, operands, frame, execution)
+  end
+
   defp execute_current(frame, %State{compiler_context: context} = execution)
        when not is_nil(context) do
     {opcode, operands} = elem(frame.function.instructions, frame.pc)

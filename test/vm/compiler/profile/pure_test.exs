@@ -1,23 +1,23 @@
 defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
   use ExUnit.Case, async: false
 
+  alias QuickBEAM.VM.Bytecode.Opcode
   alias QuickBEAM.VM.Compiler.Analysis.ControlFlow, as: CFG
-  alias QuickBEAM.VM.Compiler.Contract
-  alias QuickBEAM.VM.Compiler.Deopt
   alias QuickBEAM.VM.Compiler.Code
-  alias QuickBEAM.VM.Compiler.Pool
-  alias QuickBEAM.VM.Compiler.Runtime
   alias QuickBEAM.VM.Compiler.Code.Emitter
   alias QuickBEAM.VM.Compiler.Code.Import
+  alias QuickBEAM.VM.Compiler.Contract
+  alias QuickBEAM.VM.Compiler.Deopt
+  alias QuickBEAM.VM.Compiler.Pool
   alias QuickBEAM.VM.Compiler.Profile.Pure
-  alias QuickBEAM.VM.Runtime.Engine
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Compiler.Runtime
+  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Engine
+  alias QuickBEAM.VM.Runtime.Frame
   alias QuickBEAM.VM.Runtime.Interpreter
   alias QuickBEAM.VM.Runtime.Invocation
-  alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Runtime.State
 
   test "builds deterministic CFG blocks with canonical successors and predecessors" do
     function = branch_function()
@@ -78,8 +78,7 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
 
     function = Enum.find(program.root.constants, &is_struct(&1, Function))
 
-    assert {:ok, whole_template, _count} = Pure.prepare(function, 32, :scalar_v1)
-    refute Pure.scalar_template?(whole_template)
+    assert {:skip, 3} = Pure.prepare(function, 32, :scalar_v1)
 
     assert {:ok, region_template, 32} = Pure.prepare_region(function, 0, :scalar_v1)
     assert Pure.scalar_template?(region_template)

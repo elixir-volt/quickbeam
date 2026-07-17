@@ -3,10 +3,10 @@ defmodule QuickBEAM.VM.Compiler.ContractTest do
 
   alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Deopt
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.State
 
   test "uses one fixed unique module atom set" do
     modules = Contract.pool_modules()
@@ -69,10 +69,22 @@ defmodule QuickBEAM.VM.Compiler.ContractTest do
 
     assert {:ok, changed_atoms_key} = Contract.artifact_key(%{program | atoms: {"x"}}, function)
 
+    assert {:ok, debug_only_key} =
+             Contract.artifact_key(program, %{
+               function
+               | filename: "other.js",
+                 line_num: 99,
+                 col_num: 7,
+                 pc2line: <<1, 2, 3>>,
+                 source: "different source text",
+                 source_positions: {{99, 7}, {99, 8}}
+             })
+
     refute changed_program_key == key
     refute changed_function_key == key
     refute changed_source_key == key
     refute changed_atoms_key == key
+    assert debug_only_key == key
 
     assert {:error, {:unknown_option, :unknown}} =
              Contract.artifact_key(program, function, unknown: true)

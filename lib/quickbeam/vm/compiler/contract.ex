@@ -7,8 +7,8 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   table. Compiler implementations must not construct additional module names.
   """
 
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
 
   @contract_version 1
   @runtime_abi_version 5
@@ -146,7 +146,7 @@ defmodule QuickBEAM.VM.Compiler.Contract do
          :ok <- validate_region_preferred(region_preferred) do
       payload = {
         program_identity,
-        strip_repeated_atoms(function),
+        artifact_function_identity(function),
         profile,
         region_entry,
         region_preferred
@@ -159,12 +159,25 @@ defmodule QuickBEAM.VM.Compiler.Contract do
   def artifact_key_from_identity(program_identity, function, _opts),
     do: {:error, {:invalid_artifact_identity, program_identity, function}}
 
-  defp strip_repeated_atoms(%Function{} = function) do
-    constants = Enum.map(function.constants, &strip_repeated_atoms/1)
-    %{function | atoms: nil, constants: constants}
-  end
+  defp artifact_function_identity(%Function{} = function) do
+    constants =
+      Enum.map(function.constants, fn
+        %Function{id: id} -> {:function_constant, id}
+        value -> value
+      end)
 
-  defp strip_repeated_atoms(value), do: value
+    %{
+      function
+      | atoms: nil,
+        constants: constants,
+        filename: nil,
+        line_num: 1,
+        col_num: 1,
+        pc2line: <<>>,
+        source: <<>>,
+        source_positions: nil
+    }
+  end
 
   defp digest(value) do
     binary = :erlang.term_to_binary(value, [:deterministic])

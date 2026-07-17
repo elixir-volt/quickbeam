@@ -7,13 +7,13 @@ defmodule QuickBEAM.VM.Compiler.Profile.Pure do
   instructions remain explicit before-instruction deopt boundaries.
   """
 
+  alias QuickBEAM.VM.Bytecode.Opcode
+  alias QuickBEAM.VM.Bytecode.Verifier.Stack
   alias QuickBEAM.VM.Compiler.Analysis.ControlFlow, as: CFG
   alias QuickBEAM.VM.Compiler.Code.Template
   alias QuickBEAM.VM.Compiler.Profile.Scalar
   alias QuickBEAM.VM.Compiler.Runtime
   alias QuickBEAM.VM.Program.Function
-  alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Bytecode.Verifier.Stack
   alias QuickBEAM.VM.Runtime.Opcode.Invocation
 
   @max_block_instruction_count 256
@@ -89,10 +89,11 @@ defmodule QuickBEAM.VM.Compiler.Profile.Pure do
 
   def prepare(%Function{} = function, minimum, profile)
       when is_integer(minimum) and minimum >= 0 and profile in [:pure_v1, :scalar_v1] do
-    with {:ok, plan, levels} <- analyze_plan(function, profile) do
+    with {:ok, analyzed_plan, levels} <- analyze_plan(function, profile) do
+      template = template(function, analyzed_plan, levels, profile)
+      plan = if scalar_template?(template), do: analyzed_plan, else: generic_plan(analyzed_plan)
       count = lowered_operation_count(plan)
       entry_count = entry_operation_count(plan)
-      template = template(function, plan, levels, profile)
 
       if eligible_template?(template, plan, count, entry_count, minimum),
         do: {:ok, template, count},

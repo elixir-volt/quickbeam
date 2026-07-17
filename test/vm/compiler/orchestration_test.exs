@@ -2,6 +2,8 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Compiler.Counter
+  alias QuickBEAM.VM.Compiler.Instrumentation
   alias QuickBEAM.VM.Compiler.Pool
   alias QuickBEAM.VM.Runtime.Engine
   alias QuickBEAM.VM.Runtime.Engine.Measurement
@@ -72,11 +74,27 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
     assert Enum.count(decisions, fn {_id, decision} -> decision == :skip end) == 2
   end
 
+  test "removes interpreted-opcode instrumentation from ordinary compiler runs" do
+    start_compiler()
+    assert {:ok, program} = QuickBEAM.VM.compile("(function(n){while(n>0)n--;return n})(10)")
+    assert {:ok, 0, execution} = Compiler.start(program)
+    assert execution.compiler_context.instrumentation == nil
+    assert execution.compiler_context.counters == nil
+
+    assert {:ok, 0, measured} =
+             Compiler.start(program, measurement_target: {self(), make_ref()})
+
+    assert measured.compiler_context.instrumentation == Instrumentation
+    assert %Counter{} = measured.compiler_context.counters
+  end
+
   test "uses the loaded artifact before repeating warm lowering" do
     start_compiler()
-    assert {:ok, program} = QuickBEAM.VM.compile("40 + 2")
-    assert {:ok, 42, cold_execution} = Compiler.start(program)
-    assert {:ok, 42, warm_execution} = Compiler.start(program)
+    expression = Enum.join(List.duplicate("value", 40), " + ")
+    source = "(function add(value) { return #{expression} })(1)"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, 40, cold_execution} = Compiler.start(program)
+    assert {:ok, 40, warm_execution} = Compiler.start(program)
 
     assert Enum.any?(cold_execution.compiler_context.decisions, fn {_id, decision} ->
              match?({:compile, _, _}, decision)
@@ -303,14 +321,16 @@ defmodule QuickBEAM.VM.Compiler.OrchestrationTest do
 
   test "shares cached generated code across isolated evaluation owners" do
     start_compiler()
-    assert {:ok, program} = QuickBEAM.VM.compile("(20 + 1) * 2")
+    expression = Enum.join(List.duplicate("value", 40), " + ")
+    source = "(function add(value) { return #{expression} })(1)"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
 
     tasks =
       for _ <- 1..40 do
         Task.async(fn -> Engine.eval(program, engine: :compiler) end)
       end
 
-    assert Task.await_many(tasks, 5_000) == List.duplicate({:ok, 42}, 40)
+    assert Task.await_many(tasks, 5_000) == List.duplicate({:ok, 40}, 40)
 
     stats = Pool.stats(Pool)
     assert stats.counts.ready >= 1
