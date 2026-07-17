@@ -87,7 +87,8 @@ defmodule QuickBEAM.MixProject do
 
   defp package do
     [
-      exclude_patterns: [~r{^lib/.*/\.Elixir\..*\.zig$}],
+      # Zigler regenerates this ignored intermediate during source builds.
+      exclude_patterns: ["lib/quickbeam/.Elixir.QuickBEAM.Native.zig"],
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url
