@@ -4,6 +4,26 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.ProgramStore
 
+  test "coalesces concurrent first pin admission by program identity" do
+    program = program(:crypto.strong_rand_bytes(32))
+
+    pinned =
+      1..20
+      |> Task.async_stream(fn _index -> ProgramStore.pin(program) end,
+        max_concurrency: 20,
+        ordered: false
+      )
+      |> Enum.map(fn {:ok, {:ok, pinned}} -> pinned end)
+
+    assert length(Enum.uniq(pinned)) == 1
+    [handle | _rest] = pinned
+    assert {:ok, lease} = ProgramStore.checkout(handle)
+    assert {:ok, ^program} = ProgramStore.fetch(lease)
+    ProgramStore.checkin(lease)
+    assert :ok = ProgramStore.unpin(handle)
+    assert eventually(fn -> ProgramStore.unpin(handle) == :not_pinned end)
+  end
+
   test "pins one immutable program under concurrent bounded leases" do
     program = program(:crypto.strong_rand_bytes(32))
 
@@ -60,6 +80,73 @@ defmodule QuickBEAM.VM.ProgramStoreTest do
     program = %{program(:crypto.strong_rand_bytes(32)) | bytecode_size: 2 * 1024 * 1024 + 1}
     assert {:error, :program_too_large} = ProgramStore.pin(program)
     assert :not_pinned = ProgramStore.unpin(program)
+  end
+
+  test "rejects decoded programs above the per-program residency bound" do
+    oversized = :binary.copy(<<0>>, 33 * 1024 * 1024)
+    program = %{program(:crypto.strong_rand_bytes(32)) | root: oversized}
+
+    assert {:error, :program_too_large} = ProgramStore.pin(program)
+    assert :not_pinned = ProgramStore.unpin(program)
+  end
+
+  test "rejects admission above the total decoded residency budget" do
+    payload = :binary.copy(<<0>>, 27 * 1024 * 1024)
+
+    pinned =
+      Enum.map(1..4, fn _index ->
+        candidate = %{program(:crypto.strong_rand_bytes(32)) | root: payload}
+        assert {:ok, pinned} = ProgramStore.pin(candidate)
+        pinned
+      end)
+
+    on_exit(fn -> Enum.each(pinned, &ProgramStore.unpin/1) end)
+
+    candidate = %{program(:crypto.strong_rand_bytes(32)) | root: payload}
+    assert {:error, :residency_budget} = ProgramStore.pin(candidate)
+  end
+
+  test "rejects a ninth pinned program without evicting fixed slots" do
+    pinned =
+      Enum.map(1..8, fn _index ->
+        assert {:ok, pinned} = ProgramStore.pin(program(:crypto.strong_rand_bytes(32)))
+        pinned
+      end)
+
+    on_exit(fn -> Enum.each(pinned, &ProgramStore.unpin/1) end)
+
+    ninth = program(:crypto.strong_rand_bytes(32))
+    assert :unavailable = ProgramStore.pin(ninth)
+
+    leases =
+      Enum.map(pinned, fn handle ->
+        assert {:ok, lease} = ProgramStore.checkout(handle)
+        lease
+      end)
+
+    Enum.each(leases, &ProgramStore.checkin/1)
+  end
+
+  test "owner death returns a lease and completes deferred unpinning" do
+    program = program(:crypto.strong_rand_bytes(32))
+    assert {:ok, pinned} = ProgramStore.pin(program)
+    parent = self()
+
+    {owner, monitor} =
+      spawn_monitor(fn ->
+        {:ok, lease} = ProgramStore.checkout(pinned)
+        send(parent, {:leased, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:leased, lease}
+    assert :ok = ProgramStore.unpin(pinned)
+    assert {:ok, ^program} = ProgramStore.fetch(lease)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+
+    assert eventually(fn -> ProgramStore.unpin(pinned) == :not_pinned end)
+    assert {:error, :stale_lease} = ProgramStore.fetch(lease)
   end
 
   test "unpinned handles fail explicitly instead of copying or falling back" do

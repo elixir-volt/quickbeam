@@ -169,14 +169,32 @@ defmodule QuickBEAM.Test262 do
   defp vm_result(source, negative, opts) do
     engine = Keyword.get(opts, :engine, :interpreter)
     compiler_profile = Keyword.get(opts, :compiler_profile, :pure_v1)
+    pinned_programs = Keyword.get(opts, :pinned_programs, false)
 
     case QuickBEAM.VM.compile(source, filename: "test262.js") do
       {:ok, program} ->
-        result = QuickBEAM.VM.eval(program, engine: engine, compiler_profile: compiler_profile)
+        result = eval_program(program, engine, compiler_profile, pinned_programs)
         classify_execution(result, negative, :runtime)
 
       {:error, error} ->
         classify_execution({:error, error}, negative, :parse)
+    end
+  end
+
+  defp eval_program(program, engine, compiler_profile, false),
+    do: QuickBEAM.VM.eval(program, engine: engine, compiler_profile: compiler_profile)
+
+  defp eval_program(program, engine, compiler_profile, true) do
+    case QuickBEAM.VM.pin(program) do
+      {:ok, pinned} ->
+        try do
+          QuickBEAM.VM.eval(pinned, engine: engine, compiler_profile: compiler_profile)
+        after
+          QuickBEAM.VM.unpin(pinned)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

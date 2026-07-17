@@ -25,7 +25,8 @@ defmodule QuickBEAM.VM.ProgramStore do
   The store exists to avoid copying a decoded program into every isolated
   evaluation process. Programs enter only through explicit `pin/1`
   calls. The store never derives atoms from input, holds at most `capacity`
-  persistent terms, and does not evict programs implicitly. Programs can be
+  persistent terms, bounds both per-program and total external-term residency,
+  and does not evict programs implicitly. Programs can be
   explicitly released; active leases defer erasure until their workers finish.
   """
 
@@ -37,6 +38,8 @@ defmodule QuickBEAM.VM.ProgramStore do
   @default_capacity 8
   @maximum_capacity 32
   @maximum_pinned_bytecode_bytes 2 * 1024 * 1024
+  @maximum_program_residency_bytes 32 * 1024 * 1024
+  @maximum_total_residency_bytes 128 * 1024 * 1024
   @type checkout_result :: {:ok, Lease.t()} | :unavailable
 
   @doc "Starts the bounded pinned-program store."
@@ -48,7 +51,9 @@ defmodule QuickBEAM.VM.ProgramStore do
 
   @doc "Pins a verified program explicitly and returns its lightweight handle."
   @spec pin(Program.t(), GenServer.server()) ::
-          {:ok, PinnedProgram.t()} | :unavailable | {:error, :program_too_large}
+          {:ok, PinnedProgram.t()}
+          | :unavailable
+          | {:error, :program_too_large | :residency_budget}
   def pin(program, server \\ __MODULE__)
 
   def pin(
@@ -56,13 +61,19 @@ defmodule QuickBEAM.VM.ProgramStore do
         server
       )
       when is_binary(key) and is_integer(size) and size <= @maximum_pinned_bytecode_bytes do
-    case reserve_and_install(key, program, server) do
-      {:ok, lease} ->
-        checkin(lease, server)
-        {:ok, %PinnedProgram{key: key}}
+    case program_residency(program) do
+      {:ok, residency_bytes} when residency_bytes <= @maximum_program_residency_bytes ->
+        case reserve_and_install(key, program, residency_bytes, server) do
+          {:ok, lease} ->
+            checkin(lease, server)
+            {:ok, %PinnedProgram{key: key}}
 
-      :unavailable ->
-        :unavailable
+          result ->
+            result
+        end
+
+      _oversized_or_invalid ->
+        {:error, :program_too_large}
     end
   end
 
@@ -121,14 +132,15 @@ defmodule QuickBEAM.VM.ProgramStore do
     if not is_integer(capacity) or capacity <= 0 or capacity > @maximum_capacity do
       {:stop, {:invalid_capacity, capacity}}
     else
-      {entries, slots} = restore_slots(capacity)
+      {entries, slots, residency_bytes} = restore_slots(capacity)
 
       {:ok,
        %{
          capacity: capacity,
          entries: entries,
          slots: slots,
-         pending: %{}
+         pending: %{},
+         residency_bytes: residency_bytes
        }}
     end
   end
@@ -145,14 +157,14 @@ defmodule QuickBEAM.VM.ProgramStore do
     end
   end
 
-  def handle_call({:reserve, key}, from, state) do
+  def handle_call({:reserve, key, residency_bytes}, from, state) do
     case state.entries do
       %{^key => entry} ->
         {lease, entry} = grant_lease(key, entry, from)
         {:reply, {:ok, lease}, put_in(state.entries[key], entry)}
 
       _entries ->
-        reserve_missing(key, from, state)
+        reserve_missing(key, residency_bytes, from, state)
     end
   end
 
@@ -223,9 +235,9 @@ defmodule QuickBEAM.VM.ProgramStore do
     end
   end
 
-  defp reserve_and_install(key, program, server) do
+  defp reserve_and_install(key, program, residency_bytes, server) do
     if GenServer.whereis(server) do
-      case safe_store_call(server, {:reserve, key}) do
+      case safe_store_call(server, {:reserve, key, residency_bytes}) do
         {:install, token, slot} -> install_reserved(server, key, token, slot, program)
         result -> result
       end
@@ -234,18 +246,21 @@ defmodule QuickBEAM.VM.ProgramStore do
     end
   end
 
-  defp reserve_missing(key, from, state) do
+  defp reserve_missing(key, residency_bytes, from, state) do
     case state.pending do
       %{^key => pending} ->
         pending = %{pending | waiters: [from | pending.waiters]}
         {:noreply, put_in(state.pending[key], pending)}
 
       _pending ->
-        case free_slot(state) do
-          nil ->
+        case {free_slot(state), residency_available?(state, residency_bytes)} do
+          {nil, _available?} ->
             {:reply, :unavailable, state}
 
-          slot ->
+          {_slot, false} ->
+            {:reply, {:error, :residency_budget}, state}
+
+          {slot, true} ->
             owner = elem(from, 0)
             token = make_ref()
 
@@ -254,7 +269,8 @@ defmodule QuickBEAM.VM.ProgramStore do
               token: token,
               owner: owner,
               monitor: Process.monitor(owner),
-              waiters: []
+              waiters: [],
+              residency_bytes: residency_bytes
             }
 
             {:reply, {:install, token, slot}, put_in(state.pending[key], pending)}
@@ -270,29 +286,65 @@ defmodule QuickBEAM.VM.ProgramStore do
     end)
   end
 
+  defp program_residency(program) do
+    {:ok, :erlang.external_size(program)}
+  rescue
+    _exception -> :error
+  end
+
+  defp residency_available?(state, residency_bytes) do
+    pending_bytes =
+      Enum.reduce(state.pending, 0, fn {_key, pending}, total ->
+        total + pending.residency_bytes
+      end)
+
+    state.residency_bytes + pending_bytes + residency_bytes <=
+      @maximum_total_residency_bytes
+  end
+
   defp restore_slots(capacity) do
-    Enum.reduce(0..(capacity - 1), {%{}, %{}}, fn slot, {entries, slots} ->
+    Enum.reduce(0..(capacity - 1), {%{}, %{}, 0}, fn slot, {entries, slots, residency_bytes} ->
       case :persistent_term.get(storage_key(slot), :missing) do
         {key, token, %Program{} = program} when is_binary(key) and is_reference(token) ->
-          restore_program_slot(program, key, token, slot, entries, slots)
+          restore_program_slot(
+            program,
+            key,
+            token,
+            slot,
+            entries,
+            slots,
+            residency_bytes
+          )
 
         :missing ->
-          {entries, slots}
+          {entries, slots, residency_bytes}
 
         _other ->
           :persistent_term.erase(storage_key(slot))
-          {entries, slots}
+          {entries, slots, residency_bytes}
       end
     end)
   end
 
-  defp restore_program_slot(program, key, token, slot, entries, slots) do
-    if Verifier.verify_identity(program) == :ok do
-      entry = %{key: key, slot: slot, token: token, leases: %{}, unpin?: false}
-      {Map.put(entries, key, entry), Map.put(slots, slot, key)}
+  defp restore_program_slot(program, key, token, slot, entries, slots, total_bytes) do
+    with :ok <- Verifier.verify_identity(program),
+         {:ok, program_bytes} <- program_residency(program),
+         true <- program_bytes <= @maximum_program_residency_bytes,
+         true <- total_bytes + program_bytes <= @maximum_total_residency_bytes do
+      entry = %{
+        key: key,
+        slot: slot,
+        token: token,
+        leases: %{},
+        unpin?: false,
+        residency_bytes: program_bytes
+      }
+
+      {Map.put(entries, key, entry), Map.put(slots, slot, key), total_bytes + program_bytes}
     else
-      :persistent_term.erase(storage_key(slot))
-      {entries, slots}
+      _invalid_or_oversized ->
+        :persistent_term.erase(storage_key(slot))
+        {entries, slots, total_bytes}
     end
   end
 
@@ -304,7 +356,8 @@ defmodule QuickBEAM.VM.ProgramStore do
       slot: pending.slot,
       token: token,
       leases: %{},
-      unpin?: false
+      unpin?: false,
+      residency_bytes: pending.residency_bytes
     }
 
     {lease, entry} = grant_lease(key, entry, {owner, nil})
@@ -320,7 +373,8 @@ defmodule QuickBEAM.VM.ProgramStore do
       state
       | entries: Map.put(state.entries, key, entry),
         slots: Map.put(state.slots, pending.slot, key),
-        pending: Map.delete(state.pending, key)
+        pending: Map.delete(state.pending, key),
+        residency_bytes: state.residency_bytes + pending.residency_bytes
     }
 
     {:reply, {:ok, lease}, state}
@@ -406,7 +460,14 @@ defmodule QuickBEAM.VM.ProgramStore do
   end
 
   defp remove_entry(state, key, slot) do
-    %{state | entries: Map.delete(state.entries, key), slots: Map.delete(state.slots, slot)}
+    entry = Map.fetch!(state.entries, key)
+
+    %{
+      state
+      | entries: Map.delete(state.entries, key),
+        slots: Map.delete(state.slots, slot),
+        residency_bytes: state.residency_bytes - entry.residency_bytes
+    }
   end
 
   defp persisted?(slot, key, token) do

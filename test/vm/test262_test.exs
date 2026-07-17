@@ -101,12 +101,28 @@ defmodule QuickBEAM.VM.Test262Test do
       assert_compiler_manifest(:scalar_v1)
     end
 
-    defp assert_compiler_manifest(profile) do
-      results =
-        QuickBEAM.Test262.run_manifest(@root, @manifest,
-          engine: :compiler,
-          compiler_profile: profile
-        )
+    @tag timeout: 180_000
+    test "pinned interpreter meets the selected differential conformance threshold" do
+      assert_vm_manifest(pinned_programs: true)
+    end
+
+    @tag timeout: 180_000
+    test "pinned compiler tier meets the selected differential conformance threshold" do
+      start_supervised!({QuickBEAM.VM.Compiler, capacity: 8})
+      assert_vm_manifest(engine: :compiler, compiler_profile: :pure_v1, pinned_programs: true)
+    end
+
+    @tag timeout: 180_000
+    test "pinned scalar compiler meets the selected differential conformance threshold" do
+      start_supervised!({QuickBEAM.VM.Compiler, capacity: 8})
+      assert_vm_manifest(engine: :compiler, compiler_profile: :scalar_v1, pinned_programs: true)
+    end
+
+    defp assert_compiler_manifest(profile),
+      do: assert_vm_manifest(engine: :compiler, compiler_profile: profile)
+
+    defp assert_vm_manifest(opts) do
+      results = QuickBEAM.Test262.run_manifest(@root, @manifest, opts)
 
       summary = QuickBEAM.Test262.summarize(results)
 
@@ -151,6 +167,18 @@ defmodule QuickBEAM.VM.Test262Test do
 
     @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
     test "scalar compiler profile meets the selected differential conformance threshold" do
+    end
+
+    @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
+    test "pinned interpreter meets the selected differential conformance threshold" do
+    end
+
+    @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
+    test "pinned compiler tier meets the selected differential conformance threshold" do
+    end
+
+    @tag skip: "set TEST262_PATH to the pinned Test262 checkout"
+    test "pinned scalar compiler meets the selected differential conformance threshold" do
     end
   end
 end

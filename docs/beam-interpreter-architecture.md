@@ -146,10 +146,10 @@ end-to-end wall time.
 ### Evaluate
 
 ```elixir
-@spec QuickBEAM.VM.eval(QuickBEAM.VM.Program.t(), keyword()) ::
-        {:ok, term()} | {:error, QuickBEAM.JS.Error.t() | term()}
-
-@spec QuickBEAM.VM.eval!(QuickBEAM.VM.Program.t(), keyword()) :: term()
+@spec QuickBEAM.VM.eval(
+        QuickBEAM.VM.Program.t() | QuickBEAM.VM.PinnedProgram.t(),
+        keyword()
+      ) :: {:ok, term()} | {:error, QuickBEAM.JS.Error.t() | term()}
 ```
 
 Suggested evaluation options:
@@ -170,19 +170,22 @@ failure and timeout boundary.
 
 ### Preload in a supervision tree
 
-Applications should be able to compile a program once during startup and keep
-it in their own process state. A later convenience cache may expose:
+Applications compile and pin long-lived bundles during startup, retain the
+lightweight handle in their own supervised state, and unpin it during bundle
+replacement or shutdown:
 
 ```elixir
-children = [
-  {QuickBEAM.VM.CompilerPool, name: MyApp.JSCompiler, size: 2},
-  {MyApp.Renderer, source: "priv/server.js"}
-]
+{:ok, source} = File.read("priv/server.js")
+{:ok, program} = QuickBEAM.VM.compile(source, filename: "server.js")
+{:ok, pinned} = QuickBEAM.VM.pin(program)
+
+# Store `pinned` in the renderer process state.
+# QuickBEAM.VM.unpin(pinned) during terminate/replacement.
 ```
 
-The first release does not need a global program registry. Ordinary immutable
-Elixir data is already shareable, and application ownership avoids hidden cache
-lifecycle rules.
+The registry is explicit and bounded rather than a transparent cache. It has no
+implicit eviction or copied-program fallback, and active owner-monitored leases
+defer unpinning until current evaluations finish.
 
 ## Program artifact
 

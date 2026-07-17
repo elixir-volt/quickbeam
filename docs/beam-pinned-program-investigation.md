@@ -57,9 +57,11 @@ The store is deliberately not an automatic cache:
 - sharing is explicit;
 - the default capacity is eight and the hard maximum is 32;
 - a pinned serialized bytecode input is at most 2 MiB;
+- the supported external-term size is at most 32 MiB per decoded program and
+  128 MiB across installed and in-flight admissions;
 - slots use fixed integer keys and binary program identities;
 - there is no input-derived atom and no implicit eviction;
-- concurrent first admission is single-flight;
+- concurrent first admission is single-flight and idempotent by program identity;
 - every lease has a unique reference and owner monitor;
 - owner death returns its lease;
 - explicit release waits for active leases and then erases the slot;
@@ -90,9 +92,10 @@ QuickBEAM.VM.unpin(pinned)
 ## Admission cost
 
 Sharing is an initialization operation, not part of the warm-render numbers.
-Three fresh-VM Vue admissions took 11.307, 14.298, and 10.995 ms (11.307 ms
-median). Admission reserves a slot through the store but installs the persistent
-term in the caller, avoiding a giant GenServer message. The program retained
+After adding the decoded-term residency check, three fresh-VM Vue admissions
+took 17.317, 22.615, and 18.448 ms (18.448 ms median). Admission reserves a slot
+through the store but measures and installs the persistent term in the caller,
+avoiding a giant GenServer message. The program retained
 about 310,582 words (approximately 2.37 MiB) in the persistent slot according
 to the unsupported ERTS debug size diagnostic,
 while its process-copy flat size was 7,370,007 words (approximately 56.23 MiB).
@@ -100,9 +103,13 @@ The handle's external encoding was 95 bytes. The store process itself retained
 only 3,088 bytes because program terms never enter its mailbox or state.
 
 These are OTP implementation observations, not logical JavaScript memory or a
-stable public size API. Applications should share long-lived bundles during
-startup and release them during replacement or shutdown, not churn slots per
-request.
+stable public size API. Admission uses the supported external-term size as a
+conservative bound; Preact, Vue, and Svelte measured 466,461, 10,947,914, and
+2,155,557 bytes respectively. It deliberately counts repeated references rather
+than relying on retained sharing diagnostics. Applications should pin long-lived
+bundles through one lifecycle owner during startup and unpin them during
+replacement or shutdown, not churn slots per request. Repeated pins of the same
+identity return the same global handle rather than independent ownership counts.
 
 ## Pinned SSR result
 
