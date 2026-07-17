@@ -87,6 +87,7 @@ defmodule QuickBEAM.MixProject do
 
   defp package do
     [
+      exclude_patterns: [~r{^lib/.*/\.Elixir\..*\.zig$}],
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url
