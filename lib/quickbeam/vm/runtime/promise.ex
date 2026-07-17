@@ -8,12 +8,12 @@ defmodule QuickBEAM.VM.Runtime.Promise do
 
   alias QuickBEAM.VM.Runtime.Callable
   alias QuickBEAM.VM.Runtime.Coroutine
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Memory
-  alias QuickBEAM.VM.Runtime.Property
-  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
   alias QuickBEAM.VM.Runtime.Promise.Reaction
+  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
+  alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
 
   @type state :: :pending | {:fulfilled, term()} | {:rejected, term()}
 

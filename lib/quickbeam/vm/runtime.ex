@@ -6,17 +6,17 @@ defmodule QuickBEAM.VM.Runtime do
   coroutines, and waits for the final Promise without polling.
   """
 
+  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Runtime.Async
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Coroutine
   alias QuickBEAM.VM.Runtime.Exception
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Interpreter
   alias QuickBEAM.VM.Runtime.Optimization
-  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Runtime.Promise
-  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
   alias QuickBEAM.VM.Runtime.Promise.Reaction
+  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
+  alias QuickBEAM.VM.Runtime.State
 
   @doc "Evaluates a verified program and drains its owner-local event loop."
   @spec eval(Program.t(), keyword()) :: Interpreter.result()

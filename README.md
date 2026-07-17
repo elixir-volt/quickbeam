@@ -60,8 +60,9 @@ The program store is fixed-capacity and has no implicit eviction or fallback.
 Applications should have one supervised lifecycle owner pin each bundle during
 startup and unpin it during replacement or normal shutdown.
 
-The optional `engine: :compiler` tiers remain explicitly supervised and
-release-quarantined; the interpreter is the production default.
+The bounded BEAM compiler remains an internal, release-quarantined benchmark
+and conformance tier. It is not selectable through the public `QuickBEAM.VM`
+evaluation options; production evaluation always uses the interpreter.
 
 ## BEAM integration
 

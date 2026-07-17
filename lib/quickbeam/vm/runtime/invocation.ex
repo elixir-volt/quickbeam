@@ -9,18 +9,18 @@ defmodule QuickBEAM.VM.Runtime.Invocation do
   """
 
   alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Builtin.Action
+  alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
+  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Callable
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
-
-  alias QuickBEAM.VM.Builtin.Action
-  alias QuickBEAM.VM.Builtin.Call
+  alias QuickBEAM.VM.Runtime.State
 
   @builtin_tags [:builtin, :declared_builtin, :primitive_method]
 
@@ -137,7 +137,7 @@ defmodule QuickBEAM.VM.Runtime.Invocation do
   @doc "Returns whether a value can be used as a JavaScript constructor."
   @spec constructable?(term(), State.t()) :: boolean()
   def constructable?(%Reference{} = constructor, execution) do
-    case QuickBEAM.VM.Runtime.Heap.fetch_object(execution, constructor) do
+    case Heap.fetch_object(execution, constructor) do
       {:ok, %{internal: :class_constructor}} ->
         true
 

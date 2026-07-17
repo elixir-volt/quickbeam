@@ -6,25 +6,20 @@ defmodule QuickBEAM.VM.Runtime.Exception do
   to `QuickBEAM.JSError` happens only after a value escapes the evaluation.
   """
 
-  alias QuickBEAM.VM.Runtime.Boundary
-  alias QuickBEAM.VM.Runtime.Async
-
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
-
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
-  alias QuickBEAM.VM.Runtime.Heap
-
-  alias QuickBEAM.VM.Runtime.Frame.Native
-  alias QuickBEAM.VM.Runtime.Object
-
   alias QuickBEAM.VM.Bytecode.Atom, as: AtomTable
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime.Async
+  alias QuickBEAM.VM.Runtime.Boundary
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.Frame.Native
+  alias QuickBEAM.VM.Runtime.Heap
+  alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Promise
-
   alias QuickBEAM.VM.Runtime.Property
-
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Value
 
   alias QuickBEAM.VM.Runtime.Thrown
 
@@ -329,5 +324,5 @@ defmodule QuickBEAM.VM.Runtime.Exception do
   defp thrown(reason, trace), do: %Thrown{value: reason, frames: Enum.reverse(trace)}
 
   defp to_string_value(value) when is_binary(value), do: value
-  defp to_string_value(value), do: QuickBEAM.VM.Runtime.Value.to_string_value(value)
+  defp to_string_value(value), do: Value.to_string_value(value)
 end

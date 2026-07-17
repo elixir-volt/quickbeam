@@ -7,46 +7,38 @@ defmodule QuickBEAM.VM.Runtime.Interpreter do
   Elixir or native call stack.
   """
 
-  alias QuickBEAM.VM.Runtime.Boundary
-  alias QuickBEAM.VM.Runtime.Async
-
+  alias QuickBEAM.VM.Builtin.Registry
   alias QuickBEAM.VM.Builtin.Runtime, as: BuiltinRuntime
   alias QuickBEAM.VM.Builtin.Set, as: SetBuiltin
-
+  alias QuickBEAM.VM.Bytecode.Opcode
+  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Runtime.Async
+  alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Continuation
   alias QuickBEAM.VM.Runtime.Coroutine
   alias QuickBEAM.VM.Runtime.Exception
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Value.Export
   alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.Frame.Native
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
   alias QuickBEAM.VM.Runtime.Iterator
-
   alias QuickBEAM.VM.Runtime.Memory
-  alias QuickBEAM.VM.Runtime.Frame.Native
-
-  alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Program
-  alias QuickBEAM.VM.Runtime.Promise
-
-  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
-  alias QuickBEAM.VM.Runtime.Property
-  alias QuickBEAM.VM.Runtime.Promise.Reaction
-
-  alias QuickBEAM.VM.Runtime.Reference
-  alias QuickBEAM.VM.Runtime.RegExp
-
-  alias QuickBEAM.VM.Runtime.Value
-
-  alias QuickBEAM.VM.Builtin.Registry
-  alias QuickBEAM.VM.Runtime.Optimization
   alias QuickBEAM.VM.Runtime.Opcode.Control, as: ControlOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Invocation, as: InvocationOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Local, as: LocalOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Object, as: ObjectOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Stack, as: StackOpcodes
   alias QuickBEAM.VM.Runtime.Opcode.Value, as: ValueOpcodes
+  alias QuickBEAM.VM.Runtime.Optimization
+  alias QuickBEAM.VM.Runtime.Promise
+  alias QuickBEAM.VM.Runtime.Promise.Reaction
+  alias QuickBEAM.VM.Runtime.Promise.Reference, as: PromiseReference
+  alias QuickBEAM.VM.Runtime.Property
+  alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.RegExp
+  alias QuickBEAM.VM.Runtime.State
+  alias QuickBEAM.VM.Runtime.Value
+  alias QuickBEAM.VM.Runtime.Value.Export
 
   @default_max_steps 5_000_000
   @default_max_stack_depth 1_000

@@ -12,9 +12,9 @@ defmodule QuickBEAM.VM.Program.Store do
 
   use GenServer
 
-  alias QuickBEAM.VM.Program.Pinned
-  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Bytecode.Verifier
+  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Pinned
   alias QuickBEAM.VM.Program.Store.Lease
 
   @default_capacity 8

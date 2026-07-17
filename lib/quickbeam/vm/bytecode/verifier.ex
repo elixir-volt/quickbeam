@@ -7,10 +7,10 @@ defmodule QuickBEAM.VM.Bytecode.Verifier do
   """
 
   alias QuickBEAM.VM.ABI
-  alias QuickBEAM.VM.Program.Function
   alias QuickBEAM.VM.Bytecode.Opcode
-  alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Bytecode.Verifier.Stack
+  alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
 
   @js_atom_end Opcode.js_atom_end()
 

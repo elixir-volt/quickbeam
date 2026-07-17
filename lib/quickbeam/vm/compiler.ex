@@ -2,7 +2,8 @@ defmodule QuickBEAM.VM.Compiler do
   @moduledoc """
   Supervises and orchestrates the optional bounded BEAM compiler tier.
 
-  Add this module to a supervision tree before selecting `engine: :compiler`:
+  Internal benchmarks add this module to a supervision tree before selecting
+  `engine: :compiler` through `QuickBEAM.VM.Runtime.Engine`:
 
       children = [
         {QuickBEAM.VM.Compiler, capacity: 8}
@@ -13,22 +14,21 @@ defmodule QuickBEAM.VM.Compiler do
   as typed compiler errors and never invoke native QuickJS.
   """
 
+  alias QuickBEAM.VM.Compiler.Code
   alias QuickBEAM.VM.Compiler.Context
   alias QuickBEAM.VM.Compiler.Contract
   alias QuickBEAM.VM.Compiler.Counter
   alias QuickBEAM.VM.Compiler.Deopt
   alias QuickBEAM.VM.Compiler.Instrumentation
-  alias QuickBEAM.VM.Compiler.Code
   alias QuickBEAM.VM.Compiler.Pool
-  alias QuickBEAM.VM.Compiler.Region.Probe
-
   alias QuickBEAM.VM.Compiler.Profile.Pure
-  alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.State
-  alias QuickBEAM.VM.Runtime.Frame
-  alias QuickBEAM.VM.Program.Function
-  alias QuickBEAM.VM.Runtime.Interpreter
+  alias QuickBEAM.VM.Compiler.Region.Probe
   alias QuickBEAM.VM.Program
+  alias QuickBEAM.VM.Program.Function
+  alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Frame
+  alias QuickBEAM.VM.Runtime.Interpreter
+  alias QuickBEAM.VM.Runtime.State
 
   @type result :: {:ok, term()} | {:error, term()} | {:suspended, term()}
   @type frame_action ::

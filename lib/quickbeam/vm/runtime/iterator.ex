@@ -8,15 +8,15 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   `value`. No JavaScript call is executed recursively.
   """
 
+  alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Exception
-  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Heap
   alias QuickBEAM.VM.Runtime.Invocation
-  alias QuickBEAM.VM.Runtime.Boundary
   alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.Property
   alias QuickBEAM.VM.Runtime.Reference
+  alias QuickBEAM.VM.Runtime.State
   alias QuickBEAM.VM.Runtime.Symbol
   alias QuickBEAM.VM.Runtime.Value
 

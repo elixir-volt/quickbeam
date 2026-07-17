@@ -7,13 +7,13 @@ defmodule QuickBEAM.VM.Runtime.Engine do
   release-quarantined and filtered from public ExDoc output.
   """
 
+  alias QuickBEAM.VM.Bytecode.Verifier
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Program
   alias QuickBEAM.VM.Program.Pinned
   alias QuickBEAM.VM.Program.Store
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Engine.Measurement
-  alias QuickBEAM.VM.Bytecode.Verifier
 
   @default_timeout 5_000
   @default_memory_limit 64 * 1024 * 1024
@@ -157,71 +157,69 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     vars = Keyword.get(opts, :vars, %{})
     handlers = Keyword.get(opts, :handlers, %{})
 
-    cond do
-      isolation not in [:caller, :process] ->
-        {:error, {:invalid_option, :isolation, isolation}}
-
-      engine not in [:interpreter, :compiler] ->
-        {:error, {:invalid_option, :engine, engine}}
-
-      not (is_atom(compiler_pool) or is_pid(compiler_pool)) ->
-        {:error, {:invalid_option, :compiler_pool, compiler_pool}}
-
-      compiler_profile not in [:pure_v1, :scalar_v1] ->
-        {:error, {:invalid_option, :compiler_profile, compiler_profile}}
-
-      not is_boolean(compiler_region_probe) ->
-        {:error, {:invalid_option, :compiler_region_probe, compiler_region_probe}}
-
-      not is_boolean(compiler_regions) ->
-        {:error, {:invalid_option, :compiler_regions, compiler_regions}}
-
-      timeout != :infinity and (not is_integer(timeout) or timeout <= 0) ->
-        {:error, {:invalid_option, :timeout, timeout}}
-
-      not is_integer(max_steps) or max_steps <= 0 ->
-        {:error, {:invalid_option, :max_steps, max_steps}}
-
-      not is_integer(max_stack_depth) or max_stack_depth <= 0 ->
-        {:error, {:invalid_option, :max_stack_depth, max_stack_depth}}
-
-      memory_limit != :infinity and (not is_integer(memory_limit) or memory_limit <= 0) ->
-        {:error, {:invalid_option, :memory_limit, memory_limit}}
-
-      profile not in [:core, :ssr] ->
-        {:error, {:invalid_option, :profile, profile}}
-
-      not is_map(vars) ->
-        {:error, {:invalid_option, :vars, vars}}
-
-      not is_map(handlers) or
-          not Enum.all?(handlers, fn {name, handler} ->
-            is_binary(name) and is_function(handler, 1)
-          end) ->
-        {:error, {:invalid_option, :handlers, handlers}}
-
-      true ->
-        {:ok,
-         %{
-           isolation: isolation,
-           engine: engine,
+    with :ok <- validate_member(:isolation, isolation, [:caller, :process]),
+         :ok <- validate_member(:engine, engine, [:interpreter, :compiler]),
+         :ok <- validate_server(compiler_pool),
+         :ok <- validate_member(:compiler_profile, compiler_profile, [:pure_v1, :scalar_v1]),
+         :ok <- validate_boolean(:compiler_region_probe, compiler_region_probe),
+         :ok <- validate_boolean(:compiler_regions, compiler_regions),
+         :ok <- validate_limit(:timeout, timeout),
+         :ok <- validate_positive(:max_steps, max_steps),
+         :ok <- validate_positive(:max_stack_depth, max_stack_depth),
+         :ok <- validate_limit(:memory_limit, memory_limit),
+         :ok <- validate_member(:profile, profile, [:core, :ssr]),
+         :ok <- validate_map(:vars, vars),
+         :ok <- validate_handlers(handlers) do
+      {:ok,
+       %{
+         isolation: isolation,
+         engine: engine,
+         memory_limit: memory_limit,
+         timeout: timeout,
+         interpreter: %{
+           compiler_pool: compiler_pool,
+           compiler_profile: compiler_profile,
+           compiler_region_probe: compiler_region_probe,
+           compiler_regions: compiler_regions,
+           handlers: handlers,
+           max_steps: max_steps,
+           max_stack_depth: max_stack_depth,
            memory_limit: memory_limit,
-           timeout: timeout,
-           interpreter: %{
-             compiler_pool: compiler_pool,
-             compiler_profile: compiler_profile,
-             compiler_region_probe: compiler_region_probe,
-             compiler_regions: compiler_regions,
-             handlers: handlers,
-             max_steps: max_steps,
-             max_stack_depth: max_stack_depth,
-             memory_limit: memory_limit,
-             profile: profile,
-             vars: vars
-           }
-         }}
+           profile: profile,
+           vars: vars
+         }
+       }}
     end
   end
+
+  defp validate_member(name, value, allowed) do
+    if value in allowed, do: :ok, else: {:error, {:invalid_option, name, value}}
+  end
+
+  defp validate_server(server) when is_atom(server) or is_pid(server), do: :ok
+  defp validate_server(server), do: {:error, {:invalid_option, :compiler_pool, server}}
+
+  defp validate_boolean(_name, value) when is_boolean(value), do: :ok
+  defp validate_boolean(name, value), do: {:error, {:invalid_option, name, value}}
+
+  defp validate_limit(_name, :infinity), do: :ok
+  defp validate_limit(name, value), do: validate_positive(name, value)
+
+  defp validate_positive(_name, value) when is_integer(value) and value > 0, do: :ok
+  defp validate_positive(name, value), do: {:error, {:invalid_option, name, value}}
+
+  defp validate_map(_name, value) when is_map(value), do: :ok
+  defp validate_map(name, value), do: {:error, {:invalid_option, name, value}}
+
+  defp validate_handlers(handlers) when is_map(handlers) do
+    if Enum.all?(handlers, fn {name, handler} ->
+         is_binary(name) and is_function(handler, 1)
+       end),
+       do: :ok,
+       else: {:error, {:invalid_option, :handlers, handlers}}
+  end
+
+  defp validate_handlers(handlers), do: {:error, {:invalid_option, :handlers, handlers}}
 
   defp pinned_lease(pinned) do
     case Store.checkout(pinned) do

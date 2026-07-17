@@ -4,7 +4,7 @@
 
 - Add `QuickBEAM.VM`, an isolated BEAM interpreter for verified QuickJS v26 bytecode with async/await, asynchronous `Beam.call` handlers, JavaScript errors, explicit resource limits, deterministic measurements, and bounded Test262 and SSR coverage.
 - Add explicit immutable program pinning through `QuickBEAM.VM.pin/1` and `QuickBEAM.VM.unpin/1`, with fixed slots, single-flight admission, monitored evaluation leases, restart restoration, and decoded-residency limits.
-- Add an optional bounded BEAM compiler with fixed generated-module slots and explicit deoptimization. Compiler execution remains disabled by default and release-quarantined.
+- Add an internal bounded BEAM compiler benchmark tier with fixed generated-module slots and explicit deoptimization. Compiler execution is not exposed through the public VM facade and remains release-quarantined.
 - Compact default object and array descriptors while preserving property ordering, reflection, and deterministic memory accounting.
 - Serialize native addon initialization and reject unsafe cross-runtime or post-reset reuse unless `allow_reinitialization: true` is explicitly selected.
 
