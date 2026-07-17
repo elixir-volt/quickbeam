@@ -70,6 +70,23 @@ defmodule QuickBEAM.VM.Compiler.Profile.PureTest do
     assert Pure.candidate?(loop, 10_000, :scalar_v1)
   end
 
+  test "reports bounded scalar eligibility rejections" do
+    assert {:ok, argument_program} =
+             QuickBEAM.VM.compile("(function(a,b,c,d,e,f,g,h,i){return a})(1,2,3,4,5,6,7,8,9)")
+
+    argument_function =
+      Enum.find(argument_program.root.constants, &is_struct(&1, Function))
+
+    assert Pure.scalar_eligibility(argument_function, :scalar_v1) ==
+             {:ineligible, :argument_count}
+
+    assert {:ok, loop_program} =
+             QuickBEAM.VM.compile("(function(n){let s=0;while(n>0){s+=n;n--}return s})(10)")
+
+    loop_function = Enum.find(loop_program.root.constants, &is_struct(&1, Function))
+    assert Pure.scalar_eligibility(loop_function, :scalar_v1) == :eligible
+  end
+
   test "extracts a bounded scalar entry region from an oversized function" do
     body = Enum.map_join(1..100, "", fn _index -> "value=value+1;" end)
 

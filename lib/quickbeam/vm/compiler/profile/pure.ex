@@ -75,6 +75,16 @@ defmodule QuickBEAM.VM.Compiler.Profile.Pure do
     with {:ok, plan, _levels} <- analyze_plan(function, :pure_v1), do: {:ok, plan}
   end
 
+  @doc "Returns bounded scalar eligibility for a verified function and profile."
+  @spec scalar_eligibility(Function.t(), :pure_v1 | :scalar_v1) ::
+          :eligible | {:ineligible, atom()} | {:error, term()}
+  def scalar_eligibility(%Function{} = function, profile)
+      when profile in [:pure_v1, :scalar_v1] do
+    with {:ok, plan, levels} <- analyze_plan(function, profile) do
+      Scalar.eligibility(function, plan, levels)
+    end
+  end
+
   @doc "Emits specialized generated-module forms for the bounded pure profile."
   @spec lower(Function.t()) :: {:ok, Template.t()} | {:error, term()}
   def lower(%Function{} = function) do

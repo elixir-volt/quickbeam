@@ -13,6 +13,8 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
 
   @line 1
   @max_stack_depth 64
+  @max_argument_count 8
+  @max_variable_count 8
   @max_scalar_operations 64
   @max_scalar_blocks 16
   @stack_variables List.to_tuple(
@@ -38,36 +40,58 @@ defmodule QuickBEAM.VM.Compiler.Profile.Scalar do
     do: lower(function, plan, levels, :runtime)
 
   defp lower(function, plan, levels, tuple_mode) do
-    if eligible?(function, plan, levels) do
-      {:ok,
-       %Template{
-         forms: [
-           {:attribute, @line, :module, Template.placeholder_module()},
-           {:attribute, @line, :export, [run: 3]},
-           run_form(),
-           block_form(plan, levels, tuple_mode),
-           {:eof, @line}
-         ]
-       }}
-    else
-      :not_eligible
+    case eligibility(function, plan, levels) do
+      :eligible ->
+        {:ok,
+         %Template{
+           forms: [
+             {:attribute, @line, :module, Template.placeholder_module()},
+             {:attribute, @line, :export, [run: 3]},
+             run_form(),
+             block_form(plan, levels, tuple_mode),
+             {:eof, @line}
+           ]
+         }}
+
+      {:ineligible, _reason} ->
+        :not_eligible
     end
   end
 
-  defp eligible?(function, plan, levels) do
-    bounded_shape?(function, plan, levels) and eligible_constants?(function.constants) and
-      checked_locals_initialized?(function, plan)
+  @doc "Returns the first bounded scalar-lowering eligibility rejection."
+  @spec eligibility(Function.t(), plan(), map()) :: :eligible | {:ineligible, atom()}
+  def eligibility(%Function{} = function, plan, levels)
+      when is_map(plan) and is_map(levels) do
+    with :ok <- within_limit(function.stack_size, @max_stack_depth, :stack_depth),
+         :ok <- within_limit(function.arg_count, @max_argument_count, :argument_count),
+         :ok <- within_limit(function.var_count, @max_variable_count, :variable_count),
+         :ok <- within_limit(map_size(plan), @max_scalar_blocks, :block_count),
+         :ok <-
+           within_limit(scalar_operation_count(plan), @max_scalar_operations, :operation_count),
+         :ok <- require_eligibility(bounded_blocks?(plan), :block_operation_count),
+         :ok <- require_eligibility(bounded_levels?(levels), :analyzed_stack_depth),
+         :ok <-
+           require_eligibility(
+             not captured_frame_slots?(function.constants),
+             :captured_frame_slots
+           ),
+         :ok <-
+           require_eligibility(checked_locals_initialized?(function, plan), :uninitialized_local) do
+      :eligible
+    end
   end
 
-  defp bounded_shape?(function, plan, levels) do
-    function.stack_size <= @max_stack_depth and function.arg_count <= 8 and
-      function.var_count <= 8 and map_size(plan) <= @max_scalar_blocks and
-      scalar_operation_count(plan) <= @max_scalar_operations and
-      Enum.all?(plan, fn {_pc, {operations, _reason}} -> length(operations) <= 32 end) and
-      Enum.all?(levels, fn {_pc, {depth, _catch}} -> depth <= @max_stack_depth end)
-  end
+  defp within_limit(value, maximum, _reason) when value <= maximum, do: :ok
+  defp within_limit(_value, _maximum, reason), do: {:ineligible, reason}
 
-  defp eligible_constants?(constants), do: not captured_frame_slots?(constants)
+  defp require_eligibility(true, _reason), do: :ok
+  defp require_eligibility(false, reason), do: {:ineligible, reason}
+
+  defp bounded_blocks?(plan),
+    do: Enum.all?(plan, fn {_pc, {operations, _reason}} -> length(operations) <= 32 end)
+
+  defp bounded_levels?(levels),
+    do: Enum.all?(levels, fn {_pc, {depth, _catch}} -> depth <= @max_stack_depth end)
 
   defp checked_locals_initialized?(function, plan) do
     count = max(function.arg_count + function.var_count, 1)
