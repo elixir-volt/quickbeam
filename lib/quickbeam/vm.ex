@@ -320,14 +320,7 @@ defmodule QuickBEAM.VM do
   defdelegate bytecode_version(), to: ABI
 
   defp public_measurement(measurement) do
-    %Measurement{
-      result: measurement.result,
-      wall_time_us: measurement.wall_time_us,
-      steps: measurement.steps,
-      logical_memory_bytes: measurement.logical_memory_bytes,
-      process_memory_bytes: measurement.process_memory_bytes,
-      reductions: measurement.reductions
-    }
+    struct(Measurement, Map.from_struct(measurement))
   end
 
   defp validate_max_bytecode_bytes(limit)

@@ -89,7 +89,7 @@ defmodule QuickBEAM.VM.Runtime.Engine do
 
       case options.isolation do
         :caller -> evaluate(program, options)
-        :process -> eval_isolated(program, options)
+        :process -> eval_isolated_program(program, options)
       end
     end
   end
@@ -131,7 +131,7 @@ defmodule QuickBEAM.VM.Runtime.Engine do
       payload =
         case options.isolation do
           :caller -> safe_measure(program, options)
-          :process -> measure_isolated(program, options)
+          :process -> measure_isolated_program(program, options)
         end
 
       elapsed = System.monotonic_time() - started
@@ -268,8 +268,6 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     end
   end
 
-  defp eval_isolated(program, options), do: eval_isolated_program(program, options)
-
   defp eval_isolated_pinned(lease, options) do
     with {:ok, program} <- Store.fetch(lease),
          :ok <- Verifier.verify_identity(program) do
@@ -311,8 +309,6 @@ defmodule QuickBEAM.VM.Runtime.Engine do
   catch
     kind, reason -> {:error, {engine_crash(options.engine), {kind, reason}, __STACKTRACE__}}
   end
-
-  defp measure_isolated(program, options), do: measure_isolated_program(program, options)
 
   defp measure_isolated_pinned(lease, options) do
     case fetch_verified_pinned(lease) do
