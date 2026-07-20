@@ -222,6 +222,10 @@ defmodule QuickBEAM.VM.Runtime.Engine do
     if value in allowed, do: :ok, else: {:error, {:invalid_option, name, value}}
   end
 
+  # Deliberately loose: the interpreter engine never touches the pool, so it
+  # must accept the default (or any) server name even when no pool is running.
+  # Liveness is enforced by Compiler.ensure_pool_available/1 only on the
+  # compiler path, where a pool is actually required.
   defp validate_server(server) when is_atom(server) or is_pid(server), do: :ok
   defp validate_server(server), do: {:error, {:invalid_option, :compiler_pool, server}}
 
