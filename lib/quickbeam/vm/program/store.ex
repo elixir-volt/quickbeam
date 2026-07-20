@@ -209,7 +209,7 @@ defmodule QuickBEAM.VM.Program.Store do
       ) do
     case state.entries do
       %{^key => %{slot: ^slot, token: ^token, leases: %{^id => monitor}} = entry} ->
-        if is_reference(monitor), do: Process.demonitor(monitor, [:flush])
+        Process.demonitor(monitor, [:flush])
         entry = %{entry | leases: Map.delete(entry.leases, id)}
         {:noreply, maybe_release_entry(state, key, entry)}
 
