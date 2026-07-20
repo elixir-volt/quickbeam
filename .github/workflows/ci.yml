@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        otp: ['27.0']
+        otp: ['27.3']
         elixir: ['1.18']
     env:
       MIX_ENV: test
@@ -61,6 +61,17 @@ jobs:
           if [ $rc -ne 0 ] && grep -q "0 failures" /tmp/ci.log; then exit 0; fi
           exit $rc
 
+      - name: Checkout pinned Test262 corpus
+        run: |
+          git clone --filter=blob:none --sparse https://github.com/tc39/test262.git /tmp/quickbeam-test262
+          git -C /tmp/quickbeam-test262 checkout d1d583db95a521218f3eb8341a887fd63eda8ff1
+          git -C /tmp/quickbeam-test262 sparse-checkout set harness test
+
+      - name: BEAM VM copied and pinned conformance gates
+        env:
+          TEST262_PATH: /tmp/quickbeam-test262
+        run: mix test test/vm/test262_test.exs --include test262
+
   ubsan:
     name: UBSan + Zig Debug
     runs-on: ubuntu-latest
@@ -74,7 +85,7 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27.0'
+          otp-version: '27.3'
           elixir-version: '1.18'
 
       - uses: goto-bus-stop/setup-zig@v2
@@ -87,8 +98,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-ubsan-27.0-1.18-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
-          restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
+          key: ${{ runner.os }}-ubsan-27.3-1.18-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
+          restore-keys: ${{ runner.os }}-ubsan-27.3-1.18-
 
       - run: mix deps.get
       - run: mix npm.get

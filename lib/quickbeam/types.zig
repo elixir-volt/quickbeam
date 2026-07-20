@@ -18,6 +18,12 @@ pub fn reserveClassID(rt: *qjs.JSRuntime, class_id: *qjs.JSClassID) void {
     if (reserved != class_id.*) @panic("QuickJS class ID allocation order mismatch");
 }
 
+pub const LifecycleState = enum {
+    running,
+    stopping,
+    joined,
+};
+
 pub const SyncCallSlot = struct {
     result_json: []const u8 = "",
     result_env: ?*e.ErlNifEnv = null,
@@ -33,6 +39,9 @@ pub const RuntimeData = struct {
     queue_tail: ?*MessageNode,
     stopped: bool,
     thread: ?std.Thread,
+    lifecycle_mutex: std.Thread.Mutex = .{},
+    lifecycle_cond: std.Thread.Condition = .{},
+    lifecycle: LifecycleState = .running,
     memory_limit: usize = 256 * 1024 * 1024,
     max_stack_size: usize = 8 * 1024 * 1024,
     // WASM operand stack / heap for the JS `WebAssembly.instantiate` path
@@ -176,6 +185,7 @@ pub const NapiTsfnCallPayload = struct {
 pub const AsyncAddonPayload = struct {
     path: [:0]const u8,
     global_name: ?[:0]const u8 = null,
+    allow_reinitialization: bool = false,
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,

@@ -102,6 +102,12 @@ fn pool_drain_callback(state: *worker.WorkerState) void {
     }
 }
 
+fn destroy_context_entry(entry: *ct.ContextEntry) void {
+    entry.state.deinit();
+    entry.rd.sync_slots.deinit(gpa);
+    gpa.destroy(entry);
+}
+
 pub fn pool_worker_main(pd: *ct.PoolData) void {
     const rt = qjs.JS_NewRuntime() orelse return;
     defer qjs.JS_FreeRuntime(rt);
@@ -121,10 +127,15 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
 
     var contexts = std.AutoHashMap(ct.ContextId, *ct.ContextEntry).init(gpa);
     defer {
+        // Remove externally visible RuntimeData pointers before freeing entries.
+        // Resolver NIFs hold this mutex through sync-slot publication.
+        pd.rd_map_mutex.lock();
+        pd.rd_map.clearRetainingCapacity();
+        pd.rd_map_mutex.unlock();
+
         var it = contexts.valueIterator();
         while (it.next()) |entry| {
-            entry.*.state.deinit();
-            gpa.destroy(entry.*);
+            destroy_context_entry(entry.*);
         }
         contexts.deinit();
     }
@@ -221,6 +232,7 @@ fn handle_create_context(
         .rd = &entry.rd,
         .pending_calls = std.AutoHashMap(u64, worker.PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, worker.TimerEntry).init(gpa),
+        .addon_exports = std.StringHashMap(qjs.JSValue).init(gpa),
         .start_time = std.time.nanoTimestamp(),
         .max_reductions = p.max_reductions,
     };
@@ -238,8 +250,7 @@ fn handle_create_context(
     pd.rd_map_mutex.lock();
     pd.rd_map.put(gpa, p.context_id, &entry.rd) catch |err| {
         pd.rd_map_mutex.unlock();
-        entry.state.deinit();
-        gpa.destroy(entry);
+        destroy_context_entry(entry);
         const reason = @errorName(err);
         types.send_reply(p.caller_pid, p.ref_env, p.ref_term, false, null, null, reason);
         return;
@@ -247,8 +258,10 @@ fn handle_create_context(
     pd.rd_map_mutex.unlock();
 
     contexts.put(p.context_id, entry) catch {
-        entry.state.deinit();
-        gpa.destroy(entry);
+        pd.rd_map_mutex.lock();
+        _ = pd.rd_map.remove(p.context_id);
+        pd.rd_map_mutex.unlock();
+        destroy_context_entry(entry);
         types.send_reply(p.caller_pid, p.ref_env, p.ref_term, false, null, null, "Out of memory");
         return;
     };
@@ -268,9 +281,8 @@ fn handle_destroy_context(
     pd.rd_map_mutex.unlock();
 
     if (contexts.fetchRemove(p.context_id)) |kv| {
-        var entry = kv.value;
-        entry.state.deinit();
-        gpa.destroy(entry);
+        const entry = kv.value;
+        destroy_context_entry(entry);
     }
 }
 

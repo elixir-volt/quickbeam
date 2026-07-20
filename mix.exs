@@ -13,7 +13,7 @@ defmodule QuickBEAM.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]],
+      dialyzer: [plt_add_apps: [:crypto, :inets, :mix, :public_key, :ssl]],
       name: "QuickBEAM",
       description:
         "JavaScript runtime for the BEAM — Web APIs backed by OTP, native DOM, and a built-in TypeScript toolchain.",
@@ -70,6 +70,9 @@ defmodule QuickBEAM.MixProject do
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
+      {:json_codec, "~> 0.2.2", only: :test},
+      {:yaml_elixir, "~> 2.12", only: :test},
+      {:varint, "~> 1.6"},
       {:oxc, "~> 0.17.2"},
       {:npm, "~> 0.7.5", optional: true},
       {:mint_web_socket, "~> 1.0"},
@@ -84,6 +87,8 @@ defmodule QuickBEAM.MixProject do
 
   defp package do
     [
+      # Zigler regenerates this ignored intermediate during source builds.
+      exclude_patterns: ["lib/quickbeam/.Elixir.QuickBEAM.Native.zig"],
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url
@@ -109,7 +114,43 @@ defmodule QuickBEAM.MixProject do
       groups_for_extras: [
         Guides: ["docs/javascript-api.md", "docs/architecture.md"]
       ],
+      filter_modules: &documented_module?/2,
+      skip_code_autolink_to: &skip_doc_warning?/1,
+      skip_undefined_reference_warnings_on: &skip_doc_warning?/1,
       source_ref: "v#{@version}"
     ]
+  end
+
+  defp skip_doc_warning?(reference) when not is_binary(reference), do: false
+
+  defp skip_doc_warning?(reference) do
+    internal_vm_modules = [
+      "QuickBEAM.VM.ABI",
+      "QuickBEAM.VM.Builtin",
+      "QuickBEAM.VM.Bytecode",
+      "QuickBEAM.VM.Compiler",
+      "QuickBEAM.VM.Fuzz",
+      "QuickBEAM.VM.Program.Identity",
+      "QuickBEAM.VM.Program.Store",
+      "QuickBEAM.VM.Runtime"
+    ]
+
+    String.starts_with?(reference, "QuickBEAM.Runtime") or
+      Enum.any?(internal_vm_modules, &String.starts_with?(reference, &1))
+  end
+
+  defp documented_module?(module, _metadata) do
+    public_vm_modules = [
+      QuickBEAM.VM.Program.Variable.Closure,
+      QuickBEAM.VM.Program.Function,
+      QuickBEAM.VM.Measurement,
+      QuickBEAM.VM.Program,
+      QuickBEAM.VM.Program.Pinned,
+      QuickBEAM.VM.Program.Source,
+      QuickBEAM.VM.Program.Variable
+    ]
+
+    module != QuickBEAM.Application and
+      (not String.starts_with?(inspect(module), "QuickBEAM.VM.") or module in public_vm_modules)
   end
 end

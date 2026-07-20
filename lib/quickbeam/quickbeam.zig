@@ -38,23 +38,47 @@ const pool_enqueue = ct.pool_enqueue;
 
 // ──────────────────── Resource ────────────────────
 
+fn shutdown_runtime(data: *RuntimeData) void {
+    data.lifecycle_mutex.lock();
+    while (data.lifecycle == .stopping) {
+        data.lifecycle_cond.wait(&data.lifecycle_mutex);
+    }
+    if (data.lifecycle == .joined) {
+        data.lifecycle_mutex.unlock();
+        return;
+    }
+
+    data.lifecycle = .stopping;
+    data.shutting_down.store(true, .release);
+
+    data.sync_slots_mutex.lock();
+    var it = data.sync_slots.valueIterator();
+    while (it.next()) |slot| {
+        slot.*.ok = false;
+        slot.*.result_json = "runtime shutting down";
+        slot.*.done.set();
+    }
+    data.sync_slots_mutex.unlock();
+
+    enqueue(data, .{ .stop = {} });
+    const thread = data.thread;
+    data.thread = null;
+    data.lifecycle_mutex.unlock();
+
+    if (thread) |worker_thread| worker_thread.join();
+
+    data.lifecycle_mutex.lock();
+    data.lifecycle = .joined;
+    data.lifecycle_cond.broadcast();
+    data.lifecycle_mutex.unlock();
+}
+
 pub const RuntimeResource = beam.Resource(*RuntimeData, @import("root"), .{
     .Callbacks = struct {
         pub fn dtor(ptr: **RuntimeData) void {
             const data = ptr.*;
-            data.shutting_down.store(true, .release);
-
-            data.sync_slots_mutex.lock();
-            var it = data.sync_slots.valueIterator();
-            while (it.next()) |slot| {
-                slot.*.ok = false;
-                slot.*.result_json = "runtime shutting down";
-                slot.*.done.set();
-            }
-            data.sync_slots_mutex.unlock();
-
-            enqueue(data, .{ .stop = {} });
-            if (data.thread) |t_| t_.join();
+            shutdown_runtime(data);
+            data.sync_slots.deinit(gpa);
             gpa.destroy(data);
         }
     },
@@ -104,8 +128,6 @@ pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
         data.max_convert_nodes = @intCast(v);
     }
 
-    const res = try RuntimeResource.create(data, .{});
-
     const min_thread_stack = 2 * 1024 * 1024;
     const thread_stack = @max(data.max_stack_size + min_thread_stack, min_thread_stack);
     data.thread = std.Thread.spawn(.{ .stack_size = thread_stack }, worker.worker_main, .{ data, owner_pid }) catch {
@@ -113,7 +135,12 @@ pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
         return error.ThreadSpawn;
     };
 
-    return res;
+    return RuntimeResource.create(data, .{}) catch |err| {
+        shutdown_runtime(data);
+        data.sync_slots.deinit(gpa);
+        gpa.destroy(data);
+        return err;
+    };
 }
 
 pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64, filename: []const u8) beam.term {
@@ -251,7 +278,7 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
-pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []const u8) beam.term {
+pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []const u8, allow_reinitialization: bool) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
@@ -271,6 +298,7 @@ pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []co
     enqueue(data, .{ .load_addon = .{
         .path = path_copy,
         .global_name = name_copy,
+        .allow_reinitialization = allow_reinitialization,
         .caller_pid = caller_pid,
         .ref_env = ref_env,
         .ref_term = ref_term,
@@ -280,24 +308,7 @@ pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []co
 }
 
 pub fn stop_runtime(resource: RuntimeResource) beam.term {
-    const data = resource.unpack();
-
-    data.shutting_down.store(true, .release);
-
-    data.sync_slots_mutex.lock();
-    var it = data.sync_slots.valueIterator();
-    while (it.next()) |slot| {
-        slot.*.ok = false;
-        slot.*.result_json = "runtime shutting down";
-        slot.*.done.set();
-    }
-    data.sync_slots_mutex.unlock();
-
-    enqueue(data, .{ .stop = {} });
-    if (data.thread) |th| {
-        th.join();
-        data.thread = null;
-    }
+    shutdown_runtime(resource.unpack());
     return beam.make(.ok, .{});
 }
 
@@ -305,15 +316,14 @@ pub fn resolve_call(resource: RuntimeResource, call_id: u64, value_json: []const
     const data = resource.unpack();
 
     data.sync_slots_mutex.lock();
-    const slot = data.sync_slots.get(call_id);
-    data.sync_slots_mutex.unlock();
-
-    if (slot) |s| {
-        s.result_json = gpa.dupe(u8, value_json) catch "";
-        s.ok = true;
-        s.done.set();
+    if (data.sync_slots.get(call_id)) |slot| {
+        slot.result_json = gpa.dupe(u8, value_json) catch "";
+        slot.ok = true;
+        slot.done.set();
+        data.sync_slots_mutex.unlock();
         return beam.make(.ok, .{});
     }
+    data.sync_slots_mutex.unlock();
 
     const json_copy = gpa.dupe(u8, value_json) catch return beam.make(.ok, .{});
     enqueue(data, .{ .resolve_call = .{ .id = call_id, .json = json_copy } });
@@ -324,15 +334,14 @@ pub fn reject_call(resource: RuntimeResource, call_id: u64, reason: []const u8) 
     const data = resource.unpack();
 
     data.sync_slots_mutex.lock();
-    const slot = data.sync_slots.get(call_id);
-    data.sync_slots_mutex.unlock();
-
-    if (slot) |s| {
-        s.result_json = gpa.dupe(u8, reason) catch "";
-        s.ok = false;
-        s.done.set();
+    if (data.sync_slots.get(call_id)) |slot| {
+        slot.result_json = gpa.dupe(u8, reason) catch "";
+        slot.ok = false;
+        slot.done.set();
+        data.sync_slots_mutex.unlock();
         return beam.make(.ok, .{});
     }
+    data.sync_slots_mutex.unlock();
 
     const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
     enqueue(data, .{ .reject_call = .{ .id = call_id, .json = reason_copy } });
@@ -343,17 +352,16 @@ pub fn resolve_call_term(resource: RuntimeResource, call_id: u64, value: beam.te
     const data = resource.unpack();
 
     data.sync_slots_mutex.lock();
-    const slot = data.sync_slots.get(call_id);
-    data.sync_slots_mutex.unlock();
-
-    if (slot) |s| {
+    if (data.sync_slots.get(call_id)) |slot| {
         const term_env = beam.alloc_env();
-        s.result_env = term_env;
-        s.result_term = e.enif_make_copy(term_env, value.v);
-        s.ok = true;
-        s.done.set();
+        slot.result_env = term_env;
+        slot.result_term = e.enif_make_copy(term_env, value.v);
+        slot.ok = true;
+        slot.done.set();
+        data.sync_slots_mutex.unlock();
         return beam.make(.ok, .{});
     }
+    data.sync_slots_mutex.unlock();
 
     const msg_env = beam.alloc_env();
     const copied = e.enif_make_copy(msg_env, value.v);
@@ -365,17 +373,16 @@ pub fn reject_call_term(resource: RuntimeResource, call_id: u64, reason: []const
     const data = resource.unpack();
 
     data.sync_slots_mutex.lock();
-    const slot = data.sync_slots.get(call_id);
-    data.sync_slots_mutex.unlock();
-
-    if (slot) |s| {
+    if (data.sync_slots.get(call_id)) |slot| {
         const term_env = beam.alloc_env();
-        s.result_env = term_env;
-        s.result_term = beam.make(reason, .{ .env = term_env }).v;
-        s.ok = false;
-        s.done.set();
+        slot.result_env = term_env;
+        slot.result_term = beam.make(reason, .{ .env = term_env }).v;
+        slot.ok = false;
+        slot.done.set();
+        data.sync_slots_mutex.unlock();
         return beam.make(.ok, .{});
     }
+    data.sync_slots_mutex.unlock();
 
     const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
     enqueue(data, .{ .reject_call = .{ .id = call_id, .json = reason_copy } });
@@ -555,13 +562,37 @@ pub fn get_global(resource: RuntimeResource, name: []const u8) beam.term {
 
 // ──────────────────── Context Pool ────────────────────
 
+fn shutdown_pool(data: *ct.PoolData) void {
+    data.lifecycle_mutex.lock();
+    while (data.lifecycle == .stopping) {
+        data.lifecycle_cond.wait(&data.lifecycle_mutex);
+    }
+    if (data.lifecycle == .joined) {
+        data.lifecycle_mutex.unlock();
+        return;
+    }
+
+    data.lifecycle = .stopping;
+    data.shutting_down.store(true, .release);
+    pool_enqueue(data, .{ .stop = {} });
+    const thread = data.thread;
+    data.thread = null;
+    data.lifecycle_mutex.unlock();
+
+    if (thread) |worker_thread| worker_thread.join();
+
+    data.lifecycle_mutex.lock();
+    data.lifecycle = .joined;
+    data.lifecycle_cond.broadcast();
+    data.lifecycle_mutex.unlock();
+}
+
 pub const PoolResource = beam.Resource(*ct.PoolData, @import("root"), .{
     .Callbacks = struct {
         pub fn dtor(ptr: **ct.PoolData) void {
             const data = ptr.*;
-            data.shutting_down.store(true, .release);
-            pool_enqueue(data, .{ .stop = {} });
-            if (data.thread) |t_| t_.join();
+            shutdown_pool(data);
+            data.rd_map.deinit(gpa);
             gpa.destroy(data);
         }
     },
@@ -604,8 +635,6 @@ pub fn pool_start(opts: beam.term) !PoolResource {
         data.max_convert_nodes = @intCast(v);
     }
 
-    const res = try PoolResource.create(data, .{});
-
     const min_thread_stack = 2 * 1024 * 1024;
     const thread_stack = @max(data.max_stack_size + min_thread_stack, min_thread_stack);
     data.thread = std.Thread.spawn(.{ .stack_size = thread_stack }, context_worker.pool_worker_main, .{data}) catch {
@@ -613,17 +642,16 @@ pub fn pool_start(opts: beam.term) !PoolResource {
         return error.ThreadSpawn;
     };
 
-    return res;
+    return PoolResource.create(data, .{}) catch |err| {
+        shutdown_pool(data);
+        data.rd_map.deinit(gpa);
+        gpa.destroy(data);
+        return err;
+    };
 }
 
 pub fn pool_stop(resource: PoolResource) beam.term {
-    const data = resource.unpack();
-    data.shutting_down.store(true, .release);
-    pool_enqueue(data, .{ .stop = {} });
-    if (data.thread) |th| {
-        th.join();
-        data.thread = null;
-    }
+    shutdown_pool(resource.unpack());
     return beam.make(.ok, .{});
 }
 
@@ -838,31 +866,25 @@ fn pool_dom_op(resource: PoolResource, context_id: u64, op: types.DomOp, selecto
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
-fn pool_lookup_sync_slot(data: *ct.PoolData, context_id: u64, call_id: u64) ?*types.SyncCallSlot {
-    data.rd_map_mutex.lock();
-    const rd = data.rd_map.get(context_id);
-    data.rd_map_mutex.unlock();
-
-    if (rd) |r| {
-        r.sync_slots_mutex.lock();
-        const slot = r.sync_slots.get(call_id);
-        r.sync_slots_mutex.unlock();
-        return slot;
-    }
-    return null;
-}
-
 pub fn pool_resolve_call_term(resource: PoolResource, context_id: u64, call_id: u64, value: beam.term) beam.term {
     const data = resource.unpack();
 
-    if (pool_lookup_sync_slot(data, context_id, call_id)) |s| {
-        const term_env = beam.alloc_env();
-        s.result_env = term_env;
-        s.result_term = e.enif_make_copy(term_env, value.v);
-        s.ok = true;
-        s.done.set();
-        return beam.make(.ok, .{});
+    data.rd_map_mutex.lock();
+    if (data.rd_map.get(context_id)) |rd| {
+        rd.sync_slots_mutex.lock();
+        if (rd.sync_slots.get(call_id)) |slot| {
+            const term_env = beam.alloc_env();
+            slot.result_env = term_env;
+            slot.result_term = e.enif_make_copy(term_env, value.v);
+            slot.ok = true;
+            slot.done.set();
+            rd.sync_slots_mutex.unlock();
+            data.rd_map_mutex.unlock();
+            return beam.make(.ok, .{});
+        }
+        rd.sync_slots_mutex.unlock();
     }
+    data.rd_map_mutex.unlock();
 
     const msg_env = beam.alloc_env();
     const copied = e.enif_make_copy(msg_env, value.v);
@@ -879,14 +901,22 @@ pub fn pool_resolve_call_term(resource: PoolResource, context_id: u64, call_id: 
 pub fn pool_reject_call_term(resource: PoolResource, context_id: u64, call_id: u64, reason: []const u8) beam.term {
     const data = resource.unpack();
 
-    if (pool_lookup_sync_slot(data, context_id, call_id)) |s| {
-        const term_env = beam.alloc_env();
-        s.result_env = term_env;
-        s.result_term = beam.make(reason, .{ .env = term_env }).v;
-        s.ok = false;
-        s.done.set();
-        return beam.make(.ok, .{});
+    data.rd_map_mutex.lock();
+    if (data.rd_map.get(context_id)) |rd| {
+        rd.sync_slots_mutex.lock();
+        if (rd.sync_slots.get(call_id)) |slot| {
+            const term_env = beam.alloc_env();
+            slot.result_env = term_env;
+            slot.result_term = beam.make(reason, .{ .env = term_env }).v;
+            slot.ok = false;
+            slot.done.set();
+            rd.sync_slots_mutex.unlock();
+            data.rd_map_mutex.unlock();
+            return beam.make(.ok, .{});
+        }
+        rd.sync_slots_mutex.unlock();
     }
+    data.rd_map_mutex.unlock();
 
     const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
     pool_enqueue(data, .{ .ctx_reject_call = .{

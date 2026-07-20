@@ -94,8 +94,8 @@ defmodule QuickBEAM.JS.PackageResolver do
   end
 
   @spec relative_import_path(String.t(), String.t(), String.t()) :: String.t()
-  def relative_import_path(importer, target, project_root) do
-    importer_dir = importer |> Path.relative_to(project_root) |> Path.dirname()
+  def relative_import_path(importer_dir, target, project_root) do
+    importer_dir = Path.relative_to(importer_dir, project_root)
     target_label = Path.relative_to(target, project_root)
 
     target_label
@@ -120,15 +120,22 @@ defmodule QuickBEAM.JS.PackageResolver do
     end
   end
 
+  @doc "Finds the nearest matching package, following Node's ancestor lookup rules."
   @spec package_root(String.t(), String.t()) :: {:ok, String.t()} | :error
   def package_root(package_name, from_dir) do
-    case find_node_modules(from_dir) do
-      nil ->
-        :error
+    from_dir
+    |> Path.expand()
+    |> find_package_root(package_name)
+  end
 
-      node_modules ->
-        package_dir = Path.join(node_modules, package_name)
-        if File.dir?(package_dir), do: {:ok, package_dir}, else: :error
+  defp find_package_root(dir, package_name) do
+    package_dir = Path.join([dir, "node_modules", package_name])
+    parent = Path.dirname(dir)
+
+    cond do
+      File.dir?(package_dir) -> {:ok, package_dir}
+      parent == dir -> :error
+      true -> find_package_root(parent, package_name)
     end
   end
 

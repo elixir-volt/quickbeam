@@ -1,0 +1,3 @@
+classification: truncated vardef flags
+expected: stable typed :unexpected_end rejection
+sha256: 27a2701c24e5ed0962b4cd18aa6e772306dcd50a04348c99d2ad8cf132998f6a

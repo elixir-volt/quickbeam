@@ -1,10 +1,28 @@
 defmodule QuickBEAM.JSError do
-  defexception [:message, :name, :stack]
+  @moduledoc """
+  Represents an uncaught JavaScript exception at a QuickBEAM API boundary.
+
+  Errors include stable JavaScript source locations and structured JavaScript
+  frames without exposing Elixir handler stack traces.
+  """
+
+  defexception [:message, :name, :stack, :filename, :line, :column, frames: []]
+
+  @type frame :: %{
+          function: String.t(),
+          filename: String.t() | nil,
+          line: pos_integer() | nil,
+          column: pos_integer() | nil
+        }
 
   @type t :: %__MODULE__{
           message: String.t(),
           name: String.t(),
-          stack: String.t() | nil
+          stack: String.t() | nil,
+          filename: String.t() | nil,
+          line: pos_integer() | nil,
+          column: pos_integer() | nil,
+          frames: [frame()]
         }
 
   @impl true
@@ -12,12 +30,16 @@ defmodule QuickBEAM.JSError do
     "#{name}: #{msg}"
   end
 
-  @doc false
+  @doc "Converts a JavaScript error value returned by the native runtime."
   def from_js_value(value) when is_map(value) do
     %__MODULE__{
-      message: to_string(value[:message] || value["message"] || inspect(value)),
-      name: to_string(value[:name] || value["name"] || "Error"),
-      stack: get_stack(value)
+      message: error_text(value[:message] || value["message"] || inspect(value)),
+      name: error_text(value[:name] || value["name"] || "Error"),
+      stack: get_stack(value),
+      filename: value[:filename] || value["filename"],
+      line: value[:line] || value["line"],
+      column: value[:column] || value["column"],
+      frames: normalize_frames(value[:frames] || value["frames"])
     }
   end
 
@@ -29,10 +51,118 @@ defmodule QuickBEAM.JSError do
     %__MODULE__{message: inspect(value), name: "Error", stack: nil}
   end
 
+  @doc "Converts a VM-generated exception reason into a catchable JavaScript value."
+  def vm_exception_value(reason)
+      when is_tuple(reason) and
+             elem(reason, 0) in [
+               :handler_exception,
+               :not_callable,
+               :range_error,
+               :reference_error,
+               :type_error,
+               :unknown_handler
+             ] do
+    {name, message} = vm_name_and_message(reason)
+    %{"name" => name, "message" => message}
+  end
+
+  def vm_exception_value(reason), do: reason
+
+  @doc "Builds an exception from an uncaught VM value and JavaScript stack frames."
+  @spec from_vm(term(), [frame()]) :: t()
+  def from_vm(%QuickBEAM.VM.Runtime.Thrown{value: value, frames: async_frames}, frames),
+    do: from_vm(value, async_frames ++ frames)
+
+  def from_vm(reason, frames) do
+    {name, message} = vm_name_and_message(reason)
+    frames = normalize_frames(frames)
+    first = List.first(frames)
+
+    %__MODULE__{
+      name: name,
+      message: message,
+      filename: frame_value(first, :filename),
+      line: frame_value(first, :line),
+      column: frame_value(first, :column),
+      frames: frames,
+      stack: format_stack(name, message, frames)
+    }
+  end
+
+  defp vm_name_and_message(%__MODULE__{} = error), do: {error.name, error.message}
+
+  defp vm_name_and_message(%{} = value) when not is_struct(value) do
+    {
+      error_text(value[:name] || value["name"] || "Error"),
+      error_text(value[:message] || value["message"] || inspect(value))
+    }
+  end
+
+  defp vm_name_and_message({:type_error, reason}), do: {"TypeError", format_reason(reason)}
+  defp vm_name_and_message({:range_error, reason}), do: {"RangeError", format_reason(reason)}
+
+  defp vm_name_and_message({:reference_error, name}) when is_binary(name),
+    do: {"ReferenceError", "#{name} is not defined"}
+
+  defp vm_name_and_message({:reference_error, binding}),
+    do:
+      {"ReferenceError",
+       "Cannot access lexical binding #{inspect(binding)} before initialization"}
+
+  defp vm_name_and_message({:not_callable, value}),
+    do: {"TypeError", "#{inspect(value)} is not a function"}
+
+  defp vm_name_and_message({:unknown_handler, name}),
+    do: {"Error", "Unknown BEAM handler #{inspect(name)}"}
+
+  defp vm_name_and_message({:handler_exception, exception, _stacktrace}),
+    do: {"Error", handler_exception_message(exception)}
+
+  defp vm_name_and_message(reason), do: {"Error", format_reason(reason)}
+
+  defp format_reason(reason) when is_binary(reason), do: reason
+
+  defp format_reason(reason) when is_atom(reason),
+    do: reason |> Atom.to_string() |> String.replace("_", " ")
+
+  defp format_reason(reason), do: inspect(reason)
+
+  defp format_stack(name, message, []), do: "#{name}: #{message}"
+
+  defp format_stack(name, message, frames) do
+    rendered =
+      Enum.map_join(frames, "\n", fn frame ->
+        function = frame_value(frame, :function) || "<anonymous>"
+        filename = frame_value(frame, :filename) || "<eval>"
+        line = frame_value(frame, :line) || 1
+        column = frame_value(frame, :column) || 1
+        "    at #{function} (#{filename}:#{line}:#{column})"
+      end)
+
+    "#{name}: #{message}\n#{rendered}"
+  end
+
+  defp handler_exception_message(%{__exception__: true} = exception),
+    do: Exception.message(exception)
+
+  defp handler_exception_message(reason), do: format_reason(reason)
+
+  defp error_text(value) when is_binary(value), do: value
+  defp error_text(value) when is_atom(value) or is_number(value), do: to_string(value)
+  defp error_text(value), do: inspect(value)
+
+  defp normalize_frames(frames) when is_list(frames), do: frames
+  defp normalize_frames(_frames), do: []
+
+  defp frame_value(frame, key) when is_map(frame),
+    do: Map.get(frame, key) || Map.get(frame, Atom.to_string(key))
+
+  defp frame_value(_frame, _key), do: nil
+
   defp get_stack(value) do
     case value[:stack] || value["stack"] do
       nil -> nil
-      s -> to_string(s)
+      stack -> error_text(stack)
     end
   end
 end

@@ -3,7 +3,12 @@
     "@node-rs/argon2": "^2.0.2",
     "@node-rs/bcrypt": "^1.10.7",
     "@node-rs/crc32": "^1.10.6",
-    "sqlite-napi": "1.2.0"
+    "@vue/server-renderer": "3.5.39",
+    "preact": "10.29.7",
+    "preact-render-to-string": "6.7.0",
+    "sqlite-napi": "1.2.0",
+    "svelte": "5.56.4",
+    "vue": "3.5.39"
   },
   "devDependencies": {
     "jscpd": "4.0.9",
@@ -14,6 +19,7 @@
   "private": true,
   "scripts": {
     "postinstall": "chmod +x node_modules/@oxlint-tsgolint/*/tsgolint 2>/dev/null || true",
+    "fixtures:svelte": "node scripts/generate-svelte-ssr-fixture.mjs",
     "format": "oxfmt --write priv/ts/",
     "format:check": "oxfmt --check priv/ts/",
     "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/"
