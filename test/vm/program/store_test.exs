@@ -182,6 +182,29 @@ defmodule QuickBEAM.VM.Program.StoreTest do
     refute first.pin_key == changed_source.pin_key
   end
 
+  test "persistent slots are namespaced by the store's registered name" do
+    program = program(:crypto.strong_rand_bytes(32))
+    assert {:ok, pinned} = Store.pin(program)
+    assert {:ok, lease} = Store.checkout(pinned)
+    assert {:ok, ^program} = Store.fetch(lease)
+
+    # A store started under another name must not restore the default store's
+    # persistent slots, and must reject its own ninth program independently.
+    {:ok, other} = GenServer.start_link(Store, {OtherStore, capacity: 1}, name: OtherStore)
+
+    assert :unavailable = Store.checkout(pinned, other)
+    assert {:ok, other_pinned} = Store.pin(program, other)
+    assert :unavailable = Store.pin(program(:crypto.strong_rand_bytes(32)), other)
+
+    assert :ok = Store.unpin(other_pinned, other)
+    GenServer.stop(other)
+
+    # The default store still serves its own slot.
+    assert {:ok, ^program} = Store.fetch(lease)
+    Store.checkin(lease)
+    assert :ok = Store.unpin(pinned)
+  end
+
   defp eventually(fun, attempts \\ 20)
 
   defp eventually(fun, attempts) when attempts > 0 do

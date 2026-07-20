@@ -8,6 +8,10 @@ defmodule QuickBEAM.VM.Program.Store do
   persistent terms, bounds both per-program and total external-term residency,
   and does not evict programs implicitly. Programs can be
   explicitly released; active leases defer erasure until their workers finish.
+
+  Persistent slots are namespaced by the store's registered name, so a
+  supervised store restarts with its own capacity and never restores slots
+  written under a different store name.
   """
 
   use GenServer
@@ -28,7 +32,7 @@ defmodule QuickBEAM.VM.Program.Store do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     {name, opts} = Keyword.pop(opts, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, opts, name: name)
+    GenServer.start_link(__MODULE__, {name, opts}, name: name)
   end
 
   @doc "Pins a verified program explicitly and returns its lightweight handle."
@@ -76,8 +80,8 @@ defmodule QuickBEAM.VM.Program.Store do
 
   @doc "Fetches the immutable program covered by an active lease."
   @spec fetch(Lease.t()) :: {:ok, Program.t()} | {:error, :stale_lease}
-  def fetch(%Lease{key: key, slot: slot, token: token}) do
-    case :persistent_term.get(storage_key(slot), :missing) do
+  def fetch(%Lease{key: key, slot: slot, token: token, store: store}) do
+    case :persistent_term.get(storage_key(store, slot), :missing) do
       {^key, ^token, %Program{} = program} -> {:ok, program}
       _other -> {:error, :stale_lease}
     end
@@ -85,8 +89,12 @@ defmodule QuickBEAM.VM.Program.Store do
 
   @doc "Returns a lease after its isolated evaluation has terminated."
   @spec checkin(Lease.t(), GenServer.server()) :: :ok
-  def checkin(lease, server \\ __MODULE__) do
-    if GenServer.whereis(server), do: GenServer.cast(server, {:checkin, lease})
+  def checkin(%Lease{} = lease, server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> :ok
+      pid -> send(pid, {:checkin, lease})
+    end
+
     :ok
   end
 
@@ -109,16 +117,17 @@ defmodule QuickBEAM.VM.Program.Store do
   end
 
   @impl true
-  def init(opts) do
+  def init({name, opts}) do
     capacity = Keyword.get(opts, :capacity, @default_capacity)
 
     if not is_integer(capacity) or capacity <= 0 or capacity > @maximum_capacity do
       {:stop, {:invalid_capacity, capacity}}
     else
-      {entries, slots, residency_bytes} = restore_slots(capacity)
+      {entries, slots, residency_bytes} = restore_slots(name, capacity)
 
       {:ok,
        %{
+         name: name,
          capacity: capacity,
          entries: entries,
          slots: slots,
@@ -135,7 +144,7 @@ defmodule QuickBEAM.VM.Program.Store do
         {:reply, :unavailable, state}
 
       %{^key => entry} ->
-        {lease, entry} = grant_lease(key, entry, from)
+        {lease, entry} = grant_lease(state, key, entry, from)
         {:reply, {:ok, lease}, put_in(state.entries[key], entry)}
 
       _entries ->
@@ -149,7 +158,7 @@ defmodule QuickBEAM.VM.Program.Store do
         {:reply, :retiring, state}
 
       %{^key => entry} ->
-        {lease, entry} = grant_lease(key, entry, from)
+        {lease, entry} = grant_lease(state, key, entry, from)
         {:reply, {:ok, lease}, put_in(state.entries[key], entry)}
 
       _entries ->
@@ -160,7 +169,7 @@ defmodule QuickBEAM.VM.Program.Store do
   def handle_call({:commit, key, token}, {owner, _tag}, state) do
     case state.pending do
       %{^key => %{owner: ^owner, token: ^token} = pending} ->
-        if persisted?(pending.slot, key, token),
+        if persisted?(state.name, pending.slot, key, token),
           do: complete_install(key, token, owner, pending, state),
           else: cancel_install(key, pending, state)
 
@@ -182,7 +191,7 @@ defmodule QuickBEAM.VM.Program.Store do
   def handle_call({:unpin, key}, _from, state) do
     case state.entries do
       %{^key => %{leases: leases} = entry} when map_size(leases) == 0 ->
-        :persistent_term.erase(storage_key(entry.slot))
+        :persistent_term.erase(storage_key(state.name, entry.slot))
         {:reply, :ok, remove_entry(state, key, entry.slot)}
 
       %{^key => entry} ->
@@ -194,13 +203,13 @@ defmodule QuickBEAM.VM.Program.Store do
   end
 
   @impl true
-  def handle_cast(
+  def handle_info(
         {:checkin, %Lease{id: id, key: key, slot: slot, token: token}},
         state
       ) do
     case state.entries do
       %{^key => %{slot: ^slot, token: ^token, leases: %{^id => monitor}} = entry} ->
-        Process.demonitor(monitor, [:flush])
+        if is_reference(monitor), do: Process.demonitor(monitor, [:flush])
         entry = %{entry | leases: Map.delete(entry.leases, id)}
         {:noreply, maybe_release_entry(state, key, entry)}
 
@@ -209,13 +218,12 @@ defmodule QuickBEAM.VM.Program.Store do
     end
   end
 
-  @impl true
   def handle_info({:DOWN, monitor, :process, owner, _reason}, state) do
     case Enum.find(state.pending, fn {_key, pending} ->
            pending.monitor == monitor and pending.owner == owner
          end) do
       {key, pending} ->
-        :persistent_term.erase(storage_key(pending.slot))
+        :persistent_term.erase(storage_key(state.name, pending.slot))
         Enum.each(pending.waiters, &GenServer.reply(&1, :unavailable))
         {:noreply, %{state | pending: Map.delete(state.pending, key)}}
 
@@ -291,11 +299,12 @@ defmodule QuickBEAM.VM.Program.Store do
       @maximum_total_residency_bytes
   end
 
-  defp restore_slots(capacity) do
+  defp restore_slots(name, capacity) do
     Enum.reduce(0..(capacity - 1), {%{}, %{}, 0}, fn slot, {entries, slots, residency_bytes} ->
-      case :persistent_term.get(storage_key(slot), :missing) do
+      case :persistent_term.get(storage_key(name, slot), :missing) do
         {key, token, %Program{} = program} when is_binary(key) and is_reference(token) ->
           restore_program_slot(
+            name,
             program,
             key,
             token,
@@ -309,13 +318,13 @@ defmodule QuickBEAM.VM.Program.Store do
           {entries, slots, residency_bytes}
 
         _other ->
-          :persistent_term.erase(storage_key(slot))
+          :persistent_term.erase(storage_key(name, slot))
           {entries, slots, residency_bytes}
       end
     end)
   end
 
-  defp restore_program_slot(program, key, token, slot, entries, slots, total_bytes) do
+  defp restore_program_slot(name, program, key, token, slot, entries, slots, total_bytes) do
     with :ok <- Verifier.verify_identity(program),
          {:ok, program_bytes} <- program_residency(program),
          true <- program_bytes <= @maximum_program_residency_bytes,
@@ -332,7 +341,7 @@ defmodule QuickBEAM.VM.Program.Store do
       {Map.put(entries, key, entry), Map.put(slots, slot, key), total_bytes + program_bytes}
     else
       _invalid_or_oversized ->
-        :persistent_term.erase(storage_key(slot))
+        :persistent_term.erase(storage_key(name, slot))
         {entries, slots, total_bytes}
     end
   end
@@ -349,11 +358,11 @@ defmodule QuickBEAM.VM.Program.Store do
       residency_bytes: pending.residency_bytes
     }
 
-    {lease, entry} = grant_lease(key, entry, {owner, nil})
+    {lease, entry} = grant_lease(state, key, entry, {owner, nil})
 
     entry =
       Enum.reduce(pending.waiters, entry, fn waiter, entry ->
-        {waiter_lease, entry} = grant_lease(key, entry, waiter)
+        {waiter_lease, entry} = grant_lease(state, key, entry, waiter)
         GenServer.reply(waiter, {:ok, waiter_lease})
         entry
       end)
@@ -371,31 +380,33 @@ defmodule QuickBEAM.VM.Program.Store do
 
   defp cancel_install(key, pending, state) do
     Process.demonitor(pending.monitor, [:flush])
-    :persistent_term.erase(storage_key(pending.slot))
+    :persistent_term.erase(storage_key(state.name, pending.slot))
     Enum.each(pending.waiters, &GenServer.reply(&1, :unavailable))
     {:reply, :unavailable, %{state | pending: Map.delete(state.pending, key)}}
   end
 
   defp install_reserved(server, key, token, slot, program) do
+    name = store_name(server)
+
     result =
-      case persist_program(slot, key, token, program) do
+      case persist_program(name, slot, key, token, program) do
         :ok -> safe_store_call(server, {:commit, key, token})
         :error -> safe_store_call(server, {:cancel, key, token})
       end
 
     case result do
-      :unavailable -> recover_or_erase_install(server, slot, key, token)
+      :unavailable -> recover_or_erase_install(server, name, slot, key, token)
       installed -> installed
     end
   end
 
-  defp recover_or_erase_install(server, slot, key, token) do
+  defp recover_or_erase_install(server, name, slot, key, token) do
     case safe_store_call(server, {:checkout_existing, key}) do
       {:ok, lease} ->
         {:ok, lease}
 
       :unavailable ->
-        erase_if_owned(slot, key, token)
+        erase_if_owned(name, slot, key, token)
         :unavailable
     end
   end
@@ -406,15 +417,28 @@ defmodule QuickBEAM.VM.Program.Store do
     :exit, _reason -> :unavailable
   end
 
-  defp erase_if_owned(slot, key, token) do
-    if persisted?(slot, key, token), do: :persistent_term.erase(storage_key(slot))
+  defp erase_if_owned(name, slot, key, token) do
+    if persisted?(name, slot, key, token),
+      do: :persistent_term.erase(storage_key(name, slot))
   end
 
-  defp grant_lease(key, entry, {owner, _tag}) do
+  # Engine evaluations check in from the process that owns the lease, so the
+  # store skips its own monitor there: that process either sends `{:checkin,
+  # lease}` or dies, and its death is the only event the monitor would report.
+  # Direct store users get a caller-from monitor so owner death completes
+  # deferred unpinning.
+  defp grant_lease(state, key, entry, {owner, _tag}) do
     id = make_ref()
-    monitor = Process.monitor(owner)
-    lease = %Lease{id: id, key: key, slot: entry.slot, token: entry.token}
-    {lease, %{entry | leases: Map.put(entry.leases, id, monitor)}}
+
+    lease = %Lease{
+      id: id,
+      key: key,
+      slot: entry.slot,
+      token: entry.token,
+      store: state.name
+    }
+
+    {lease, %{entry | leases: Map.put(entry.leases, id, Process.monitor(owner))}}
   end
 
   defp drop_owner_lease(state, monitor) do
@@ -441,7 +465,7 @@ defmodule QuickBEAM.VM.Program.Store do
 
   defp maybe_release_entry(state, key, entry) do
     if map_size(entry.leases) == 0 and entry.unpin? do
-      :persistent_term.erase(storage_key(entry.slot))
+      :persistent_term.erase(storage_key(state.name, entry.slot))
       remove_entry(state, key, entry.slot)
     else
       put_in(state.entries[key], entry)
@@ -459,16 +483,25 @@ defmodule QuickBEAM.VM.Program.Store do
     }
   end
 
-  defp persisted?(slot, key, token) do
-    match?({^key, ^token, %Program{}}, :persistent_term.get(storage_key(slot), :missing))
+  defp persisted?(name, slot, key, token) do
+    match?({^key, ^token, %Program{}}, :persistent_term.get(storage_key(name, slot), :missing))
   end
 
-  defp persist_program(slot, key, token, program) do
-    :persistent_term.put(storage_key(slot), {key, token, program})
+  defp persist_program(name, slot, key, token, program) do
+    :persistent_term.put(storage_key(name, slot), {key, token, program})
     :ok
   rescue
     _exception -> :error
   end
 
-  defp storage_key(slot), do: {__MODULE__, slot}
+  defp store_name(server) when is_atom(server), do: server
+
+  defp store_name(server) when is_pid(server) do
+    case Process.info(server, :registered_name) do
+      {:registered_name, name} when is_atom(name) and name != [] -> name
+      _other -> server
+    end
+  end
+
+  defp storage_key(name, slot), do: {__MODULE__, name, slot}
 end
