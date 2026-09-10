@@ -35,6 +35,8 @@ jobs:
       - name: Build NIF artifact
         shell: bash
         env:
+          ZIGLER_RELEASE_MODE: fast
+          QUICKBEAM_CPU: baseline
           ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
           ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
         run: |
@@ -73,9 +75,17 @@ jobs:
         with:
           files: artifacts/*.tar.gz
 
-  smoke-windows:
+  smoke:
     needs: build
-    runs-on: windows-2022
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-linux-gnu,   os: ubuntu-latest }
+          - { target: aarch64-linux-gnu,  os: ubuntu-24.04-arm }
+          - { target: aarch64-macos-none, os: macos-15 }
+          - { target: x86_64-windows-gnu, os: windows-2022 }
     steps:
       - uses: actions/checkout@v4
 
@@ -86,10 +96,10 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: x86_64-windows-gnu
+          name: ${{ matrix.target }}
           path: artifacts
 
-      - name: Load the precompiled Windows NIF
+      - name: Load and exercise the precompiled NIF
         shell: bash
         env:
           ZIGLER_PRECOMPILED_GLOBAL_CACHE_PATH: ${{ runner.temp }}/quickbeam-precompiled
@@ -101,4 +111,4 @@ jobs:
           cp artifacts/*.tar.gz "$ZIGLER_PRECOMPILED_GLOBAL_CACHE_PATH/"
           rm checksum-QuickBEAM.Native.exs
           mix compile
-          mix run -e '{:ok, runtime} = QuickBEAM.start(apis: false); {:ok, 42} = QuickBEAM.eval(runtime, "40 + 2"); QuickBEAM.stop(runtime)'
+          mix run scripts/smoke_precompiled.exs

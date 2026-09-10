@@ -116,7 +116,9 @@ defmodule QuickBEAM.Native do
                     ],
                     else: ["-std=c11"]
 
-  @quickjs_cflags @quickjs_cflags ++ Platform.quickjs_cflags(@platform) ++ @hidden_cflags
+  # Bytecode disassembly needs opcode names even when release builds define NDEBUG.
+  @quickjs_cflags @quickjs_cflags ++
+                    ["-DENABLE_DUMPS"] ++ Platform.quickjs_cflags(@platform) ++ @hidden_cflags
 
   if System.get_env("QUICKBEAM_BUILD") in ["1", "true"] and
        is_nil(System.get_env("ZIG_LOCAL_CACHE_DIR")) do
@@ -124,6 +126,12 @@ defmodule QuickBEAM.Native do
     File.mkdir_p!(zig_local_cache_dir)
     System.put_env("ZIG_LOCAL_CACHE_DIR", zig_local_cache_dir)
   end
+
+  # Release artifacts must not inherit the build runner's CPU features.
+  @build_flags (case System.get_env("QUICKBEAM_CPU") do
+                  nil -> []
+                  cpu -> ["-Dcpu=#{cpu}"]
+                end)
 
   use ZiglerPrecompiled,
     otp_app: :quickbeam,
@@ -133,6 +141,7 @@ defmodule QuickBEAM.Native do
     targets: ~w(x86_64-linux-gnu aarch64-linux-gnu aarch64-macos-none x86_64-windows-gnu),
     zig_code_path: "quickbeam.zig",
     optimize: :env,
+    build_flags: @build_flags,
     c: [
       include_dirs: Platform.include_dirs(@platform),
       link_lib: Platform.link_libraries(@platform),

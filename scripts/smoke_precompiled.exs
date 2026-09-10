@@ -1,0 +1,8 @@
+{:ok, _} = Application.ensure_all_started(:quickbeam)
+{:ok, runtime} = QuickBEAM.start(apis: false)
+{:ok, 42} = QuickBEAM.eval(runtime, "40 + 2")
+{:ok, bytecode} = QuickBEAM.compile(runtime, "function add(a, b) { return a + b }; add(40, 2)")
+{:ok, %QuickBEAM.Bytecode{opcodes: [_ | _]}} = QuickBEAM.disasm(bytecode)
+{:ok, 42} = QuickBEAM.eval(runtime, "function add(a, b) { return a + b }; add(40, 2)")
+QuickBEAM.stop(runtime)
+IO.puts("Precompiled NIF: startup, eval, compile, and disassembly passed")

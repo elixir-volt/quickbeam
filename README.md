@@ -11,11 +11,14 @@ leaving the BEAM.
 
 ```elixir
 def deps do
-  [{:quickbeam, "~> 0.10.10"}]
+  [{:quickbeam, "~> 0.11.1"}]
 end
 ```
 
-Requires Zig 0.15+ (installed automatically by Zigler, or use system Zig).
+Precompiled NIFs target Zig's baseline CPU for each supported architecture.
+Source builds require Zig 0.16 and default to the build machine's CPU;
+set `QUICKBEAM_CPU=baseline` alongside `QUICKBEAM_BUILD=1` for a portable build.
+When changing CPU or optimization settings, force recompilation with `mix compile --force`.
 
 ## Quick start
 

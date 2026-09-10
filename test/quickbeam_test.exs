@@ -454,14 +454,21 @@ defmodule QuickBEAMTest do
 
   describe "resource limits" do
     test "max_stack_size allows deeper recursion" do
-      code = "function deep(n) { return n <= 0 ? 0 : deep(n - 1) }; deep(50)"
-
-      {:ok, rt_small} = QuickBEAM.start(apis: false, max_stack_size: 128 * 1024)
-      {:error, %QuickBEAM.JSError{name: "RangeError"}} = QuickBEAM.eval(rt_small, code)
-      QuickBEAM.stop(rt_small)
-
+      # Measure the small runtime's limit: native frame sizes vary by build mode.
+      code = "let depth = 0; function deep(n) { depth++; return n <= 0 ? 0 : deep(n - 1) }"
+      {:ok, rt_small} = QuickBEAM.start(apis: false, max_stack_size: 1024 * 1024)
       {:ok, rt_large} = QuickBEAM.start(apis: false, max_stack_size: 16 * 1024 * 1024)
-      assert {:ok, 0} = QuickBEAM.eval(rt_large, code)
+
+      assert {:ok, _} = QuickBEAM.eval(rt_small, code)
+
+      assert {:error, %QuickBEAM.JSError{name: "RangeError"}} =
+               QuickBEAM.eval(rt_small, "deep(Infinity)")
+
+      assert {:ok, depth} = QuickBEAM.eval(rt_small, "depth")
+      assert depth > 0
+      assert {:ok, _} = QuickBEAM.eval(rt_large, code)
+      assert {:ok, 0} = QuickBEAM.eval(rt_large, "deep(#{depth * 2})")
+      QuickBEAM.stop(rt_small)
       QuickBEAM.stop(rt_large)
     end
 

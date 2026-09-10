@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+## 0.11.1 - 2026-09-10
+
+### Fixed
+
+- Build precompiled NIFs with release optimizations instead of debug mode, while preserving bytecode disassembly ([#23](https://github.com/elixir-volt/quickbeam/issues/23)).
+- Target baseline CPUs in precompiled NIFs instead of inheriting the build machine's instruction set ([#15](https://github.com/elixir-volt/quickbeam/issues/15)).
+
+### Security
+
+- Require Mint 1.10 or later to address HTTP/1 response-parser denial-of-service vulnerabilities affecting WebSocket connection setup (CVE-2026-82728, CVE-2026-82729).
+
 ## 0.11.0
 
 - Add `QuickBEAM.VM`, an isolated BEAM interpreter for verified QuickJS v26 bytecode with async/await, asynchronous `Beam.call` handlers, JavaScript errors, explicit resource limits, and deterministic measurements. `QuickBEAM.VM.call/4` and `measure_call/4` initialize a fresh heap and invoke a named global with a shape matching the native call API.
