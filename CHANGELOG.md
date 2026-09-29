@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Allow `oxc` 0.18. `QuickBEAM.JS` errors are then `OXC.Diagnostic` maps with file, line, and column.
+
 ## 0.11.1 - 2026-09-10
 
 ### Fixed

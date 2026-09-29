@@ -265,7 +265,7 @@ defmodule QuickBEAM.JS do
 
       {:ok, ast} = QuickBEAM.JS.parse("const x: number = 1", "file.ts")
   """
-  @spec parse(String.t(), String.t()) :: {:ok, map()} | {:error, [String.t()]}
+  @spec parse(String.t(), String.t()) :: {:ok, map()} | {:error, [OXC.error()]}
   defdelegate parse(source, filename), to: OXC
 
   @doc """
@@ -293,7 +293,8 @@ defmodule QuickBEAM.JS do
 
     * `:jsx` — enable JSX transformation (default: auto-detected from filename)
   """
-  @spec transform(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, [String.t()]}
+  @spec transform(String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, [OXC.error()]}
   defdelegate transform(source, filename, opts \\ []), to: OXC
 
   @doc """
@@ -312,7 +313,7 @@ defmodule QuickBEAM.JS do
     * `:compress` — apply compression optimizations (default: true)
     * `:mangle` — mangle variable names (default: true)
   """
-  @spec minify(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, [String.t()]}
+  @spec minify(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, [OXC.error()]}
   defdelegate minify(source, filename, opts \\ []), to: OXC
 
   @doc """
@@ -331,7 +332,7 @@ defmodule QuickBEAM.JS do
       {:ok, imports} = QuickBEAM.JS.imports("import { ref } from 'vue'", "test.ts")
       # => {:ok, ["vue"]}
   """
-  @spec imports(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, [String.t()]}
+  @spec imports(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, [OXC.error()]}
   def imports(source, filename), do: OXC.select(source, filename, :import_specifiers)
 
   @doc "Like `imports/2` but raises on errors."

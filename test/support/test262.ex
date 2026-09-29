@@ -1,7 +1,7 @@
 defmodule QuickBEAM.Test262.Negative do
   @moduledoc "Defines the typed Test262 negative-test metadata contract."
 
-  use JSONCodec, strict: true, fast_path: :json
+  use JSONCodec, strict: true
 
   defstruct [:phase, :type]
 
@@ -17,7 +17,7 @@ end
 defmodule QuickBEAM.Test262.Metadata do
   @moduledoc "Defines the typed subset of Test262 YAML front matter used by the runner."
 
-  use JSONCodec, strict: true, fast_path: :json
+  use JSONCodec, strict: true
 
   defstruct flags: [], includes: [], features: [], negative: nil
 
