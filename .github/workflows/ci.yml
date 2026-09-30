@@ -52,7 +52,7 @@ jobs:
           restore-keys: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-${{ matrix.optimize }}-
 
       - name: Install zlint
-        run: curl -fsSL https://raw.githubusercontent.com/DonIsaac/zlint/refs/heads/main/tasks/install.sh | bash
+        run: curl -fsSL https://raw.githubusercontent.com/DonIsaac/zlint/refs/heads/main/tasks/install.sh | bash -s v0.10.0
 
       - run: mix deps.get
       - run: mix npm.get
