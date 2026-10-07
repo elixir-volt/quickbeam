@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -16,7 +16,9 @@ jobs:
       matrix:
         include:
           - { target: x86_64-linux-gnu,       os: ubuntu-latest }
+          - { target: x86_64-linux-musl,      os: ubuntu-latest }
           - { target: aarch64-linux-gnu,      os: ubuntu-latest }
+          - { target: aarch64-linux-musl,     os: ubuntu-latest }
           - { target: aarch64-macos-none,     os: macos-15 }
           - { target: x86_64-windows-gnu,     os: windows-2022 }
 
@@ -69,12 +71,6 @@ jobs:
           path: artifacts/*.tar.gz
           if-no-files-found: error
 
-      - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/*.tar.gz
-
   smoke:
     needs: build
     runs-on: ${{ matrix.os }}
@@ -112,3 +108,89 @@ jobs:
           rm checksum-QuickBEAM.Native.exs
           mix compile
           mix run scripts/smoke_precompiled.exs
+
+  # Alpine has no runner, so the artifact is loaded in a musl container. The
+  # project is reduced to the native module: a full checkout would compile
+  # the Hex dependencies for musl, which is the problem being tested around.
+  smoke-musl:
+    name: Smoke ${{ matrix.target }} on Alpine
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-linux-musl,  os: ubuntu-latest,    platform: linux/amd64 }
+          - { target: aarch64-linux-musl, os: ubuntu-24.04-arm, platform: linux/arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: artifacts
+
+      - name: Load and exercise the precompiled NIF on Alpine
+        shell: bash
+        env:
+          ALPINE_IMAGE: hexpm/elixir:1.18.3-erlang-27.3-alpine-3.21.7
+        run: |
+          smoke_dir="${{ runner.temp }}/quickbeam-musl-smoke"
+          mkdir -p "$smoke_dir/lib/quickbeam/native" "$smoke_dir/artifacts" "$smoke_dir/scripts"
+          cp lib/quickbeam/native.ex "$smoke_dir/lib/quickbeam/native.ex"
+          cp lib/quickbeam/native/platform.ex "$smoke_dir/lib/quickbeam/native/platform.ex"
+          cp scripts/smoke_precompiled_native.exs "$smoke_dir/scripts/smoke.exs"
+          cp artifacts/*.tar.gz "$smoke_dir/artifacts/"
+
+          cat > "$smoke_dir/mix.exs" <<'ELIXIR'
+          defmodule QuickBEAMMuslSmoke.MixProject do
+            use Mix.Project
+
+            def project do
+              [
+                app: :quickbeam,
+                version: System.fetch_env!("QUICKBEAM_VERSION"),
+                elixir: "~> 1.15",
+                deps: [{:zigler_precompiled, "~> 0.1.6"}]
+              ]
+            end
+
+            def application, do: [extra_applications: [:logger, :inets, :ssl, :public_key]]
+          end
+          ELIXIR
+
+          quickbeam_version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs | head -n1)
+
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "$smoke_dir:/workspace" \
+            -w /workspace \
+            -e QUICKBEAM_VERSION="$quickbeam_version" \
+            -e ZIGLER_PRECOMPILED_GLOBAL_CACHE_PATH=/tmp/quickbeam-precompiled \
+            "$ALPINE_IMAGE" /bin/sh -lc '
+              set -eu
+              mix local.hex --force
+              mix local.rebar --force
+              mix deps.get
+              mkdir -p "$ZIGLER_PRECOMPILED_GLOBAL_CACHE_PATH"
+              cp artifacts/*.tar.gz "$ZIGLER_PRECOMPILED_GLOBAL_CACHE_PATH/"
+              mix compile
+              mix run scripts/smoke.exs
+            '
+
+  # Artifacts reach the release only after every target loaded and ran.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, smoke, smoke-musl]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
