@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Allow `oxc` 0.19.
+
 ## 0.11.2 - 2026-09-30
 
 ### Changed
