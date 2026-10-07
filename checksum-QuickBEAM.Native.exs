@@ -1,6 +1,14 @@
 [
-  {"Elixir.QuickBEAM.Native-v0.11.2-x86_64-linux-gnu.so.tar.gz", "sha256:5e99ad17a61cd438765d24f006ee8266d1e951464dca53040d15ffb19b07bb45"},
-  {"Elixir.QuickBEAM.Native-v0.11.2-aarch64-linux-gnu.so.tar.gz", "sha256:987adfd0c19108957e5ec924569b2c885cbf2ac5c8803e28e8da7fd47b8e8af9"},
-  {"Elixir.QuickBEAM.Native-v0.11.2-aarch64-macos-none.so.tar.gz", "sha256:b0c618abf0f9e4288ac5005a7163ce8daedade0542b1462f320fbec976ab75a5"},
-  {"Elixir.QuickBEAM.Native-v0.11.2-x86_64-windows-gnu.dll.tar.gz", "sha256:98a35edc52cb4b7eaacbf2e1125de7ee4fb56ed1b352c4a523b6b4310f76edcc"}
+  {"Elixir.QuickBEAM.Native-v0.11.3-x86_64-linux-gnu.so.tar.gz",
+   "sha256:25abf8b7bc0fbf6b89adb06db8fd4b7dd686674a362973579c3d71898465f0c0"},
+  {"Elixir.QuickBEAM.Native-v0.11.3-x86_64-linux-musl.so.tar.gz",
+   "sha256:1eceef095c44a786f45f4e68e0337f92cb98a6903fa21370e76d6ec6e024f1fa"},
+  {"Elixir.QuickBEAM.Native-v0.11.3-aarch64-linux-gnu.so.tar.gz",
+   "sha256:eba24c95ee5639456b3421b6d166bf5a4629f5227edb00f0abf499e03912e121"},
+  {"Elixir.QuickBEAM.Native-v0.11.3-aarch64-linux-musl.so.tar.gz",
+   "sha256:90b16a8479f2aa16283c1f6d76dde94ca3869be733b79ee163d0ebe6d74a3f7a"},
+  {"Elixir.QuickBEAM.Native-v0.11.3-aarch64-macos-none.so.tar.gz",
+   "sha256:f02af8b1e8d8f670289375a312c6d0ba358920e141b8c083a7161552e9aa362e"},
+  {"Elixir.QuickBEAM.Native-v0.11.3-x86_64-windows-gnu.dll.tar.gz",
+   "sha256:4f96ac9eb56c83ed108c0661bef27d9e7d4c948f828f8f3f0a7bacbd5bebdcb3"}
 ]
