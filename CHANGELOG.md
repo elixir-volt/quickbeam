@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Precompiled NIFs for `x86_64-linux-musl` and `aarch64-linux-musl`, so Alpine images need no Zig. Each release's artifacts are loaded and run on Alpine before they are published ([#24](https://github.com/elixir-volt/quickbeam/issues/24)).
+
+### Changed
+
+- Allow `oxc` 0.19.
+
 ## 0.11.2 - 2026-09-30
 
 ### Changed

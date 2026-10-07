@@ -15,7 +15,8 @@ def deps do
 end
 ```
 
-Precompiled NIFs target Zig's baseline CPU for each supported architecture.
+Precompiled NIFs target Zig's baseline CPU and cover x86-64 and ARM64 Linux
+with glibc or musl (Alpine included), ARM64 macOS, and x86-64 Windows.
 Source builds require Zig 0.16 and default to the build machine's CPU;
 set `QUICKBEAM_CPU=baseline` alongside `QUICKBEAM_BUILD=1` for a portable build.
 When changing CPU or optimization settings, force recompilation with `mix compile --force`.

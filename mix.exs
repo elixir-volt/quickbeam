@@ -73,7 +73,7 @@ defmodule QuickBEAM.MixProject do
       {:json_codec, "~> 0.3", optional: true},
       {:yaml_elixir, "~> 2.12", only: :test},
       {:varint, "~> 1.6"},
-      {:oxc, "~> 0.17.8 or ~> 0.18.0"},
+      {:oxc, "~> 0.17.8 or ~> 0.18.0 or ~> 0.19.0"},
       {:npm, "~> 0.7.6", optional: true},
       {:mint, "~> 1.10"},
       {:mint_web_socket, "~> 1.0"},
